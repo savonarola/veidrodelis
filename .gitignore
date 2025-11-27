@@ -1,0 +1,32 @@
+# Mix build artifacts
+_build/
+deps/
+*.beam
+*.ez
+
+# C NIF artifacts
+*.o
+*.so
+*.dylib
+*.dll
+
+# Crash dumps
+erl_crash.dump
+
+# Editor artifacts
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Mix lock file (uncomment if you want to ignore it)
+# mix.lock
+
+# LSP
+.elixir_ls/
+.lexical/
+.claude/
+
+# Context (local)
+/context
+

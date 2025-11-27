@@ -1,0 +1,74 @@
+# Start with a clean slate
+FLUSHALL
+
+# --- 1. STRINGS ---
+
+# OBJ_ENCODING_INT: A string that can be represented as a 64-bit signed integer.
+# RDB will store this in a special length-encoded integer format.
+SET str_int 1234567890
+
+# OBJ_ENCODING_EMBSTR: A short, simple string that fits in a single allocation.
+# The limit is typically 44 bytes in recent Redis versions.
+SET str_embstr "this is a short embstr string"
+
+# OBJ_ENCODING_RAW: A string that is too long for embstr.
+SET str_raw "This string is intentionally made very long to exceed the embedded string limit, forcing Redis to use a raw SDS (Simple Dynamic String) header and a separate allocation for the content."
+
+# LZF COMPRESSION: A long, highly compressible string.
+# When `rdbcompression` is 'yes', RDB will attempt to compress strings over a certain length (e.g., 20 bytes).
+# This string of repeating 'a's is a perfect candidate for LZF.
+SET str_compressible_lzf "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+
+# --- 2. LISTS ---
+
+# OBJ_ENCODING_LISTPACK: A list with a few small elements.
+# This is the modern, highly efficient encoding for small lists (replaced ziplist in Redis 7.0).
+# It's triggered when the number of elements and the size of each element are below configured thresholds.
+RPUSH list_listpack "first" "second" "third" "4" "five"
+
+# OBJ_ENCODING_QUICKLIST: A list that exceeds the listpack limits.
+# Quicklist is a linked list of listpacks. We can trigger it in two ways.
+# A) By adding one very large element.
+RPUSH list_quicklist_big_element "This single element is so long that it will definitely exceed the 'list-max-listpack-size' configuration, forcing the list to be encoded as a quicklist from the very beginning."
+# B) By adding many small elements.
+RPUSH list_quicklist_many_elements "a" "b" "c" "d" "e" "f" "g" "h" "i" "j" "k" "l" "m" "n" "o" "p" "q" "r" "s" "t" "u" "v" "w" "x" "y" "z" "a1" "b1" "c1" "d1" "e1" "f1" "g1" "h1" "i1" "j1" "k1" "l1" "m1" "n1" "o1" "p1" "q1" "r1" "s1" "t1" "u1" "v1" "w1" "x1" "y1" "z1" "a2" "b2" "c2" "d2" "e2" "f2" "g2" "h2" "i2" "j2" "k2" "l2" "m2" "n2" "o2" "p2" "q2" "r2" "s2" "t2" "u2" "v2" "w2" "x2" "y2" "z2"
+
+CONFIG SET list-max-listpack-size 1
+RPUSH list_guaranteed_quicklist "alpha" "beta" "gamma"
+# Now, we reset the configuration back to its default (-2 which means 8kb)
+# so it does not interfere with other tests or normal operation.
+CONFIG SET list-max-listpack-size -2
+
+# --- 3. HASHES ---
+
+# OBJ_ENCODING_LISTPACK: A hash with a few small field-value pairs.
+# Similar to lists, this is the efficient encoding for small hashes.
+HSET hash_listpack field1 "value1" name "redis" version "7.2"
+
+# OBJ_ENCODING_HT (Hashtable): A hash that exceeds the listpack limits.
+# Triggered by adding a large value or many fields.
+HSET hash_hashtable field1 "value1" field2 "This value is extremely long, far beyond the 'hash-max-listpack-value' limit, which guarantees that Redis will convert this hash into a standard hash table (ht) encoding."
+
+
+# --- 4. SETS ---
+
+# OBJ_ENCODING_INTSET: A set containing only integers that fit in 64 bits.
+# This is a super-compact, sorted array of integers.
+SADD set_intset 100 200 300 42 999 10000
+
+# OBJ_ENCODING_HT (Hashtable): A set that cannot be an intset.
+# Triggered by adding a non-integer member or exceeding the 'set-max-intset-entries' limit.
+SADD set_hashtable "apple" "banana" "cherry" "123" "another-string"
+
+
+# --- 5. ZSETS (Sorted Sets) ---
+
+# OBJ_ENCODING_LISTPACK: A sorted set with a few small members.
+# Efficient encoding for small sorted sets.
+ZADD zset_listpack 1 "one" 2 "two" 3 "three"
+
+# OBJ_ENCODING_SKIPLIST: A sorted set that exceeds the listpack limits.
+# This encoding uses a hash table (for O(1) member lookup) and a skip list (for O(log N) ranked operations).
+# Triggered by a long member string or many members.
+ZADD zset_skiplist 1 "member_one" 2 "member_two" 3 "This member's value is exceptionally long, designed to surpass the 'zset-max-listpack-value' threshold and compel Redis to use the more complex skiplist encoding."
