@@ -1,7 +1,7 @@
 defmodule Veidrodelis.ReplicaTest do
   use ExUnit.Case, async: false
 
-  alias Veidrodelis.Replica
+  alias Veidrodelis.RedisStream.Replica
   alias Veidrodelis.Command
 
   # Callback module that collects all commands

@@ -1,4 +1,4 @@
-defmodule Veidrodelis.Replica do
+defmodule Veidrodelis.RedisStream.Replica do
   @moduledoc """
   Redis replication client that connects to a Redis master and receives
   replication stream via PSYNC.
@@ -56,13 +56,13 @@ defmodule Veidrodelis.Replica do
         callback_state: %{count: 0}
       ]
 
-      {:ok, replica} = Veidrodelis.Replica.start_link(opts)
+      {:ok, replica} = Veidrodelis.RedisStream.Replica.start_link(opts)
 
       # Get current replication offset
-      offset = Veidrodelis.Replica.get_offset(replica)
+      offset = Veidrodelis.RedisStream.Replica.get_offset(replica)
 
       # Get callback state
-      state = Veidrodelis.Replica.get_callback_state(replica)
+      state = Veidrodelis.RedisStream.Replica.get_callback_state(replica)
   """
 
   use GenServer
