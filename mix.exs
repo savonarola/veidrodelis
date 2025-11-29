@@ -13,9 +13,13 @@ defmodule Veidrodelis.MixProject do
       make_targets: ["all"],
       make_clean: ["clean"],
       # Include Erlang source files
-      erlc_options: [:debug_info]
+      erlc_options: [:debug_info],
+      elixirc_paths: elixirc_paths(Mix.env())
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_), do: ["lib"]
 
   def application do
     [
@@ -27,7 +31,8 @@ defmodule Veidrodelis.MixProject do
   defp deps do
     [
       {:elixir_make, "~> 0.6", runtime: false},
-      {:redix, "~> 1.5", only: :test}
+      {:redix, "~> 1.5", only: :test},
+      {:req, "~> 0.5", only: :test}
     ]
   end
 end

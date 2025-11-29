@@ -4,13 +4,26 @@ services:
   redis:
     image: redis:7-alpine
     container_name: veidrodelis-redis
-    ports:
-      - "16379:6379"
+    # No external ports - only accessible through toxiproxy
     command: >
       redis-server
       --repl-diskless-sync yes
       --save 60 1
       --loglevel verbose
+    networks:
+      - veidrodelis-net
+
+  toxiproxy:
+    image: ghcr.io/shopify/toxiproxy:2.9.0
+    container_name: veidrodelis-toxiproxy
+    ports:
+      - "16379:16379"  # Redis proxy port
+      - "8474:8474"     # Toxiproxy management API
+    networks:
+      - veidrodelis-net
+    volumes:
+      - ./toxiproxy.json:/toxiproxy.json:ro
+    command: ["-host=0.0.0.0", "-config=/toxiproxy.json"]
 
   redis-with-password:
     image: redis:7-alpine
@@ -23,6 +36,8 @@ services:
       --repl-diskless-sync yes
       --save 60 1
       --loglevel verbose
+    networks:
+      - veidrodelis-net
 
   redis-with-acl:
     image: redis:7-alpine
@@ -37,6 +52,12 @@ services:
       --aclfile /usr/local/etc/redis/users.acl
     volumes:
       - ./users.acl:/usr/local/etc/redis/users.acl:ro
+    networks:
+      - veidrodelis-net
+
+networks:
+  veidrodelis-net:
+    driver: bridge
 
 volumes:
   redis-data:
