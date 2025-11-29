@@ -5,19 +5,38 @@ services:
     image: redis:7-alpine
     container_name: veidrodelis-redis
     ports:
-      - "6379:6379"
+      - "16379:6379"
     command: >
       redis-server
       --repl-diskless-sync yes
       --save 60 1
       --loglevel verbose
+
+  redis-with-password:
+    image: redis:7-alpine
+    container_name: veidrodelis-redis-password
+    ports:
+      - "16380:6379"
+    command: >
+      redis-server
+      --requirepass testpassword
+      --repl-diskless-sync yes
+      --save 60 1
+      --loglevel verbose
+
+  redis-with-acl:
+    image: redis:7-alpine
+    container_name: veidrodelis-redis-acl
+    ports:
+      - "16381:6379"
+    command: >
+      redis-server
+      --repl-diskless-sync yes
+      --save 60 1
+      --loglevel verbose
+      --aclfile /usr/local/etc/redis/users.acl
     volumes:
-      - redis-data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
+      - ./users.acl:/usr/local/etc/redis/users.acl:ro
 
 volumes:
   redis-data:

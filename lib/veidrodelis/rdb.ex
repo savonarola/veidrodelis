@@ -239,6 +239,68 @@ defmodule Veidrodelis.RDB do
     {:error, :incomplete_rdb}
   end
 
+  @doc """
+  Extract the callback state from the parser.
+
+  This is useful for inspecting the current state during streaming parsing
+  without having to finish the parser.
+
+  ## Parameters
+
+    * `parser` - Parser state from `create/2` or `data/2`
+
+  ## Returns
+
+  The current callback state.
+
+  ## Example
+
+      parser = Veidrodelis.RDB.create(MyCallback, %{count: 0})
+      {:ok, parser} = Veidrodelis.RDB.data(parser, chunk1)
+
+      # Inspect intermediate state
+      current_state = Veidrodelis.RDB.get_state(parser)
+      IO.inspect(current_state.count)
+  """
+  @spec get_state(t()) :: term()
+  def get_state(%__MODULE__{callback_state: state}) do
+    state
+  end
+
+  @doc """
+  Update the callback state in the parser.
+
+  This allows you to modify the callback state during streaming parsing,
+  which can be useful for resuming parsing with a different state or
+  performing external state transformations.
+
+  ## Parameters
+
+    * `parser` - Parser state from `create/2` or `data/2`
+    * `new_state` - New callback state to set
+
+  ## Returns
+
+  Updated parser with the new callback state.
+
+  ## Example
+
+      parser = Veidrodelis.RDB.create(MyCallback, %{count: 0})
+      {:ok, parser} = Veidrodelis.RDB.data(parser, chunk1)
+
+      # Update state externally
+      current_state = Veidrodelis.RDB.get_state(parser)
+      updated_state = Map.update!(current_state, :count, &(&1 + 100))
+      parser = Veidrodelis.RDB.put_state(parser, updated_state)
+
+      # Continue parsing with updated state
+      {:ok, parser} = Veidrodelis.RDB.data(parser, chunk2)
+  """
+  @spec put_state(t(), term()) :: t()
+  def put_state(%__MODULE__{} = parser, new_state) do
+    %{parser | callback_state: new_state}
+  end
+
   # Streaming parser implementation
   # Main parsing loop for streaming API
   defp parse_stream(%__MODULE__{} = parser) do
@@ -644,7 +706,8 @@ defmodule Veidrodelis.RDB do
   defp load_object(@rdb_type_list, rest, callback_module, state, db_num, key, expire_ms) do
     {count, rest1} = load_length(rest)
 
-    with {:ok, new_state, rest2} <- load_list_entries(count, rest1, callback_module, state, db_num, key),
+    with {:ok, new_state, rest2} <-
+           load_list_entries(count, rest1, callback_module, state, db_num, key),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest2}
     end
@@ -653,7 +716,8 @@ defmodule Veidrodelis.RDB do
   defp load_object(@rdb_type_set, rest, callback_module, state, db_num, key, expire_ms) do
     {count, rest1} = load_length(rest)
 
-    with {:ok, new_state, rest2} <- load_set_entries(count, rest1, callback_module, state, db_num, key),
+    with {:ok, new_state, rest2} <-
+           load_set_entries(count, rest1, callback_module, state, db_num, key),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest2}
     end
@@ -662,7 +726,8 @@ defmodule Veidrodelis.RDB do
   defp load_object(@rdb_type_zset, rest, callback_module, state, db_num, key, expire_ms) do
     {count, rest1} = load_length(rest)
 
-    with {:ok, new_state, rest2} <- load_zset_entries(count, rest1, callback_module, state, db_num, key),
+    with {:ok, new_state, rest2} <-
+           load_zset_entries(count, rest1, callback_module, state, db_num, key),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest2}
     end
@@ -671,7 +736,8 @@ defmodule Veidrodelis.RDB do
   defp load_object(@rdb_type_zset_2, rest, callback_module, state, db_num, key, expire_ms) do
     {count, rest1} = load_length(rest)
 
-    with {:ok, new_state, rest2} <- load_zset_entries_v2(count, rest1, callback_module, state, db_num, key),
+    with {:ok, new_state, rest2} <-
+           load_zset_entries_v2(count, rest1, callback_module, state, db_num, key),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest2}
     end
@@ -680,7 +746,8 @@ defmodule Veidrodelis.RDB do
   defp load_object(@rdb_type_hash, rest, callback_module, state, db_num, key, expire_ms) do
     {count, rest1} = load_length(rest)
 
-    with {:ok, new_state, rest2} <- load_hash_entries(count, rest1, callback_module, state, db_num, key),
+    with {:ok, new_state, rest2} <-
+           load_hash_entries(count, rest1, callback_module, state, db_num, key),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest2}
     end
@@ -689,16 +756,26 @@ defmodule Veidrodelis.RDB do
   defp load_object(@rdb_type_list_quicklist, rest, callback_module, state, db_num, key, expire_ms) do
     {count, rest1} = load_length(rest)
 
-    with {:ok, new_state, rest2} <- load_quicklist(count, rest1, callback_module, state, db_num, key, false),
+    with {:ok, new_state, rest2} <-
+           load_quicklist(count, rest1, callback_module, state, db_num, key, false),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest2}
     end
   end
 
-  defp load_object(@rdb_type_list_quicklist_2, rest, callback_module, state, db_num, key, expire_ms) do
+  defp load_object(
+         @rdb_type_list_quicklist_2,
+         rest,
+         callback_module,
+         state,
+         db_num,
+         key,
+         expire_ms
+       ) do
     {count, rest1} = load_length(rest)
 
-    with {:ok, new_state, rest2} <- load_quicklist_2(count, rest1, callback_module, state, db_num, key),
+    with {:ok, new_state, rest2} <-
+           load_quicklist_2(count, rest1, callback_module, state, db_num, key),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest2}
     end
@@ -707,7 +784,8 @@ defmodule Veidrodelis.RDB do
   defp load_object(@rdb_type_set_intset, rest, callback_module, state, db_num, key, expire_ms) do
     {intset_bin, rest1} = load_string(rest)
 
-    with {:ok, new_state, rest2} <- load_intset(intset_bin, callback_module, state, db_num, key, rest1),
+    with {:ok, new_state, rest2} <-
+           load_intset(intset_bin, callback_module, state, db_num, key, rest1),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest2}
     end
@@ -716,7 +794,8 @@ defmodule Veidrodelis.RDB do
   defp load_object(@rdb_type_set_listpack, rest, callback_module, state, db_num, key, expire_ms) do
     {listpack_bin, rest1} = load_string(rest)
 
-    with {:ok, new_state, rest2} <- load_set_listpack(listpack_bin, callback_module, state, db_num, key, rest1),
+    with {:ok, new_state, rest2} <-
+           load_set_listpack(listpack_bin, callback_module, state, db_num, key, rest1),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest2}
     end
@@ -725,7 +804,8 @@ defmodule Veidrodelis.RDB do
   defp load_object(@rdb_type_hash_ziplist, rest, callback_module, state, db_num, key, expire_ms) do
     {ziplist_bin, rest1} = load_string(rest)
 
-    with {:ok, new_state, rest2} <- load_hash_ziplist(ziplist_bin, callback_module, state, db_num, key, rest1),
+    with {:ok, new_state, rest2} <-
+           load_hash_ziplist(ziplist_bin, callback_module, state, db_num, key, rest1),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest2}
     end
@@ -734,7 +814,8 @@ defmodule Veidrodelis.RDB do
   defp load_object(@rdb_type_hash_listpack, rest, callback_module, state, db_num, key, expire_ms) do
     {listpack_bin, rest1} = load_string(rest)
 
-    with {:ok, new_state, rest2} <- load_hash_listpack(listpack_bin, callback_module, state, db_num, key, rest1),
+    with {:ok, new_state, rest2} <-
+           load_hash_listpack(listpack_bin, callback_module, state, db_num, key, rest1),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest2}
     end
@@ -743,7 +824,8 @@ defmodule Veidrodelis.RDB do
   defp load_object(@rdb_type_zset_ziplist, rest, callback_module, state, db_num, key, expire_ms) do
     {ziplist_bin, rest1} = load_string(rest)
 
-    with {:ok, new_state, rest2} <- load_zset_ziplist(ziplist_bin, callback_module, state, db_num, key, rest1),
+    with {:ok, new_state, rest2} <-
+           load_zset_ziplist(ziplist_bin, callback_module, state, db_num, key, rest1),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest2}
     end
@@ -752,7 +834,8 @@ defmodule Veidrodelis.RDB do
   defp load_object(@rdb_type_zset_listpack, rest, callback_module, state, db_num, key, expire_ms) do
     {listpack_bin, rest1} = load_string(rest)
 
-    with {:ok, new_state, rest2} <- load_zset_listpack(listpack_bin, callback_module, state, db_num, key, rest1),
+    with {:ok, new_state, rest2} <-
+           load_zset_listpack(listpack_bin, callback_module, state, db_num, key, rest1),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest2}
     end

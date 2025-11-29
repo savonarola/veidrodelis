@@ -377,6 +377,42 @@ defmodule Veidrodelis.RDBTest do
       assert length(lists) > 0
       assert length(hashes) > 0
     end
+
+    test "get_state and put_state accessor methods" do
+      dump_file = Path.join([File.cwd!(), "test", "assets", "dump.rdb"])
+      {:ok, rdb_binary} = File.read(dump_file)
+
+      # Split into two chunks
+      chunk_size = div(byte_size(rdb_binary), 2)
+      <<chunk1::binary-size(chunk_size), chunk2::binary>> = rdb_binary
+
+      initial_state = %{strings: [], count: 0}
+      parser = Veidrodelis.RDB.create(__MODULE__, initial_state)
+
+      # Feed first chunk
+      {:ok, parser} = Veidrodelis.RDB.data(parser, chunk1)
+
+      # Get intermediate state
+      intermediate_state = Veidrodelis.RDB.get_state(parser)
+      assert is_map(intermediate_state)
+      assert Map.has_key?(intermediate_state, :strings)
+      assert Map.has_key?(intermediate_state, :count)
+
+      # Modify state externally
+      modified_state = Map.put(intermediate_state, :count, 999)
+      parser = Veidrodelis.RDB.put_state(parser, modified_state)
+
+      # Verify state was updated
+      assert Veidrodelis.RDB.get_state(parser).count == 999
+
+      # Feed second chunk
+      {:ok, parser} = Veidrodelis.RDB.data(parser, chunk2)
+
+      # Finish and verify final state includes our modification
+      {:ok, final_state} = Veidrodelis.RDB.finish(parser)
+      assert final_state.count == 999
+      assert length(final_state.strings) > 0
+    end
   end
 
   # Helper to split binary into fixed-size chunks

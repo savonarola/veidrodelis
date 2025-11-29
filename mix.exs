@@ -26,7 +26,8 @@ defmodule Veidrodelis.MixProject do
 
   defp deps do
     [
-      {:elixir_make, "~> 0.6", runtime: false}
+      {:elixir_make, "~> 0.6", runtime: false},
+      {:redix, "~> 1.5", only: :test}
     ]
   end
 end

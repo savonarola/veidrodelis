@@ -1,0 +1,987 @@
+defmodule Veidrodelis.Replica do
+  @moduledoc """
+  Redis replication client that connects to a Redis master and receives
+  replication stream via PSYNC.
+
+  The replica manages a state machine for the replication protocol:
+  1. Connect to Redis (TCP/SSL)
+  2. Send PING
+  3. Authenticate (if password provided)
+  4. Negotiate PSYNC
+  5. Receive and parse RDB snapshot
+  6. Stream commands and invoke callbacks
+
+  ## Example
+
+      defmodule MyCallback do
+        @behaviour Veidrodelis.RedisStream.Callback
+
+        alias Veidrodelis.Command
+
+        @impl true
+        def on_command(state, db, %Command.Set{key: key, value: value}) do
+          IO.puts("SET \#{key} = \#{value} in DB \#{db}")
+          {:ok, Map.update(state, :count, 1, &(&1 + 1))}
+        end
+
+        def on_command(state, _db, _command) do
+          {:ok, Map.update(state, :count, 1, &(&1 + 1))}
+        end
+      end
+
+      # Without authentication
+      opts = [
+        host: "localhost",
+        port: 6379,
+        callback_module: MyCallback,
+        callback_state: %{count: 0}
+      ]
+
+      # With legacy password authentication (Redis < 6)
+      opts = [
+        host: "localhost",
+        port: 6379,
+        password: "mypassword",
+        callback_module: MyCallback,
+        callback_state: %{count: 0}
+      ]
+
+      # With ACL authentication (Redis 6+)
+      opts = [
+        host: "localhost",
+        port: 6379,
+        username: "myuser",
+        password: "mypassword",
+        callback_module: MyCallback,
+        callback_state: %{count: 0}
+      ]
+
+      {:ok, replica} = Veidrodelis.Replica.start_link(opts)
+
+      # Get current replication offset
+      offset = Veidrodelis.Replica.get_offset(replica)
+
+      # Get callback state
+      state = Veidrodelis.Replica.get_callback_state(replica)
+  """
+
+  use GenServer
+  require Logger
+
+  alias Veidrodelis.RDB
+
+  @default_port 6379
+  @default_timeout 5000
+
+  # Client API
+
+  @doc """
+  Start a Redis replica client.
+
+  ## Options
+
+    * `:host` - Redis host (default: "localhost")
+    * `:port` - Redis port (default: 6379)
+    * `:username` - Redis username for ACL authentication (default: nil)
+    * `:password` - Redis password (default: nil)
+    * `:ssl` - Use SSL/TLS (default: false)
+    * `:ssl_opts` - SSL options (default: [])
+    * `:callback_module` - Module implementing `Veidrodelis.RedisStream.Callback`
+    * `:callback_state` - Initial state for callbacks
+    * `:name` - GenServer name (optional)
+
+  ## Authentication
+
+  For Redis 6+ ACL authentication, provide both `:username` and `:password`.
+  For older Redis versions, provide only `:password`.
+
+  ## Returns
+
+    * `{:ok, pid}` - Successfully started
+    * `{:error, reason}` - Failed to start
+  """
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts) do
+    {name, opts} = Keyword.pop(opts, :name)
+
+    if name do
+      GenServer.start_link(__MODULE__, opts, name: name)
+    else
+      GenServer.start_link(__MODULE__, opts)
+    end
+  end
+
+  @doc """
+  Stop the replica client.
+  """
+  @spec stop(GenServer.server()) :: :ok
+  def stop(server) do
+    GenServer.stop(server)
+  end
+
+  @doc """
+  Get the current replication offset.
+  """
+  @spec get_offset(GenServer.server()) :: integer()
+  def get_offset(server) do
+    GenServer.call(server, :get_offset)
+  end
+
+  @doc """
+  Get the current replication ID.
+  """
+  @spec get_replication_id(GenServer.server()) :: binary() | nil
+  def get_replication_id(server) do
+    GenServer.call(server, :get_replication_id)
+  end
+
+  @doc """
+  Get the current callback state.
+  """
+  @spec get_callback_state(GenServer.server()) :: term()
+  def get_callback_state(server) do
+    GenServer.call(server, :get_callback_state)
+  end
+
+  # Server callbacks
+
+  @impl true
+  def init(opts) do
+    state = %{
+      host: Keyword.get(opts, :host, "localhost"),
+      port: Keyword.get(opts, :port, @default_port),
+      username: Keyword.get(opts, :username),
+      password: Keyword.get(opts, :password),
+      ssl: Keyword.get(opts, :ssl, false),
+      ssl_opts: Keyword.get(opts, :ssl_opts, []),
+      callback_module: Keyword.fetch!(opts, :callback_module),
+      callback_state: Keyword.fetch!(opts, :callback_state),
+      socket: nil,
+      transport: nil,
+      replication_id: nil,
+      replication_offset: 0,
+      rdb_parser: nil,
+      # IOList buffer for accumulating data
+      buffer: [],
+      buffer_size: 0,
+      state: :init,
+      current_db: 0,
+      # For RDB bulk string parsing
+      rdb_bulk_size: nil,
+      rdb_bytes_read: 0
+    }
+
+    # Start connection process asynchronously
+    {:ok, state, {:continue, :connect}}
+  end
+
+  @impl true
+  def handle_continue(:connect, state) do
+    case connect(state) do
+      {:ok, new_state} ->
+        {:noreply, new_state}
+
+      {:error, reason} ->
+        Logger.error("Failed to connect: #{inspect(reason)}")
+        {:stop, {:connection_failed, reason}, state}
+    end
+  end
+
+  @impl true
+  def handle_call(:get_offset, _from, state) do
+    {:reply, state.replication_offset, state}
+  end
+
+  def handle_call(:get_replication_id, _from, state) do
+    {:reply, state.replication_id, state}
+  end
+
+  def handle_call(:get_callback_state, _from, state) do
+    {:reply, state.callback_state, state}
+  end
+
+  @impl true
+  def handle_info({:tcp, socket, data}, %{socket: socket} = state) do
+    handle_data(data, state)
+  end
+
+  def handle_info({:ssl, socket, data}, %{socket: socket} = state) do
+    handle_data(data, state)
+  end
+
+  def handle_info({:tcp_closed, socket}, %{socket: socket} = state) do
+    Logger.warning("Connection closed")
+    {:stop, :connection_closed, state}
+  end
+
+  def handle_info({:ssl_closed, socket}, %{socket: socket} = state) do
+    Logger.warning("SSL connection closed")
+    {:stop, :connection_closed, state}
+  end
+
+  def handle_info({:tcp_error, socket, reason}, %{socket: socket} = state) do
+    Logger.error("TCP error: #{inspect(reason)}")
+    {:stop, {:tcp_error, reason}, state}
+  end
+
+  def handle_info({:ssl_error, socket, reason}, %{socket: socket} = state) do
+    Logger.error("SSL error: #{inspect(reason)}")
+    {:stop, {:ssl_error, reason}, state}
+  end
+
+  @impl true
+  def terminate(_reason, state) do
+    if state.socket do
+      transport_close(state.transport, state.socket)
+    end
+
+    :ok
+  end
+
+  # Private functions
+
+  defp connect(state) do
+    transport = if state.ssl, do: :ssl, else: :tcp
+
+    Logger.info("Connecting to #{state.host}:#{state.port} via #{transport}")
+
+    case transport_connect(transport, state.host, state.port, state.ssl_opts) do
+      {:ok, socket} ->
+        Logger.info("Connected successfully")
+
+        # Set socket to active: once for backpressure
+        :ok = transport_setopts(transport, socket, active: :once)
+
+        # If password is provided, send AUTH first, then PING
+        # Otherwise send PING directly
+        if state.password do
+          new_state = %{state | socket: socket, transport: transport, state: :auth}
+          send_auth(new_state)
+        else
+          new_state = %{state | socket: socket, transport: transport, state: :ping}
+          send_ping(new_state)
+        end
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp send_ping(state) do
+    Logger.debug("Sending PING")
+
+    case transport_send(state.transport, state.socket, "*1\r\n$4\r\nPING\r\n") do
+      :ok ->
+        {:ok, %{state | state: :ping}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp send_auth(state) do
+    Logger.debug("Sending AUTH")
+
+    # Support both ACL (username + password) and legacy (password only) authentication
+    cmd =
+      if state.username do
+        # Redis 6+ ACL authentication: AUTH <username> <password>
+        username_len = byte_size(state.username)
+        password_len = byte_size(state.password)
+
+        "*3\r\n$4\r\nAUTH\r\n$#{username_len}\r\n#{state.username}\r\n$#{password_len}\r\n#{state.password}\r\n"
+      else
+        # Legacy authentication: AUTH <password>
+        password_len = byte_size(state.password)
+        "*2\r\n$4\r\nAUTH\r\n$#{password_len}\r\n#{state.password}\r\n"
+      end
+
+    case transport_send(state.transport, state.socket, cmd) do
+      :ok ->
+        {:ok, %{state | state: :auth}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp send_replconf_listening_port(state) do
+    Logger.debug("Sending REPLCONF listening-port")
+
+    # Send a fake listening port (we're not actually listening)
+    cmd = "*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n6380\r\n"
+
+    case transport_send(state.transport, state.socket, cmd) do
+      :ok ->
+        {:ok, %{state | state: :replconf_listening_port}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp send_replconf_capa(state) do
+    Logger.debug("Sending REPLCONF capa")
+
+    # Announce capabilities: psync2
+    cmd = "*3\r\n$8\r\nREPLCONF\r\n$4\r\ncapa\r\n$6\r\npsync2\r\n"
+
+    case transport_send(state.transport, state.socket, cmd) do
+      :ok ->
+        {:ok, %{state | state: :replconf_capa}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp send_psync(state) do
+    Logger.debug("Sending PSYNC")
+
+    # Send PSYNC ? -1 to start a full sync
+    cmd = "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n"
+
+    case transport_send(state.transport, state.socket, cmd) do
+      :ok ->
+        {:ok, %{state | state: :psync}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp handle_data(data, state) do
+    # Add data to buffer (prepend to iolist)
+    new_buffer = [data | state.buffer]
+    new_buffer_size = state.buffer_size + byte_size(data)
+    new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
+
+    # Process based on current state
+    result =
+      case new_state.state do
+        :ping ->
+          handle_ping_response(new_state)
+
+        :auth ->
+          handle_auth_response(new_state)
+
+        :replconf_listening_port ->
+          handle_replconf_response(new_state, :replconf_capa)
+
+        :replconf_capa ->
+          handle_replconf_response(new_state, :send_psync)
+
+        :psync ->
+          handle_psync_response(new_state)
+
+        :rdb_transfer ->
+          handle_rdb_data(new_state)
+
+        :streaming ->
+          handle_command_stream(new_state)
+      end
+
+    # Re-enable socket for next packet (backpressure)
+    case result do
+      {:noreply, state} ->
+        :ok = transport_setopts(state.transport, state.socket, active: :once)
+        {:noreply, state}
+
+      other ->
+        other
+    end
+  end
+
+  defp handle_ping_response(state) do
+    case parse_simple_response(state) do
+      {:ok, _response, new_state} ->
+        Logger.debug("PING successful")
+
+        # After PING, send REPLCONF
+        case send_replconf_listening_port(new_state) do
+          {:ok, new_state} -> {:noreply, new_state}
+          {:error, reason} -> {:stop, {:replconf_failed, reason}, new_state}
+        end
+
+      :incomplete ->
+        {:noreply, state}
+
+      {:error, reason} ->
+        {:stop, {:ping_failed, reason}, state}
+    end
+  end
+
+  defp handle_auth_response(state) do
+    case parse_simple_response(state) do
+      {:ok, _response, new_state} ->
+        Logger.debug("AUTH successful")
+
+        # After AUTH, send PING
+        case send_ping(new_state) do
+          {:ok, new_state} -> {:noreply, new_state}
+          {:error, reason} -> {:stop, {:ping_failed, reason}, new_state}
+        end
+
+      :incomplete ->
+        {:noreply, state}
+
+      {:error, reason} ->
+        {:stop, {:auth_failed, reason}, state}
+    end
+  end
+
+  defp handle_replconf_response(state, next_action) do
+    case parse_simple_response(state) do
+      {:ok, _response, new_state} ->
+        Logger.debug("REPLCONF successful")
+
+        case next_action do
+          :replconf_capa ->
+            case send_replconf_capa(new_state) do
+              {:ok, new_state} -> {:noreply, new_state}
+              {:error, reason} -> {:stop, {:replconf_failed, reason}, new_state}
+            end
+
+          :send_psync ->
+            case send_psync(new_state) do
+              {:ok, new_state} -> {:noreply, new_state}
+              {:error, reason} -> {:stop, {:psync_failed, reason}, new_state}
+            end
+        end
+
+      :incomplete ->
+        {:noreply, state}
+
+      {:error, reason} ->
+        {:stop, {:replconf_failed, reason}, state}
+    end
+  end
+
+  defp handle_psync_response(state) do
+    # PSYNC response format: +FULLRESYNC <replication_id> <offset>\r\n
+    # followed by RDB file: $<rdb_size>\r\n<rdb_data>
+    case parse_fullresync_response(state) do
+      {:ok, replication_id, offset, new_state} ->
+        Logger.info("PSYNC: FULLRESYNC #{replication_id} #{offset}")
+
+        new_state = %{
+          new_state
+          | replication_id: replication_id,
+            replication_offset: offset,
+            state: :rdb_transfer
+        }
+
+        # Create RDB parser
+        rdb_parser = RDB.create(state.callback_module, state.callback_state)
+        new_state = %{new_state | rdb_parser: rdb_parser}
+
+        # Start parsing RDB data
+        handle_rdb_data(new_state)
+
+      :incomplete ->
+        {:noreply, state}
+
+      {:error, reason} ->
+        {:stop, {:psync_failed, reason}, state}
+    end
+  end
+
+  defp handle_rdb_data(state) do
+    # RDB data comes as a bulk string: $<size>\r\n<data>
+    # We parse the header once, then stream data to RDB parser
+    if state.rdb_bulk_size == nil do
+      # Parse bulk string header
+      case parse_bulk_string_header(state) do
+        {:ok, rdb_size, new_state} ->
+          Logger.info("RDB transfer starting, size: #{rdb_size} bytes")
+          new_state = %{new_state | rdb_bulk_size: rdb_size, rdb_bytes_read: 0}
+          # Continue to stream RDB data
+          stream_rdb_data(new_state)
+
+        :incomplete ->
+          {:noreply, state}
+
+        {:error, reason} ->
+          {:stop, {:rdb_transfer_failed, reason}, state}
+      end
+    else
+      # Already parsed header, stream data
+      stream_rdb_data(state)
+    end
+  end
+
+  defp stream_rdb_data(state) do
+    # Calculate how many bytes we still need for the RDB
+    bytes_remaining = state.rdb_bulk_size - state.rdb_bytes_read
+
+    if bytes_remaining > 0 do
+      # Feed available data to RDB parser
+      bytes_to_feed = min(state.buffer_size, bytes_remaining)
+
+      if bytes_to_feed > 0 do
+        # Extract bytes_to_feed from buffer
+        {chunk, new_state} = consume_bytes(state, bytes_to_feed)
+
+        # Feed to RDB parser
+        case RDB.data(state.rdb_parser, chunk) do
+          {:ok, rdb_parser} ->
+            new_bytes_read = state.rdb_bytes_read + bytes_to_feed
+
+            new_state = %{
+              new_state
+              | rdb_parser: rdb_parser,
+                rdb_bytes_read: new_bytes_read
+            }
+
+            # Check if RDB transfer is complete
+            if new_bytes_read >= state.rdb_bulk_size do
+              # RDB transfer complete, finalize
+              case RDB.finish(rdb_parser) do
+                {:ok, callback_state} ->
+                  Logger.info(
+                    "RDB transfer complete (#{new_bytes_read} bytes), switching to streaming mode"
+                  )
+
+                  new_state = %{
+                    new_state
+                    | rdb_parser: nil,
+                      callback_state: callback_state,
+                      rdb_bulk_size: nil,
+                      rdb_bytes_read: 0,
+                      state: :streaming
+                  }
+
+                  # Process any command stream data that's already in the buffer
+                  if new_state.buffer_size > 0 do
+                    handle_command_stream(new_state)
+                  else
+                    {:noreply, new_state}
+                  end
+
+                {:error, :incomplete_rdb} ->
+                  # This shouldn't happen if we've read all bytes
+                  {:stop, {:rdb_incomplete, new_bytes_read, state.rdb_bulk_size}, new_state}
+              end
+            else
+              # More RDB data to come
+              {:noreply, new_state}
+            end
+
+          {:error, reason} ->
+            {:stop, {:rdb_parse_failed, reason}, new_state}
+        end
+      else
+        # No data available yet
+        {:noreply, state}
+      end
+    else
+      # Should not reach here
+      {:noreply, state}
+    end
+  end
+
+  defp handle_command_stream(state) do
+    # Parse commands from the stream
+    case parse_command(state) do
+      {:ok, command, new_state} ->
+        # Process the command
+        new_state = process_command(command, new_state)
+
+        # Continue processing if there's more data
+        if new_state.buffer_size > 0 do
+          handle_command_stream(new_state)
+        else
+          {:noreply, new_state}
+        end
+
+      :incomplete ->
+        {:noreply, state}
+
+      {:error, reason} ->
+        Logger.error("Failed to parse command: #{inspect(reason)}")
+        {:stop, {:command_parse_failed, reason}, state}
+    end
+  end
+
+  defp process_command(["SELECT", db], state) do
+    db_num = String.to_integer(db)
+    Logger.debug("SELECT DB #{db_num}")
+    %{state | current_db: db_num}
+  end
+
+  defp process_command(["PING"], state) do
+    # PING in replication stream, just ignore
+    state
+  end
+
+  defp process_command(["REPLCONF", "GETACK", "*"], state) do
+    # Master is requesting ACK with current offset
+    # Send REPLCONF ACK <offset>
+    offset = state.replication_offset
+
+    cmd =
+      "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$#{byte_size(Integer.to_string(offset))}\r\n#{offset}\r\n"
+
+    transport_send(state.transport, state.socket, cmd)
+    state
+  end
+
+  defp process_command(["SET", key, value], state) do
+    # Invoke callback
+    alias Veidrodelis.Command
+
+    command = %Command.Set{key: key, value: value}
+
+    case state.callback_module.on_command(state.callback_state, state.current_db, command) do
+      {:ok, new_callback_state} ->
+        %{state | callback_state: new_callback_state}
+
+      {:error, reason} ->
+        Logger.error("Callback error: #{inspect(reason)}")
+        state
+    end
+  end
+
+  defp process_command(["RPUSH", key | values], state) do
+    # Invoke callback for each value
+    alias Veidrodelis.Command
+
+    new_callback_state =
+      Enum.reduce(values, state.callback_state, fn value, acc_state ->
+        command = %Command.RPush{key: key, value: value}
+
+        case state.callback_module.on_command(acc_state, state.current_db, command) do
+          {:ok, new_state} -> new_state
+          {:error, _reason} -> acc_state
+        end
+      end)
+
+    %{state | callback_state: new_callback_state}
+  end
+
+  defp process_command(["SADD", key | members], state) do
+    alias Veidrodelis.Command
+
+    new_callback_state =
+      Enum.reduce(members, state.callback_state, fn member, acc_state ->
+        command = %Command.SAdd{key: key, member: member}
+
+        case state.callback_module.on_command(acc_state, state.current_db, command) do
+          {:ok, new_state} -> new_state
+          {:error, _reason} -> acc_state
+        end
+      end)
+
+    %{state | callback_state: new_callback_state}
+  end
+
+  defp process_command(["ZADD", key | args], state) do
+    alias Veidrodelis.Command
+
+    # Parse score/member pairs
+    new_callback_state = parse_zadd_args(args, key, state)
+    %{state | callback_state: new_callback_state}
+  end
+
+  defp process_command(["HSET", key | args], state) do
+    alias Veidrodelis.Command
+
+    # Parse field/value pairs
+    new_callback_state = parse_hset_args(args, key, state)
+    %{state | callback_state: new_callback_state}
+  end
+
+  defp process_command(["PEXPIREAT", key, timestamp_ms], state) do
+    alias Veidrodelis.Command
+
+    timestamp = String.to_integer(timestamp_ms)
+    command = %Command.PExpireAt{key: key, timestamp_ms: timestamp}
+
+    case state.callback_module.on_command(state.callback_state, state.current_db, command) do
+      {:ok, new_callback_state} ->
+        %{state | callback_state: new_callback_state}
+
+      {:error, _reason} ->
+        state
+    end
+  end
+
+  defp process_command(cmd, state) do
+    # Unknown command, log and ignore
+    Logger.debug("Ignoring command: #{inspect(cmd)}")
+    state
+  end
+
+  defp parse_zadd_args([], _key, state), do: state.callback_state
+
+  defp parse_zadd_args([score_str, member | rest], key, state) do
+    alias Veidrodelis.Command
+
+    score = parse_float(score_str)
+    command = %Command.ZAdd{key: key, score: score, member: member}
+
+    new_callback_state =
+      case state.callback_module.on_command(state.callback_state, state.current_db, command) do
+        {:ok, new_state} -> new_state
+        {:error, _reason} -> state.callback_state
+      end
+
+    parse_zadd_args(rest, key, %{state | callback_state: new_callback_state})
+  end
+
+  defp parse_hset_args([], _key, state), do: state.callback_state
+
+  defp parse_hset_args([field, value | rest], key, state) do
+    alias Veidrodelis.Command
+
+    command = %Command.HSet{key: key, field: field, value: value}
+
+    new_callback_state =
+      case state.callback_module.on_command(state.callback_state, state.current_db, command) do
+        {:ok, new_state} -> new_state
+        {:error, _reason} -> state.callback_state
+      end
+
+    parse_hset_args(rest, key, %{state | callback_state: new_callback_state})
+  end
+
+  defp parse_float(str) do
+    case Float.parse(str) do
+      {float, _} -> float
+      :error -> String.to_integer(str) * 1.0
+    end
+  end
+
+  # Buffer management helpers
+
+  defp buffer_to_binary(state) do
+    state.buffer |> Enum.reverse() |> :erlang.iolist_to_binary()
+  end
+
+  defp consume_bytes(state, n) when state.buffer_size >= n do
+    binary = buffer_to_binary(state)
+    <<chunk::binary-size(n), rest::binary>> = binary
+
+    new_state = %{
+      state
+      | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
+        buffer_size: byte_size(rest)
+    }
+
+    {chunk, new_state}
+  end
+
+  defp peek_bytes(state, n) when state.buffer_size >= n do
+    binary = buffer_to_binary(state)
+    {:ok, :binary.part(binary, 0, n)}
+  end
+
+  defp peek_bytes(_state, _n), do: :incomplete
+
+  # RESP protocol parsers (work with state containing iolist buffer)
+
+  defp parse_simple_response(state) do
+    case peek_bytes(state, min(state.buffer_size, 1024)) do
+      {:ok, peek} ->
+        case peek do
+          <<"+"::binary, _::binary>> ->
+            binary = buffer_to_binary(state)
+
+            case :binary.split(binary, "\r\n") do
+              [<<"+"::binary, response::binary>>, rest] ->
+                new_state = %{
+                  state
+                  | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
+                    buffer_size: byte_size(rest)
+                }
+
+                {:ok, response, new_state}
+
+              _ ->
+                :incomplete
+            end
+
+          <<"-"::binary, _::binary>> ->
+            binary = buffer_to_binary(state)
+
+            case :binary.split(binary, "\r\n") do
+              [<<"-"::binary, error::binary>>, _rest] ->
+                {:error, {:redis_error, error}}
+
+              _ ->
+                :incomplete
+            end
+
+          _ ->
+            :incomplete
+        end
+
+      :incomplete ->
+        :incomplete
+    end
+  end
+
+  defp parse_fullresync_response(state) do
+    case peek_bytes(state, min(state.buffer_size, 1024)) do
+      {:ok, peek} ->
+        case peek do
+          <<"+FULLRESYNC "::binary, _::binary>> ->
+            binary = buffer_to_binary(state)
+
+            case :binary.split(binary, "\r\n") do
+              [<<"+FULLRESYNC "::binary, params::binary>>, rest] ->
+                [replication_id, offset_str] = String.split(params, " ", parts: 2)
+                offset = String.to_integer(offset_str)
+
+                new_state = %{
+                  state
+                  | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
+                    buffer_size: byte_size(rest)
+                }
+
+                {:ok, replication_id, offset, new_state}
+
+              _ ->
+                :incomplete
+            end
+
+          <<"-"::binary, _::binary>> ->
+            binary = buffer_to_binary(state)
+
+            case :binary.split(binary, "\r\n") do
+              [<<"-"::binary, error::binary>>, _rest] ->
+                {:error, {:redis_error, error}}
+
+              _ ->
+                :incomplete
+            end
+
+          _ ->
+            :incomplete
+        end
+
+      :incomplete ->
+        :incomplete
+    end
+  end
+
+  defp parse_bulk_string_header(state) do
+    if state.buffer_size == 0 do
+      :incomplete
+    else
+      case peek_bytes(state, min(state.buffer_size, 64)) do
+        {:ok, peek} ->
+          case peek do
+            <<"$"::binary, _::binary>> ->
+              binary = buffer_to_binary(state)
+
+              case :binary.split(binary, "\r\n") do
+                [<<"$"::binary, size_str::binary>>, rest] ->
+                  size = String.to_integer(size_str)
+
+                  new_state = %{
+                    state
+                    | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
+                      buffer_size: byte_size(rest)
+                  }
+
+                  {:ok, size, new_state}
+
+                _ ->
+                  :incomplete
+              end
+
+            _ ->
+              {:error, :invalid_bulk_string_header}
+          end
+
+        :incomplete ->
+          :incomplete
+      end
+    end
+  end
+
+  defp parse_command(state) do
+    case peek_bytes(state, min(state.buffer_size, 64)) do
+      {:ok, peek} ->
+        case peek do
+          <<"*"::binary, _::binary>> ->
+            binary = buffer_to_binary(state)
+
+            case :binary.split(binary, "\r\n") do
+              [<<"*"::binary, count_str::binary>>, rest] ->
+                count = String.to_integer(count_str)
+
+                parse_array_elements(rest, count, [], state)
+
+              _ ->
+                :incomplete
+            end
+
+          _ ->
+            :incomplete
+        end
+
+      :incomplete ->
+        :incomplete
+    end
+  end
+
+  defp parse_array_elements(rest, 0, acc, state) do
+    new_state = %{
+      state
+      | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
+        buffer_size: byte_size(rest)
+    }
+
+    {:ok, Enum.reverse(acc), new_state}
+  end
+
+  defp parse_array_elements(<<"$"::binary, rest::binary>>, count, acc, state) do
+    case :binary.split(rest, "\r\n") do
+      [size_str, rest] ->
+        size = String.to_integer(size_str)
+
+        if byte_size(rest) >= size + 2 do
+          <<element::binary-size(size), "\r\n"::binary, rest::binary>> = rest
+          parse_array_elements(rest, count - 1, [element | acc], state)
+        else
+          :incomplete
+        end
+
+      _ ->
+        :incomplete
+    end
+  end
+
+  defp parse_array_elements(_, _, _, _), do: :incomplete
+
+  # Transport abstraction
+
+  defp transport_connect(:tcp, host, port, _opts) do
+    host_charlist = String.to_charlist(host)
+    :gen_tcp.connect(host_charlist, port, [:binary, active: false], @default_timeout)
+  end
+
+  defp transport_connect(:ssl, host, port, ssl_opts) do
+    host_charlist = String.to_charlist(host)
+
+    default_opts = [
+      :binary,
+      active: false,
+      verify: :verify_none
+    ]
+
+    opts = Keyword.merge(default_opts, ssl_opts)
+    :ssl.connect(host_charlist, port, opts, @default_timeout)
+  end
+
+  defp transport_send(:tcp, socket, data), do: :gen_tcp.send(socket, data)
+  defp transport_send(:ssl, socket, data), do: :ssl.send(socket, data)
+
+  defp transport_close(:tcp, socket), do: :gen_tcp.close(socket)
+  defp transport_close(:ssl, socket), do: :ssl.close(socket)
+
+  defp transport_setopts(:tcp, socket, opts), do: :inet.setopts(socket, opts)
+  defp transport_setopts(:ssl, socket, opts), do: :ssl.setopts(socket, opts)
+end
