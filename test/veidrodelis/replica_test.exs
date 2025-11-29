@@ -93,30 +93,28 @@ defmodule Veidrodelis.ReplicaTest do
 
       # Verify list items
       assert Enum.any?(command_list, fn
-               %Command.RPush{key: "mylist", value: "item1"} -> true
-               _ -> false
-             end)
-
-      assert Enum.any?(command_list, fn
-               %Command.RPush{key: "mylist", value: "item2"} -> true
+               %Command.RPush{key: "mylist", values: values} -> "item1" in values or "item2" in values
                _ -> false
              end)
 
       # Verify set member
       assert Enum.any?(command_list, fn
-               %Command.SAdd{key: "myset", member: "member1"} -> true
+               %Command.SAdd{key: "myset", members: members} -> "member1" in members
                _ -> false
              end)
 
       # Verify sorted set member
       assert Enum.any?(command_list, fn
-               %Command.ZAdd{key: "myzset", score: 1.5, member: "zmember1"} -> true
-               _ -> false
+               %Command.ZAdd{key: "myzset", members: members} ->
+                 Enum.any?(members, fn {score, member} -> score == 1.5 and member == "zmember1" end)
+
+               _ ->
+                 false
              end)
 
       # Verify hash field
       assert Enum.any?(command_list, fn
-               %Command.HSet{key: "myhash", field: "field1", value: "value1"} -> true
+               %Command.HSet{key: "myhash", fields: fields} -> {"field1", "value1"} in fields
                _ -> false
              end)
 
@@ -127,17 +125,27 @@ defmodule Veidrodelis.ReplicaTest do
              end)
 
       assert Enum.any?(command_list, fn
-               %Command.RPush{key: "mylist", value: "item3"} -> true
+               %Command.RPush{key: "mylist", values: values} -> "item3" in values
                _ -> false
              end)
 
       assert Enum.any?(command_list, fn
-               %Command.SAdd{key: "myset", member: "member2"} -> true
+               %Command.SAdd{key: "myset", members: members} -> "member2" in members
                _ -> false
              end)
 
-      # Verify total command count (at least the ones we issued)
-      assert length(command_list) >= 10
+      # Verify total command count
+      # We now emit fewer commands because multi-value commands are consolidated:
+      # - 2 SET commands (key1, key2)
+      # - 1 RPUSH command with 2 values (item1, item2) from RDB
+      # - 1 SADD command with 1 member (member1) from RDB
+      # - 1 ZADD command with 1 member from RDB
+      # - 1 HSET command with 1 field from RDB
+      # - 1 SET command (key3) from streaming
+      # - 1 RPUSH command with 1 value (item3) from streaming
+      # - 1 SADD command with 1 member (member2) from streaming
+      # = 9 commands total
+      assert length(command_list) >= 9
 
       Replica.stop(replica)
     end
@@ -254,8 +262,17 @@ defmodule Veidrodelis.ReplicaTest do
           _ -> false
         end)
 
-      # Should have 3 RPUSH commands (one per item)
-      assert length(rpush_commands) >= 3
+      # Should have 1 RPUSH command with all 3 items
+      assert length(rpush_commands) >= 1
+
+      # Verify all items are present in the command
+      assert Enum.any?(rpush_commands, fn
+               {_ts, _db, %Command.RPush{values: values}} ->
+                 "item1" in values and "item2" in values and "item3" in values
+
+               _ ->
+                 false
+             end)
 
       Replica.stop(replica)
     end
@@ -282,7 +299,17 @@ defmodule Veidrodelis.ReplicaTest do
           _ -> false
         end)
 
-      assert length(sadd_commands) >= 2
+      # Should have 1 SADD command with both members
+      assert length(sadd_commands) >= 1
+
+      # Verify both members are present in the command
+      assert Enum.any?(sadd_commands, fn
+               {_ts, _db, %Command.SAdd{members: members}} ->
+                 "member1" in members and "member2" in members
+
+               _ ->
+                 false
+             end)
 
       Replica.stop(replica)
     end
@@ -309,17 +336,22 @@ defmodule Veidrodelis.ReplicaTest do
           _ -> false
         end)
 
-      assert length(zadd_commands) >= 2
+      # Should have 1 ZADD command with both members
+      assert length(zadd_commands) >= 1
 
-      # Verify scores are correct
+      # Verify both members with correct scores are present in the command
       assert Enum.any?(zadd_commands, fn
-               {_ts, _db, %Command.ZAdd{score: 1.0, member: "member1"}} -> true
-               _ -> false
-             end)
+               {_ts, _db, %Command.ZAdd{members: members}} ->
+                 has_member1 =
+                   Enum.any?(members, fn {score, member} -> score == 1.0 and member == "member1" end)
 
-      assert Enum.any?(zadd_commands, fn
-               {_ts, _db, %Command.ZAdd{score: 2.5, member: "member2"}} -> true
-               _ -> false
+                 has_member2 =
+                   Enum.any?(members, fn {score, member} -> score == 2.5 and member == "member2" end)
+
+                 has_member1 and has_member2
+
+               _ ->
+                 false
              end)
 
       Replica.stop(replica)
@@ -347,7 +379,17 @@ defmodule Veidrodelis.ReplicaTest do
           _ -> false
         end)
 
-      assert length(hset_commands) >= 2
+      # Should have 1 HSET command with both fields
+      assert length(hset_commands) >= 1
+
+      # Verify both fields are present in the command
+      assert Enum.any?(hset_commands, fn
+               {_ts, _db, %Command.HSet{fields: fields}} ->
+                 {"field1", "value1"} in fields and {"field2", "value2"} in fields
+
+               _ ->
+                 false
+             end)
 
       Replica.stop(replica)
     end
@@ -476,7 +518,7 @@ defmodule Veidrodelis.ReplicaTest do
              end)
 
       assert Enum.any?(commands, fn
-               {_ts, _db, %Command.RPush{key: "streamlist", value: "item1"}} -> true
+               {_ts, _db, %Command.RPush{key: "streamlist", values: values}} -> "item1" in values
                _ -> false
              end)
 

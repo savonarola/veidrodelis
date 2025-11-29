@@ -22,23 +22,25 @@ defmodule Veidrodelis.RDB do
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.RPush{key: key, value: value}) do
-          IO.puts("RPUSH \#{key} \#{value}")
+        def on_command(state, db, %Command.RPush{key: key, values: values}) do
+          IO.puts("RPUSH \#{key} \#{Enum.join(values, " ")}")
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.SAdd{key: key, member: member}) do
-          IO.puts("SADD \#{key} \#{member}")
+        def on_command(state, db, %Command.SAdd{key: key, members: members}) do
+          IO.puts("SADD \#{key} \#{Enum.join(members, " ")}")
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.ZAdd{key: key, score: score, member: member}) do
-          IO.puts("ZADD \#{key} \#{score} \#{member}")
+        def on_command(state, db, %Command.ZAdd{key: key, members: members}) do
+          pairs = Enum.map_join(members, " ", fn {score, member} -> "\#{score} \#{member}" end)
+          IO.puts("ZADD \#{key} \#{pairs}")
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.HSet{key: key, field: field, value: value}) do
-          IO.puts("HSET \#{key} \#{field} \#{value}")
+        def on_command(state, db, %Command.HSet{key: key, fields: fields}) do
+          pairs = Enum.map_join(fields, " ", fn {field, value} -> "\#{field} \#{value}" end)
+          IO.puts("HSET \#{key} \#{pairs}")
           {:ok, state}
         end
 
@@ -854,96 +856,111 @@ defmodule Veidrodelis.RDB do
   end
 
   # Load list entries (RDB_TYPE_LIST)
-  defp load_list_entries(0, rest, _callback_module, state, _db_num, _key) do
-    {:ok, state, rest}
-  end
-
   defp load_list_entries(count, rest, callback_module, state, db_num, key) do
-    {value, rest1} = load_string(rest)
-    command = %Command.RPush{key: key, value: value}
+    {values, rest1} = load_list_values(count, rest, [])
+    command = %Command.RPush{key: key, values: values}
 
     case callback_module.on_command(state, db_num, command) do
       {:ok, new_state} ->
-        load_list_entries(count - 1, rest1, callback_module, new_state, db_num, key)
+        {:ok, new_state, rest1}
 
       {:error, _} = error ->
         error
     end
+  end
+
+  defp load_list_values(0, rest, acc), do: {Enum.reverse(acc), rest}
+
+  defp load_list_values(count, rest, acc) do
+    {value, rest1} = load_string(rest)
+    load_list_values(count - 1, rest1, [value | acc])
   end
 
   # Load set entries (RDB_TYPE_SET)
-  defp load_set_entries(0, rest, _callback_module, state, _db_num, _key) do
-    {:ok, state, rest}
-  end
-
   defp load_set_entries(count, rest, callback_module, state, db_num, key) do
-    {member, rest1} = load_string(rest)
-    command = %Command.SAdd{key: key, member: member}
+    {members, rest1} = load_set_members(count, rest, [])
+    command = %Command.SAdd{key: key, members: members}
 
     case callback_module.on_command(state, db_num, command) do
       {:ok, new_state} ->
-        load_set_entries(count - 1, rest1, callback_module, new_state, db_num, key)
+        {:ok, new_state, rest1}
 
       {:error, _} = error ->
         error
     end
+  end
+
+  defp load_set_members(0, rest, acc), do: {Enum.reverse(acc), rest}
+
+  defp load_set_members(count, rest, acc) do
+    {member, rest1} = load_string(rest)
+    load_set_members(count - 1, rest1, [member | acc])
   end
 
   # Load zset entries (RDB_TYPE_ZSET - old format with string scores)
-  defp load_zset_entries(0, rest, _callback_module, state, _db_num, _key) do
-    {:ok, state, rest}
-  end
-
   defp load_zset_entries(count, rest, callback_module, state, db_num, key) do
-    {member, rest1} = load_string(rest)
-    {score, rest2} = load_double_value(rest1)
-    command = %Command.ZAdd{key: key, score: score, member: member}
+    {members, rest1} = load_zset_members_v1(count, rest, [])
+    command = %Command.ZAdd{key: key, members: members}
 
     case callback_module.on_command(state, db_num, command) do
       {:ok, new_state} ->
-        load_zset_entries(count - 1, rest2, callback_module, new_state, db_num, key)
+        {:ok, new_state, rest1}
 
       {:error, _} = error ->
         error
     end
+  end
+
+  defp load_zset_members_v1(0, rest, acc), do: {Enum.reverse(acc), rest}
+
+  defp load_zset_members_v1(count, rest, acc) do
+    {member, rest1} = load_string(rest)
+    {score, rest2} = load_double_value(rest1)
+    load_zset_members_v1(count - 1, rest2, [{score, member} | acc])
   end
 
   # Load zset entries (RDB_TYPE_ZSET_2 - new format with binary scores)
-  defp load_zset_entries_v2(0, rest, _callback_module, state, _db_num, _key) do
-    {:ok, state, rest}
-  end
-
   defp load_zset_entries_v2(count, rest, callback_module, state, db_num, key) do
-    {member, rest1} = load_string(rest)
-    <<score::float-little-64, rest2::binary>> = rest1
-    command = %Command.ZAdd{key: key, score: score, member: member}
+    {members, rest1} = load_zset_members_v2(count, rest, [])
+    command = %Command.ZAdd{key: key, members: members}
 
     case callback_module.on_command(state, db_num, command) do
       {:ok, new_state} ->
-        load_zset_entries_v2(count - 1, rest2, callback_module, new_state, db_num, key)
+        {:ok, new_state, rest1}
 
       {:error, _} = error ->
         error
     end
+  end
+
+  defp load_zset_members_v2(0, rest, acc), do: {Enum.reverse(acc), rest}
+
+  defp load_zset_members_v2(count, rest, acc) do
+    {member, rest1} = load_string(rest)
+    <<score::float-little-64, rest2::binary>> = rest1
+    load_zset_members_v2(count - 1, rest2, [{score, member} | acc])
   end
 
   # Load hash entries (RDB_TYPE_HASH)
-  defp load_hash_entries(0, rest, _callback_module, state, _db_num, _key) do
-    {:ok, state, rest}
-  end
-
   defp load_hash_entries(count, rest, callback_module, state, db_num, key) do
-    {field, rest1} = load_string(rest)
-    {value, rest2} = load_string(rest1)
-    command = %Command.HSet{key: key, field: field, value: value}
+    {fields, rest1} = load_hash_fields(count, rest, [])
+    command = %Command.HSet{key: key, fields: fields}
 
     case callback_module.on_command(state, db_num, command) do
       {:ok, new_state} ->
-        load_hash_entries(count - 1, rest2, callback_module, new_state, db_num, key)
+        {:ok, new_state, rest1}
 
       {:error, _} = error ->
         error
     end
+  end
+
+  defp load_hash_fields(0, rest, acc), do: {Enum.reverse(acc), rest}
+
+  defp load_hash_fields(count, rest, acc) do
+    {field, rest1} = load_string(rest)
+    {value, rest2} = load_string(rest1)
+    load_hash_fields(count - 1, rest2, [{field, value} | acc])
   end
 
   # Load quicklist (RDB_TYPE_LIST_QUICKLIST)
@@ -998,16 +1015,12 @@ defmodule Veidrodelis.RDB do
     end
   end
 
-  defp load_listpack_entries_as_list([], _callback_module, state, _db_num, _key) do
-    {:ok, state}
-  end
-
-  defp load_listpack_entries_as_list([entry | rest], callback_module, state, db_num, key) do
-    command = %Command.RPush{key: key, value: entry}
+  defp load_listpack_entries_as_list(entries, callback_module, state, db_num, key) do
+    command = %Command.RPush{key: key, values: entries}
 
     case callback_module.on_command(state, db_num, command) do
       {:ok, new_state} ->
-        load_listpack_entries_as_list(rest, callback_module, new_state, db_num, key)
+        {:ok, new_state}
 
       {:error, _} = error ->
         error
@@ -1029,17 +1042,13 @@ defmodule Veidrodelis.RDB do
     end
   end
 
-  defp load_intset_entries([], _callback_module, state, _db_num, _key, rest) do
-    {:ok, state, rest}
-  end
-
-  defp load_intset_entries([entry | rest_entries], callback_module, state, db_num, key, rest) do
-    entry_bin = Integer.to_string(entry)
-    command = %Command.SAdd{key: key, member: entry_bin}
+  defp load_intset_entries(entries, callback_module, state, db_num, key, rest) do
+    members = Enum.map(entries, &Integer.to_string/1)
+    command = %Command.SAdd{key: key, members: members}
 
     case callback_module.on_command(state, db_num, command) do
       {:ok, new_state} ->
-        load_intset_entries(rest_entries, callback_module, new_state, db_num, key, rest)
+        {:ok, new_state, rest}
 
       {:error, _} = error ->
         error
@@ -1061,23 +1070,12 @@ defmodule Veidrodelis.RDB do
     end
   end
 
-  defp load_listpack_entries_as_set([], _callback_module, state, _db_num, _key, rest) do
-    {:ok, state, rest}
-  end
-
-  defp load_listpack_entries_as_set(
-         [entry | rest_entries],
-         callback_module,
-         state,
-         db_num,
-         key,
-         rest
-       ) do
-    command = %Command.SAdd{key: key, member: entry}
+  defp load_listpack_entries_as_set(entries, callback_module, state, db_num, key, rest) do
+    command = %Command.SAdd{key: key, members: entries}
 
     case callback_module.on_command(state, db_num, command) do
       {:ok, new_state} ->
-        load_listpack_entries_as_set(rest_entries, callback_module, new_state, db_num, key, rest)
+        {:ok, new_state, rest}
 
       {:error, _} = error ->
         error
@@ -1099,31 +1097,29 @@ defmodule Veidrodelis.RDB do
     end
   end
 
-  defp load_ziplist_entries_as_hash([], _callback_module, state, _db_num, _key, rest) do
-    {:ok, state, rest}
-  end
+  defp load_ziplist_entries_as_hash(entries, callback_module, state, db_num, key, rest) do
+    case collect_hash_pairs(entries, []) do
+      {:ok, fields} ->
+        command = %Command.HSet{key: key, fields: fields}
 
-  defp load_ziplist_entries_as_hash(
-         [field, value | rest_entries],
-         callback_module,
-         state,
-         db_num,
-         key,
-         rest
-       ) do
-    command = %Command.HSet{key: key, field: field, value: value}
+        case callback_module.on_command(state, db_num, command) do
+          {:ok, new_state} ->
+            {:ok, new_state, rest}
 
-    case callback_module.on_command(state, db_num, command) do
-      {:ok, new_state} ->
-        load_ziplist_entries_as_hash(rest_entries, callback_module, new_state, db_num, key, rest)
+          {:error, _} = error ->
+            error
+        end
 
       {:error, _} = error ->
         error
     end
   end
 
-  defp load_ziplist_entries_as_hash([_], _callback_module, _state, _db_num, _key, _rest) do
-    {:error, :odd_hash_entries}
+  defp collect_hash_pairs([], acc), do: {:ok, Enum.reverse(acc)}
+  defp collect_hash_pairs([_], _acc), do: {:error, :odd_hash_entries}
+
+  defp collect_hash_pairs([field, value | rest], acc) do
+    collect_hash_pairs(rest, [{field, value} | acc])
   end
 
   # Load hash from listpack (RDB_TYPE_HASH_LISTPACK)
@@ -1141,31 +1137,22 @@ defmodule Veidrodelis.RDB do
     end
   end
 
-  defp load_listpack_entries_as_hash([], _callback_module, state, _db_num, _key, rest) do
-    {:ok, state, rest}
-  end
+  defp load_listpack_entries_as_hash(entries, callback_module, state, db_num, key, rest) do
+    case collect_hash_pairs(entries, []) do
+      {:ok, fields} ->
+        command = %Command.HSet{key: key, fields: fields}
 
-  defp load_listpack_entries_as_hash(
-         [field, value | rest_entries],
-         callback_module,
-         state,
-         db_num,
-         key,
-         rest
-       ) do
-    command = %Command.HSet{key: key, field: field, value: value}
+        case callback_module.on_command(state, db_num, command) do
+          {:ok, new_state} ->
+            {:ok, new_state, rest}
 
-    case callback_module.on_command(state, db_num, command) do
-      {:ok, new_state} ->
-        load_listpack_entries_as_hash(rest_entries, callback_module, new_state, db_num, key, rest)
+          {:error, _} = error ->
+            error
+        end
 
       {:error, _} = error ->
         error
     end
-  end
-
-  defp load_listpack_entries_as_hash([_], _callback_module, _state, _db_num, _key, _rest) do
-    {:error, :odd_hash_entries}
   end
 
   # Load zset from ziplist (RDB_TYPE_ZSET_ZIPLIST)
@@ -1183,32 +1170,30 @@ defmodule Veidrodelis.RDB do
     end
   end
 
-  defp load_ziplist_entries_as_zset([], _callback_module, state, _db_num, _key, rest) do
-    {:ok, state, rest}
-  end
+  defp load_ziplist_entries_as_zset(entries, callback_module, state, db_num, key, rest) do
+    case collect_zset_pairs(entries, []) do
+      {:ok, members} ->
+        command = %Command.ZAdd{key: key, members: members}
 
-  defp load_ziplist_entries_as_zset(
-         [member, score_bin | rest_entries],
-         callback_module,
-         state,
-         db_num,
-         key,
-         rest
-       ) do
-    score = binary_to_float_safe(score_bin)
-    command = %Command.ZAdd{key: key, score: score, member: member}
+        case callback_module.on_command(state, db_num, command) do
+          {:ok, new_state} ->
+            {:ok, new_state, rest}
 
-    case callback_module.on_command(state, db_num, command) do
-      {:ok, new_state} ->
-        load_ziplist_entries_as_zset(rest_entries, callback_module, new_state, db_num, key, rest)
+          {:error, _} = error ->
+            error
+        end
 
       {:error, _} = error ->
         error
     end
   end
 
-  defp load_ziplist_entries_as_zset([_], _callback_module, _state, _db_num, _key, _rest) do
-    {:error, :odd_zset_entries}
+  defp collect_zset_pairs([], acc), do: {:ok, Enum.reverse(acc)}
+  defp collect_zset_pairs([_], _acc), do: {:error, :odd_zset_entries}
+
+  defp collect_zset_pairs([member, score_bin | rest], acc) do
+    score = binary_to_float_safe(score_bin)
+    collect_zset_pairs(rest, [{score, member} | acc])
   end
 
   # Load zset from listpack (RDB_TYPE_ZSET_LISTPACK)
@@ -1226,32 +1211,22 @@ defmodule Veidrodelis.RDB do
     end
   end
 
-  defp load_listpack_entries_as_zset([], _callback_module, state, _db_num, _key, rest) do
-    {:ok, state, rest}
-  end
+  defp load_listpack_entries_as_zset(entries, callback_module, state, db_num, key, rest) do
+    case collect_zset_pairs(entries, []) do
+      {:ok, members} ->
+        command = %Command.ZAdd{key: key, members: members}
 
-  defp load_listpack_entries_as_zset(
-         [member, score_bin | rest_entries],
-         callback_module,
-         state,
-         db_num,
-         key,
-         rest
-       ) do
-    score = binary_to_float_safe(score_bin)
-    command = %Command.ZAdd{key: key, score: score, member: member}
+        case callback_module.on_command(state, db_num, command) do
+          {:ok, new_state} ->
+            {:ok, new_state, rest}
 
-    case callback_module.on_command(state, db_num, command) do
-      {:ok, new_state} ->
-        load_listpack_entries_as_zset(rest_entries, callback_module, new_state, db_num, key, rest)
+          {:error, _} = error ->
+            error
+        end
 
       {:error, _} = error ->
         error
     end
-  end
-
-  defp load_listpack_entries_as_zset([_], _callback_module, _state, _db_num, _key, _rest) do
-    {:error, :odd_zset_entries}
   end
 
   # Helper to convert binary to float safely

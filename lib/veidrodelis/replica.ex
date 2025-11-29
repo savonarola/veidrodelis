@@ -68,7 +68,7 @@ defmodule Veidrodelis.Replica do
   use GenServer
   require Logger
 
-  alias Veidrodelis.RDB
+  alias Veidrodelis.{RDB, CommandParser}
 
   @default_port 6379
   @default_timeout 5000
@@ -626,129 +626,34 @@ defmodule Veidrodelis.Replica do
     state
   end
 
-  defp process_command(["SET", key, value], state) do
-    # Invoke callback
-    alias Veidrodelis.Command
+  defp process_command(raw_command, state) do
+    # Parse the command using CommandParser
+    case CommandParser.parse(raw_command) do
+      {:ok, command} ->
+        # Invoke callback with the parsed command
+        case state.callback_module.on_command(state.callback_state, state.current_db, command) do
+          {:ok, new_callback_state} ->
+            %{state | callback_state: new_callback_state}
 
-    command = %Command.Set{key: key, value: value}
-
-    case state.callback_module.on_command(state.callback_state, state.current_db, command) do
-      {:ok, new_callback_state} ->
-        %{state | callback_state: new_callback_state}
-
-      {:error, reason} ->
-        Logger.error("Callback error: #{inspect(reason)}")
-        state
-    end
-  end
-
-  defp process_command(["RPUSH", key | values], state) do
-    # Invoke callback for each value
-    alias Veidrodelis.Command
-
-    new_callback_state =
-      Enum.reduce(values, state.callback_state, fn value, acc_state ->
-        command = %Command.RPush{key: key, value: value}
-
-        case state.callback_module.on_command(acc_state, state.current_db, command) do
-          {:ok, new_state} -> new_state
-          {:error, _reason} -> acc_state
+          {:error, reason} ->
+            Logger.error("Callback error: #{inspect(reason)}")
+            state
         end
-      end)
 
-    %{state | callback_state: new_callback_state}
-  end
+      {:unknown, args} ->
+        # Create a generic command for unknown commands
+        alias Veidrodelis.Command
 
-  defp process_command(["SADD", key | members], state) do
-    alias Veidrodelis.Command
+        command = %Command.Generic{args: args}
 
-    new_callback_state =
-      Enum.reduce(members, state.callback_state, fn member, acc_state ->
-        command = %Command.SAdd{key: key, member: member}
+        case state.callback_module.on_command(state.callback_state, state.current_db, command) do
+          {:ok, new_callback_state} ->
+            %{state | callback_state: new_callback_state}
 
-        case state.callback_module.on_command(acc_state, state.current_db, command) do
-          {:ok, new_state} -> new_state
-          {:error, _reason} -> acc_state
+          {:error, _reason} ->
+            Logger.debug("Ignoring unknown command: #{inspect(args)}")
+            state
         end
-      end)
-
-    %{state | callback_state: new_callback_state}
-  end
-
-  defp process_command(["ZADD", key | args], state) do
-    alias Veidrodelis.Command
-
-    # Parse score/member pairs
-    new_callback_state = parse_zadd_args(args, key, state)
-    %{state | callback_state: new_callback_state}
-  end
-
-  defp process_command(["HSET", key | args], state) do
-    alias Veidrodelis.Command
-
-    # Parse field/value pairs
-    new_callback_state = parse_hset_args(args, key, state)
-    %{state | callback_state: new_callback_state}
-  end
-
-  defp process_command(["PEXPIREAT", key, timestamp_ms], state) do
-    alias Veidrodelis.Command
-
-    timestamp = String.to_integer(timestamp_ms)
-    command = %Command.PExpireAt{key: key, timestamp_ms: timestamp}
-
-    case state.callback_module.on_command(state.callback_state, state.current_db, command) do
-      {:ok, new_callback_state} ->
-        %{state | callback_state: new_callback_state}
-
-      {:error, _reason} ->
-        state
-    end
-  end
-
-  defp process_command(cmd, state) do
-    # Unknown command, log and ignore
-    Logger.debug("Ignoring command: #{inspect(cmd)}")
-    state
-  end
-
-  defp parse_zadd_args([], _key, state), do: state.callback_state
-
-  defp parse_zadd_args([score_str, member | rest], key, state) do
-    alias Veidrodelis.Command
-
-    score = parse_float(score_str)
-    command = %Command.ZAdd{key: key, score: score, member: member}
-
-    new_callback_state =
-      case state.callback_module.on_command(state.callback_state, state.current_db, command) do
-        {:ok, new_state} -> new_state
-        {:error, _reason} -> state.callback_state
-      end
-
-    parse_zadd_args(rest, key, %{state | callback_state: new_callback_state})
-  end
-
-  defp parse_hset_args([], _key, state), do: state.callback_state
-
-  defp parse_hset_args([field, value | rest], key, state) do
-    alias Veidrodelis.Command
-
-    command = %Command.HSet{key: key, field: field, value: value}
-
-    new_callback_state =
-      case state.callback_module.on_command(state.callback_state, state.current_db, command) do
-        {:ok, new_state} -> new_state
-        {:error, _reason} -> state.callback_state
-      end
-
-    parse_hset_args(rest, key, %{state | callback_state: new_callback_state})
-  end
-
-  defp parse_float(str) do
-    case Float.parse(str) do
-      {float, _} -> float
-      :error -> String.to_integer(str) * 1.0
     end
   end
 

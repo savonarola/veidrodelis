@@ -16,24 +16,32 @@ defmodule Veidrodelis.RDBTest do
     {:ok, Map.put(state, :strings, [{db, key, value} | strings])}
   end
 
-  def on_command(state, db, %Command.RPush{key: key, value: value}) do
+  def on_command(state, db, %Command.RPush{key: key, values: values}) do
     lists = Map.get(state, :lists, [])
-    {:ok, Map.put(state, :lists, [{db, key, value} | lists])}
+    # Expand each value into a separate entry
+    new_entries = Enum.map(values, fn value -> {db, key, value} end)
+    {:ok, Map.put(state, :lists, new_entries ++ lists)}
   end
 
-  def on_command(state, db, %Command.SAdd{key: key, member: member}) do
+  def on_command(state, db, %Command.SAdd{key: key, members: members}) do
     sets = Map.get(state, :sets, [])
-    {:ok, Map.put(state, :sets, [{db, key, member} | sets])}
+    # Expand each member into a separate entry
+    new_entries = Enum.map(members, fn member -> {db, key, member} end)
+    {:ok, Map.put(state, :sets, new_entries ++ sets)}
   end
 
-  def on_command(state, db, %Command.ZAdd{key: key, score: score, member: member}) do
+  def on_command(state, db, %Command.ZAdd{key: key, members: members}) do
     zsets = Map.get(state, :zsets, [])
-    {:ok, Map.put(state, :zsets, [{db, key, member, score} | zsets])}
+    # Expand each score/member pair into a separate entry
+    new_entries = Enum.map(members, fn {score, member} -> {db, key, member, score} end)
+    {:ok, Map.put(state, :zsets, new_entries ++ zsets)}
   end
 
-  def on_command(state, db, %Command.HSet{key: key, field: field, value: value}) do
+  def on_command(state, db, %Command.HSet{key: key, fields: fields}) do
     hashes = Map.get(state, :hashes, [])
-    {:ok, Map.put(state, :hashes, [{db, key, field, value} | hashes])}
+    # Expand each field/value pair into a separate entry
+    new_entries = Enum.map(fields, fn {field, value} -> {db, key, field, value} end)
+    {:ok, Map.put(state, :hashes, new_entries ++ hashes)}
   end
 
   def on_command(state, _db, %Command.PExpireAt{}) do
