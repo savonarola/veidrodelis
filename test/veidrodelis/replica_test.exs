@@ -93,8 +93,11 @@ defmodule Veidrodelis.ReplicaTest do
 
       # Verify list items
       assert Enum.any?(command_list, fn
-               %Command.RPush{key: "mylist", values: values} -> "item1" in values or "item2" in values
-               _ -> false
+               %Command.RPush{key: "mylist", values: values} ->
+                 "item1" in values or "item2" in values
+
+               _ ->
+                 false
              end)
 
       # Verify set member
@@ -106,7 +109,9 @@ defmodule Veidrodelis.ReplicaTest do
       # Verify sorted set member
       assert Enum.any?(command_list, fn
                %Command.ZAdd{key: "myzset", members: members} ->
-                 Enum.any?(members, fn {score, member} -> score == 1.5 and member == "zmember1" end)
+                 Enum.any?(members, fn {score, member} ->
+                   score == 1.5 and member == "zmember1"
+                 end)
 
                _ ->
                  false
@@ -343,10 +348,14 @@ defmodule Veidrodelis.ReplicaTest do
       assert Enum.any?(zadd_commands, fn
                {_ts, _db, %Command.ZAdd{members: members}} ->
                  has_member1 =
-                   Enum.any?(members, fn {score, member} -> score == 1.0 and member == "member1" end)
+                   Enum.any?(members, fn {score, member} ->
+                     score == 1.0 and member == "member1"
+                   end)
 
                  has_member2 =
-                   Enum.any?(members, fn {score, member} -> score == 2.5 and member == "member2" end)
+                   Enum.any?(members, fn {score, member} ->
+                     score == 2.5 and member == "member2"
+                   end)
 
                  has_member1 and has_member2
 

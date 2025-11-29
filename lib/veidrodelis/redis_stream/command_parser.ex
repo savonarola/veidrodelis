@@ -1,6 +1,10 @@
-defmodule Veidrodelis.CommandParser do
+defmodule Veidrodelis.RedisStream.CommandParser do
   @moduledoc """
-  Parses Redis commands (as RESP arrays) into Command structs.
+  Parses Redis replication stream commands (as RESP arrays) into Command structs.
+
+  This parser is specifically designed for Redis replication streams and handles
+  all commands that can appear during replication when only strings, sets, hashes,
+  zsets, and lists are used.
   """
 
   alias Veidrodelis.Command
@@ -8,7 +12,7 @@ defmodule Veidrodelis.CommandParser do
   @doc """
   Parse a Redis command represented as a list of binary arguments into a Command struct.
 
-  Returns `{:ok, command}` for recognized commands, or `{:unknown, args}` for unrecognized ones.
+  Returns `{:ok, command}` for all commands. Unknown commands are wrapped in a `Generic` struct.
 
   ## Examples
 
@@ -19,9 +23,9 @@ defmodule Veidrodelis.CommandParser do
       {:ok, %Command.SAdd{key: "myset", members: ["m1", "m2"]}}
 
       iex> parse(["UNKNOWN", "arg"])
-      {:unknown, ["UNKNOWN", "arg"]}
+      {:ok, %Command.Generic{args: ["UNKNOWN", "arg"]}}
   """
-  @spec parse([binary()]) :: {:ok, Command.t()} | {:unknown, [binary()]}
+  @spec parse([binary()]) :: {:ok, Command.t()}
   def parse(["SET", key, value]), do: {:ok, %Command.Set{key: key, value: value}}
 
   def parse(["MSET" | args]) do
@@ -177,8 +181,8 @@ defmodule Veidrodelis.CommandParser do
     {:ok, %Command.PExpireAt{key: key, timestamp_ms: String.to_integer(timestamp_ms)}}
   end
 
-  # Unknown command
-  def parse(args), do: {:unknown, args}
+  # Unknown command - wrap in Generic
+  def parse(args), do: {:ok, %Command.Generic{args: args}}
 
   # Helper functions
 
@@ -194,9 +198,15 @@ defmodule Veidrodelis.CommandParser do
 
   defp parse_float(str) do
     case str do
-      "nan" -> :nan
-      "+inf" -> :pos_inf
-      "-inf" -> :neg_inf
+      "nan" ->
+        :nan
+
+      "+inf" ->
+        :pos_inf
+
+      "-inf" ->
+        :neg_inf
+
       _ ->
         case Float.parse(str) do
           {float, _} -> float

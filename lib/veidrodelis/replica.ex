@@ -68,7 +68,8 @@ defmodule Veidrodelis.Replica do
   use GenServer
   require Logger
 
-  alias Veidrodelis.{RDB, CommandParser}
+  alias Veidrodelis.RDB
+  alias Veidrodelis.RedisStream.CommandParser
 
   @default_port 6379
   @default_timeout 5000
@@ -628,32 +629,16 @@ defmodule Veidrodelis.Replica do
 
   defp process_command(raw_command, state) do
     # Parse the command using CommandParser
-    case CommandParser.parse(raw_command) do
-      {:ok, command} ->
-        # Invoke callback with the parsed command
-        case state.callback_module.on_command(state.callback_state, state.current_db, command) do
-          {:ok, new_callback_state} ->
-            %{state | callback_state: new_callback_state}
+    {:ok, command} = CommandParser.parse(raw_command)
 
-          {:error, reason} ->
-            Logger.error("Callback error: #{inspect(reason)}")
-            state
-        end
+    # Invoke callback with the parsed command
+    case state.callback_module.on_command(state.callback_state, state.current_db, command) do
+      {:ok, new_callback_state} ->
+        %{state | callback_state: new_callback_state}
 
-      {:unknown, args} ->
-        # Create a generic command for unknown commands
-        alias Veidrodelis.Command
-
-        command = %Command.Generic{args: args}
-
-        case state.callback_module.on_command(state.callback_state, state.current_db, command) do
-          {:ok, new_callback_state} ->
-            %{state | callback_state: new_callback_state}
-
-          {:error, _reason} ->
-            Logger.debug("Ignoring unknown command: #{inspect(args)}")
-            state
-        end
+      {:error, reason} ->
+        Logger.error("Callback error: #{inspect(reason)}")
+        state
     end
   end
 
