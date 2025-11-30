@@ -129,7 +129,8 @@ defmodule Veidrodelis.ListStore do
   Position must be :before or :after.
   """
   @spec linsert(t(), db(), key(), position(), value(), value()) :: :ok
-  def linsert(%__MODULE__{pid: pid}, db, key, position, pivot, value) when position in [:before, :after] do
+  def linsert(%__MODULE__{pid: pid}, db, key, position, pivot, value)
+      when position in [:before, :after] do
     GenServer.cast(pid, {:linsert, db, key, position, pivot, value})
   end
 
@@ -192,6 +193,7 @@ defmodule Veidrodelis.ListStore do
 
   def handle_cast({:lpushx, db, key, values}, state) do
     db_key = {db, key}
+
     case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
@@ -204,6 +206,7 @@ defmodule Veidrodelis.ListStore do
 
   def handle_cast({:rpushx, db, key, values}, state) do
     db_key = {db, key}
+
     case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
@@ -216,6 +219,7 @@ defmodule Veidrodelis.ListStore do
 
   def handle_cast({:lpop, db, key}, state) do
     db_key = {db, key}
+
     case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
@@ -224,13 +228,16 @@ defmodule Veidrodelis.ListStore do
         {:noreply, Map.delete(state, db_key)}
 
       [_head | tail] ->
-        new_state = if tail == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, tail)
+        new_state =
+          if tail == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, tail)
+
         {:noreply, new_state}
     end
   end
 
   def handle_cast({:rpop, db, key}, state) do
     db_key = {db, key}
+
     case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
@@ -240,39 +247,51 @@ defmodule Veidrodelis.ListStore do
 
       list ->
         new_list = Enum.drop(list, -1)
-        new_state = if new_list == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, new_list)
+
+        new_state =
+          if new_list == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, new_list)
+
         {:noreply, new_state}
     end
   end
 
   def handle_cast({:lrem, db, key, count, element}, state) do
     db_key = {db, key}
+
     case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
         new_list = remove_elements(list, count, element)
-        new_state = if new_list == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, new_list)
+
+        new_state =
+          if new_list == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, new_list)
+
         {:noreply, new_state}
     end
   end
 
   def handle_cast({:ltrim, db, key, start_idx, stop_idx}, state) do
     db_key = {db, key}
+
     case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
         new_list = slice_list(list, start_idx, stop_idx)
-        new_state = if new_list == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, new_list)
+
+        new_state =
+          if new_list == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, new_list)
+
         {:noreply, new_state}
     end
   end
 
   def handle_cast({:lset, db, key, index, value}, state) do
     db_key = {db, key}
+
     case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
@@ -287,6 +306,7 @@ defmodule Veidrodelis.ListStore do
 
   def handle_cast({:linsert, db, key, position, pivot, value}, state) do
     db_key = {db, key}
+
     case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
@@ -302,6 +322,7 @@ defmodule Veidrodelis.ListStore do
   def handle_cast({:rpoplpush, db, source, dest}, state) do
     source_key = {db, source}
     dest_key = {db, dest}
+
     case Map.get(state, source_key) do
       nil ->
         {:noreply, state}
@@ -323,7 +344,9 @@ defmodule Veidrodelis.ListStore do
           new_dest = [popped | dest_list]
 
           state =
-            if new_source == [], do: Map.delete(state, source_key), else: Map.put(state, source_key, new_source)
+            if new_source == [],
+              do: Map.delete(state, source_key),
+              else: Map.put(state, source_key, new_source)
 
           state = Map.put(state, dest_key, new_dest)
           {:noreply, state}

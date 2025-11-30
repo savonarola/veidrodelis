@@ -304,4 +304,3 @@ defmodule Veidrodelis.SetStore do
     :ok
   end
 end
-

@@ -55,11 +55,12 @@ defmodule Veidrodelis.ZsetStoreTest do
     end
 
     test "adds multiple members at once", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"}
+        ])
 
       assert ZsetStore.zcard(store, 0, "myzset") == 3
     end
@@ -81,11 +82,12 @@ defmodule Veidrodelis.ZsetStoreTest do
 
   describe "zrem/4" do
     test "removes members from a sorted set", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"}
+        ])
 
       :ok = ZsetStore.zrem(store, 0, "myzset", ["two"])
 
@@ -103,11 +105,12 @@ defmodule Veidrodelis.ZsetStoreTest do
     end
 
     test "removes multiple members at once", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"}
+        ])
 
       :ok = ZsetStore.zrem(store, 0, "myzset", ["one", "three"])
 
@@ -119,13 +122,14 @@ defmodule Veidrodelis.ZsetStoreTest do
 
   describe "zremrangebyrank/5" do
     test "removes members by rank range", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"},
-        {4.0, "four"},
-        {5.0, "five"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"},
+          {4.0, "four"},
+          {5.0, "five"}
+        ])
 
       :ok = ZsetStore.zremrangebyrank(store, 0, "myzset", 1, 3)
 
@@ -138,11 +142,12 @@ defmodule Veidrodelis.ZsetStoreTest do
     end
 
     test "supports negative rank indices", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"}
+        ])
 
       # Remove last element (rank -1)
       :ok = ZsetStore.zremrangebyrank(store, 0, "myzset", -1, -1)
@@ -152,11 +157,12 @@ defmodule Veidrodelis.ZsetStoreTest do
     end
 
     test "removes all members with full range", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"}
+        ])
 
       :ok = ZsetStore.zremrangebyrank(store, 0, "myzset", 0, -1)
 
@@ -166,13 +172,14 @@ defmodule Veidrodelis.ZsetStoreTest do
 
   describe "zremrangebyscore/5" do
     test "removes members by score range", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"},
-        {4.0, "four"},
-        {5.0, "five"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"},
+          {4.0, "four"},
+          {5.0, "five"}
+        ])
 
       :ok = ZsetStore.zremrangebyscore(store, 0, "myzset", 2.0, 4.0)
 
@@ -183,11 +190,12 @@ defmodule Veidrodelis.ZsetStoreTest do
     end
 
     test "supports unbounded ranges with infinity", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"}
+        ])
 
       :ok = ZsetStore.zremrangebyscore(store, 0, "myzset", :neg_inf, 2.0)
 
@@ -199,12 +207,13 @@ defmodule Veidrodelis.ZsetStoreTest do
   describe "zremrangebylex/5" do
     test "removes members by lexicographical range", %{store: store} do
       # All members with same score for lex ordering
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {0.0, "apple"},
-        {0.0, "banana"},
-        {0.0, "cherry"},
-        {0.0, "date"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {0.0, "apple"},
+          {0.0, "banana"},
+          {0.0, "cherry"},
+          {0.0, "date"}
+        ])
 
       :ok = ZsetStore.zremrangebylex(store, 0, "myzset", "banana", "cherry")
 
@@ -218,11 +227,12 @@ defmodule Veidrodelis.ZsetStoreTest do
 
   describe "zpopmin/4" do
     test "removes and returns member with lowest score", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {3.0, "three"},
-        {1.0, "one"},
-        {2.0, "two"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {3.0, "three"},
+          {1.0, "one"},
+          {2.0, "two"}
+        ])
 
       result = ZsetStore.zpopmin(store, 0, "myzset")
 
@@ -232,12 +242,13 @@ defmodule Veidrodelis.ZsetStoreTest do
     end
 
     test "removes and returns multiple members with lowest scores", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"},
-        {4.0, "four"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"},
+          {4.0, "four"}
+        ])
 
       result = ZsetStore.zpopmin(store, 0, "myzset", 2)
 
@@ -254,11 +265,12 @@ defmodule Veidrodelis.ZsetStoreTest do
 
   describe "zpopmax/4" do
     test "removes and returns member with highest score", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {3.0, "three"},
-        {1.0, "one"},
-        {2.0, "two"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {3.0, "three"},
+          {1.0, "one"},
+          {2.0, "two"}
+        ])
 
       result = ZsetStore.zpopmax(store, 0, "myzset")
 
@@ -268,12 +280,13 @@ defmodule Veidrodelis.ZsetStoreTest do
     end
 
     test "removes and returns multiple members with highest scores", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"},
-        {4.0, "four"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"},
+          {4.0, "four"}
+        ])
 
       result = ZsetStore.zpopmax(store, 0, "myzset", 2)
 
@@ -291,7 +304,8 @@ defmodule Veidrodelis.ZsetStoreTest do
 
       assert ZsetStore.zcard(store, 0, "dest") == 3
       assert ZsetStore.zscore(store, 0, "dest", "a") == 1.0
-      assert ZsetStore.zscore(store, 0, "dest", "b") == 3.0  # 2.0 + 1.0
+      # 2.0 + 1.0
+      assert ZsetStore.zscore(store, 0, "dest", "b") == 3.0
       assert ZsetStore.zscore(store, 0, "dest", "c") == 2.0
     end
 
@@ -301,9 +315,12 @@ defmodule Veidrodelis.ZsetStoreTest do
 
       :ok = ZsetStore.zunionstore(store, 0, "dest", ["zset1", "zset2"], [2.0, 3.0])
 
-      assert ZsetStore.zscore(store, 0, "dest", "a") == 2.0   # 1.0 * 2
-      assert ZsetStore.zscore(store, 0, "dest", "b") == 7.0   # 2.0 * 2 + 1.0 * 3
-      assert ZsetStore.zscore(store, 0, "dest", "c") == 6.0   # 2.0 * 3
+      # 1.0 * 2
+      assert ZsetStore.zscore(store, 0, "dest", "a") == 2.0
+      # 2.0 * 2 + 1.0 * 3
+      assert ZsetStore.zscore(store, 0, "dest", "b") == 7.0
+      # 2.0 * 3
+      assert ZsetStore.zscore(store, 0, "dest", "c") == 6.0
     end
 
     test "computes union with MIN aggregate", %{store: store} do
@@ -347,8 +364,10 @@ defmodule Veidrodelis.ZsetStoreTest do
 
       assert ZsetStore.zcard(store, 0, "dest") == 2
       assert ZsetStore.zscore(store, 0, "dest", "a") == nil
-      assert ZsetStore.zscore(store, 0, "dest", "b") == 3.0  # 2.0 + 1.0
-      assert ZsetStore.zscore(store, 0, "dest", "c") == 5.0  # 3.0 + 2.0
+      # 2.0 + 1.0
+      assert ZsetStore.zscore(store, 0, "dest", "b") == 3.0
+      # 3.0 + 2.0
+      assert ZsetStore.zscore(store, 0, "dest", "c") == 5.0
       assert ZsetStore.zscore(store, 0, "dest", "d") == nil
     end
 
@@ -359,7 +378,8 @@ defmodule Veidrodelis.ZsetStoreTest do
       :ok = ZsetStore.zinterstore(store, 0, "dest", ["zset1", "zset2"], [2.0, 3.0])
 
       assert ZsetStore.zcard(store, 0, "dest") == 1
-      assert ZsetStore.zscore(store, 0, "dest", "b") == 7.0   # 2.0 * 2 + 1.0 * 3
+      # 2.0 * 2 + 1.0 * 3
+      assert ZsetStore.zscore(store, 0, "dest", "b") == 7.0
     end
 
     test "computes intersection with MIN aggregate", %{store: store} do
@@ -412,11 +432,12 @@ defmodule Veidrodelis.ZsetStoreTest do
 
   describe "zcard/3" do
     test "returns the number of members in a sorted set", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"}
+        ])
 
       assert ZsetStore.zcard(store, 0, "myzset") == 3
     end
@@ -435,11 +456,12 @@ defmodule Veidrodelis.ZsetStoreTest do
 
   describe "zrange/5" do
     test "returns members in score order", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {3.0, "three"},
-        {1.0, "one"},
-        {2.0, "two"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {3.0, "three"},
+          {1.0, "one"},
+          {2.0, "two"}
+        ])
 
       result = ZsetStore.zrange(store, 0, "myzset", 0, -1)
 
@@ -447,12 +469,13 @@ defmodule Veidrodelis.ZsetStoreTest do
     end
 
     test "returns subset by rank range", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"},
-        {4.0, "four"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"},
+          {4.0, "four"}
+        ])
 
       result = ZsetStore.zrange(store, 0, "myzset", 1, 2)
 
@@ -460,11 +483,12 @@ defmodule Veidrodelis.ZsetStoreTest do
     end
 
     test "supports negative indices", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"}
+        ])
 
       result = ZsetStore.zrange(store, 0, "myzset", -2, -1)
 
@@ -480,13 +504,14 @@ defmodule Veidrodelis.ZsetStoreTest do
 
   describe "zrangebyscore/5" do
     test "returns members in score range", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"},
-        {4.0, "four"},
-        {5.0, "five"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"},
+          {4.0, "four"},
+          {5.0, "five"}
+        ])
 
       result = ZsetStore.zrangebyscore(store, 0, "myzset", 2.0, 4.0)
 
@@ -495,11 +520,12 @@ defmodule Veidrodelis.ZsetStoreTest do
     end
 
     test "supports unbounded ranges", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"},
-        {3.0, "three"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"},
+          {3.0, "three"}
+        ])
 
       result = ZsetStore.zrangebyscore(store, 0, "myzset", :neg_inf, 2.0)
 
@@ -509,10 +535,11 @@ defmodule Veidrodelis.ZsetStoreTest do
 
   describe "del/3" do
     test "deletes an entire sorted set", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "one"},
-        {2.0, "two"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "one"},
+          {2.0, "two"}
+        ])
 
       assert ZsetStore.zcard(store, 0, "myzset") == 2
 
@@ -550,7 +577,7 @@ defmodule Veidrodelis.ZsetStoreTest do
       # Members are stored by their decoded (uppercased) keys
       result = ZsetStore.zrange(store, 0, "myzset", 0, -1)
       decoded_members = Enum.map(result, fn {member, _score} -> member end)
-      
+
       assert Enum.sort(decoded_members) == ["APPLE", "BANANA"]
 
       # Setting "APPLE" again should update (same decoded member)
@@ -634,11 +661,12 @@ defmodule Veidrodelis.ZsetStoreTest do
     end
 
     test "handles same score for multiple members", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.0, "a"},
-        {1.0, "b"},
-        {1.0, "c"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.0, "a"},
+          {1.0, "b"},
+          {1.0, "c"}
+        ])
 
       result = ZsetStore.zrange(store, 0, "myzset", 0, -1)
       assert length(result) == 3
@@ -646,24 +674,26 @@ defmodule Veidrodelis.ZsetStoreTest do
     end
 
     test "handles negative and zero scores", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {-5.0, "negative"},
-        {0.0, "zero"},
-        {5.0, "positive"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {-5.0, "negative"},
+          {0.0, "zero"},
+          {5.0, "positive"}
+        ])
 
       result = ZsetStore.zrange(store, 0, "myzset", 0, -1)
       scores = Enum.map(result, fn {_member, score} -> score end)
-      
+
       assert scores == [-5.0, 0.0, 5.0]
     end
 
     test "handles floating point scores", %{store: store} do
-      :ok = ZsetStore.zadd(store, 0, "myzset", [
-        {1.1, "a"},
-        {1.2, "b"},
-        {1.3, "c"}
-      ])
+      :ok =
+        ZsetStore.zadd(store, 0, "myzset", [
+          {1.1, "a"},
+          {1.2, "b"},
+          {1.3, "c"}
+        ])
 
       assert ZsetStore.zcard(store, 0, "myzset") == 3
     end
@@ -684,8 +714,8 @@ defmodule Veidrodelis.ZsetStoreTest do
 
       # Score range query should work
       result = ZsetStore.zrangebyscore(store, 0, "large_zset", 100.0, 200.0)
-      assert length(result) == 101  # 100 to 200 inclusive
+      # 100 to 200 inclusive
+      assert length(result) == 101
     end
   end
 end
-

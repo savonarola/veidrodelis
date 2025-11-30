@@ -401,7 +401,8 @@ defmodule Veidrodelis.StringStoreTest do
       :ok = StringStore.set(store, 0, "key1", "hello world")
 
       assert "hello world" == StringStore.get(store, 0, "key1")
-      assert 3 == StringStore.get_decoded(store, 0, "key1")  # e, o, o
+      # e, o, o
+      assert 3 == StringStore.get_decoded(store, 0, "key1")
 
       # Clean up
       StringStore.destroy(store)

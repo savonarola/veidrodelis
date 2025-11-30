@@ -361,7 +361,8 @@ defmodule Veidrodelis.SetStoreTest do
 
     test "counts correctly with duplicates", %{store: store} do
       :ok = SetStore.sadd(store, 0, "myset", ["a", "b", "c"])
-      :ok = SetStore.sadd(store, 0, "myset", ["a", "b", "c"])  # duplicates
+      # duplicates
+      :ok = SetStore.sadd(store, 0, "myset", ["a", "b", "c"])
 
       assert SetStore.scard(store, 0, "myset") == 3
     end
@@ -491,12 +492,13 @@ defmodule Veidrodelis.SetStoreTest do
 
       # Intersection
       :ok = SetStore.sinterstore(store, 0, "inter", ["large1", "large2"])
-      assert SetStore.scard(store, 0, "inter") == 501  # elements 500-1000
+      # elements 500-1000
+      assert SetStore.scard(store, 0, "inter") == 501
 
       # Difference
       :ok = SetStore.sdiffstore(store, 0, "diff", ["large1", "large2"])
-      assert SetStore.scard(store, 0, "diff") == 499  # elements 1-499
+      # elements 1-499
+      assert SetStore.scard(store, 0, "diff") == 499
     end
   end
 end
-

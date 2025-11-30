@@ -443,4 +443,3 @@ defmodule Veidrodelis.HashStoreTest do
     end
   end
 end
-

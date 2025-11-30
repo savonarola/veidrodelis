@@ -52,11 +52,12 @@ defmodule Veidrodelis.ZsetStore do
       when is_list(score_members) do
     Enum.each(score_members, fn {score, member} ->
       decoded_value = decode_fun.(key, member)
-      
+
       # Remove old entries if they exist
       case :ets.lookup(tid, {db, key, decoded_value}) do
         [{_, old_score}] ->
           :ets.delete(tid, {db, key, old_score, decoded_value})
+
         [] ->
           :ok
       end
@@ -92,13 +93,14 @@ defmodule Veidrodelis.ZsetStore do
       when is_list(members) do
     Enum.each(members, fn member ->
       decoded_value = decode_fun.(key, member)
-      
+
       # Lookup the score from the member-lookup entry
       case :ets.lookup(tid, {db, key, decoded_value}) do
         [{_, score}] ->
           # Delete both entries
           :ets.delete(tid, {db, key, decoded_value})
           :ets.delete(tid, {db, key, score, decoded_value})
+
         [] ->
           :ok
       end
@@ -119,17 +121,17 @@ defmodule Veidrodelis.ZsetStore do
   def zremrangebyrank(%__MODULE__{tid: tid}, db, key, start, stop) do
     # Get all members sorted by score
     members = zrange_with_scores(tid, db, key, 0, -1)
-    
+
     # Normalize negative indices
     count = length(members)
     start_idx = if start < 0, do: max(0, count + start), else: start
     stop_idx = if stop < 0, do: max(-1, count + stop), else: stop
-    
+
     # Get members in the range to remove
     members_to_remove =
       members
       |> Enum.slice(start_idx..stop_idx)
-    
+
     # Remove each member
     Enum.each(members_to_remove, fn {decoded_value, score} ->
       :ets.delete(tid, {db, key, decoded_value})
@@ -146,20 +148,26 @@ defmodule Veidrodelis.ZsetStore do
 
   Min and max are inclusive by default. Use "-inf" and "+inf" for unbounded ranges.
   """
-  @spec zremrangebyscore(t(), db(), key(), score() | :neg_inf | :pos_inf, score() | :neg_inf | :pos_inf) :: :ok
+  @spec zremrangebyscore(
+          t(),
+          db(),
+          key(),
+          score() | :neg_inf | :pos_inf,
+          score() | :neg_inf | :pos_inf
+        ) :: :ok
   def zremrangebyscore(%__MODULE__{tid: tid}, db, key, min, max) do
     # Get all members and filter by score
     match_head = {{db, key, :"$1", :"$2"}, :_}
     match_spec = [{match_head, [], [{{:"$1", :"$2"}}]}]
-    
+
     all_members = :ets.select(tid, match_spec)
-    
-    members_to_remove = 
+
+    members_to_remove =
       all_members
       |> Enum.filter(fn {score, _decoded_value} ->
         score_in_range?(score, min, max)
       end)
-    
+
     # Remove both entries for each member
     Enum.each(members_to_remove, fn {score, decoded_value} ->
       :ets.delete(tid, {db, key, score, decoded_value})
@@ -183,21 +191,22 @@ defmodule Veidrodelis.ZsetStore do
     # Get all members and filter by lex order
     match_head = {{db, key, :"$1"}, :_}
     match_spec = [{match_head, [], [:"$1"]}]
-    
+
     all_decoded_values = :ets.select(tid, match_spec)
-    
+
     decoded_values_to_remove =
       all_decoded_values
       |> Enum.filter(fn decoded_value ->
         lex_in_range?(decoded_value, min, max)
       end)
-    
+
     # For each decoded value, get its score and delete both entries
     Enum.each(decoded_values_to_remove, fn decoded_value ->
       case :ets.lookup(tid, {db, key, decoded_value}) do
         [{_, score}] ->
           :ets.delete(tid, {db, key, decoded_value})
           :ets.delete(tid, {db, key, score, decoded_value})
+
         [] ->
           :ok
       end
@@ -218,10 +227,10 @@ defmodule Veidrodelis.ZsetStore do
     # Use select to get the first count members by score
     match_head = {{db, key, :"$1", :"$2"}, :_}
     match_spec = [{match_head, [], [{{:"$2", :"$1"}}]}]
-    
+
     all_members = :ets.select(tid, match_spec)
     members_to_pop = Enum.take(all_members, count)
-    
+
     # Remove both entries for each member
     Enum.each(members_to_pop, fn {decoded_value, score} ->
       :ets.delete(tid, {db, key, score, decoded_value})
@@ -243,13 +252,14 @@ defmodule Veidrodelis.ZsetStore do
     # Get all members and take the last count
     match_head = {{db, key, :"$1", :"$2"}, :_}
     match_spec = [{match_head, [], [{{:"$2", :"$1"}}]}]
-    
+
     all_members = :ets.select(tid, match_spec)
-    members_to_pop = 
+
+    members_to_pop =
       all_members
       |> Enum.reverse()
       |> Enum.take(count)
-    
+
     # Remove both entries for each member
     Enum.each(members_to_pop, fn {decoded_value, score} ->
       :ets.delete(tid, {db, key, score, decoded_value})
@@ -278,19 +288,19 @@ defmodule Veidrodelis.ZsetStore do
       ) do
     # Normalize weights (default to 1.0)
     weights = normalize_weights(keys, weights)
-    
+
     # Collect all members with their scores from all source keys
-    member_scores = 
+    member_scores =
       keys
       |> Enum.zip(weights)
       |> Enum.flat_map(fn {source_key, weight} ->
         match_head = {{db, source_key, :"$1"}, :"$2"}
         match_spec = [{match_head, [], [{{:"$1", :"$2"}}]}]
-        
+
         :ets.select(tid, match_spec)
         |> Enum.map(fn {decoded_value, score} -> {decoded_value, score * weight} end)
       end)
-    
+
     # Group by decoded_value and aggregate scores
     aggregated =
       member_scores
@@ -299,10 +309,10 @@ defmodule Veidrodelis.ZsetStore do
         final_score = aggregate_scores(scores, aggregate)
         {final_score, decoded_value}
       end)
-    
+
     # Clear destination and insert aggregated results
     clear_zset(tid, db, destination)
-    
+
     Enum.each(aggregated, fn {score, decoded_value} ->
       :ets.insert(tid, {{db, destination, score, decoded_value}, nil})
       :ets.insert(tid, {{db, destination, decoded_value}, score})
@@ -331,7 +341,7 @@ defmodule Veidrodelis.ZsetStore do
       ) do
     # Normalize weights
     weights = normalize_weights(keys, weights)
-    
+
     # Collect members with scores from each key
     key_members =
       keys
@@ -339,19 +349,19 @@ defmodule Veidrodelis.ZsetStore do
       |> Enum.map(fn {source_key, weight} ->
         match_head = {{db, source_key, :"$1"}, :"$2"}
         match_spec = [{match_head, [], [{{:"$1", :"$2"}}]}]
-        
+
         :ets.select(tid, match_spec)
         |> Enum.map(fn {decoded_value, score} -> {decoded_value, score * weight} end)
         |> Map.new()
       end)
-    
+
     # Find members present in all keys
     if key_members == [] do
       clear_zset(tid, db, destination)
       :ok
     else
       [first_map | rest_maps] = key_members
-      
+
       common_members =
         first_map
         |> Enum.filter(fn {decoded_value, _score} ->
@@ -363,10 +373,10 @@ defmodule Veidrodelis.ZsetStore do
           final_score = aggregate_scores(scores, aggregate)
           {final_score, decoded_value}
         end)
-      
+
       # Clear destination and insert intersection results
       clear_zset(tid, db, destination)
-      
+
       Enum.each(common_members, fn {score, decoded_value} ->
         :ets.insert(tid, {{db, destination, score, decoded_value}, nil})
         :ets.insert(tid, {{db, destination, decoded_value}, score})
@@ -386,7 +396,7 @@ defmodule Veidrodelis.ZsetStore do
   @spec zscore(t(), db(), key(), member()) :: score() | nil
   def zscore(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, member) do
     decoded_value = decode_fun.(key, member)
-    
+
     case :ets.lookup(tid, {db, key, decoded_value}) do
       [] -> nil
       [{_, score}] -> score
@@ -404,7 +414,7 @@ defmodule Veidrodelis.ZsetStore do
     match_spec = [
       {{{db, key, :_}, :_}, [], [true]}
     ]
-    
+
     :ets.select_count(tid, match_spec)
   end
 
@@ -429,11 +439,17 @@ defmodule Veidrodelis.ZsetStore do
 
   Returns a list of {decoded_value, score} tuples.
   """
-  @spec zrangebyscore(t(), db(), key(), score() | :neg_inf | :pos_inf, score() | :neg_inf | :pos_inf) :: [{entry(), score()}]
+  @spec zrangebyscore(
+          t(),
+          db(),
+          key(),
+          score() | :neg_inf | :pos_inf,
+          score() | :neg_inf | :pos_inf
+        ) :: [{entry(), score()}]
   def zrangebyscore(%__MODULE__{tid: tid}, db, key, min, max) do
     match_head = {{db, key, :"$1", :"$2"}, :_}
     match_spec = [{match_head, [], [{{:"$2", :"$1"}}]}]
-    
+
     :ets.select(tid, match_spec)
     |> Enum.filter(fn {_decoded_value, score} ->
       score_in_range?(score, min, max)
@@ -469,14 +485,16 @@ defmodule Veidrodelis.ZsetStore do
     score_match_spec = [
       {{{db, key, :_, :_}, :_}, [], [true]}
     ]
+
     :ets.select_delete(tid, score_match_spec)
-    
+
     # Delete member-lookup entries
     member_match_spec = [
       {{{db, key, :_}, :_}, [], [true]}
     ]
+
     :ets.select_delete(tid, member_match_spec)
-    
+
     :ok
   end
 
@@ -486,14 +504,14 @@ defmodule Veidrodelis.ZsetStore do
     # Get all members sorted by score using score-indexed entries
     match_head = {{db, key, :"$1", :"$2"}, :_}
     match_spec = [{match_head, [], [{{:"$2", :"$1"}}]}]
-    
+
     all_members = :ets.select(tid, match_spec)
-    
+
     # Normalize negative indices
     count = length(all_members)
     start_idx = if start < 0, do: max(0, count + start), else: start
     stop_idx = if stop < 0, do: max(-1, count + stop), else: stop
-    
+
     # Return slice
     if stop_idx < start_idx or start_idx >= count do
       []
@@ -504,33 +522,37 @@ defmodule Veidrodelis.ZsetStore do
 
   # Checks if a score is within the given range
   defp score_in_range?(score, min, max) do
-    min_ok = case min do
-      :neg_inf -> true
-      min_score -> score >= min_score
-    end
-    
-    max_ok = case max do
-      :pos_inf -> true
-      max_score -> score <= max_score
-    end
-    
+    min_ok =
+      case min do
+        :neg_inf -> true
+        min_score -> score >= min_score
+      end
+
+    max_ok =
+      case max do
+        :pos_inf -> true
+        max_score -> score <= max_score
+      end
+
     min_ok and max_ok
   end
 
   # Checks if a value is within the given lexicographical range
   defp lex_in_range?(value, min, max) do
-    min_ok = case min do
-      :neg_inf -> true
-      :"-" -> true
-      min_val -> value >= min_val
-    end
-    
-    max_ok = case max do
-      :pos_inf -> true
-      :"+" -> true
-      max_val -> value <= max_val
-    end
-    
+    min_ok =
+      case min do
+        :neg_inf -> true
+        :- -> true
+        min_val -> value >= min_val
+      end
+
+    max_ok =
+      case max do
+        :pos_inf -> true
+        :+ -> true
+        max_val -> value <= max_val
+      end
+
     min_ok and max_ok
   end
 
@@ -538,7 +560,7 @@ defmodule Veidrodelis.ZsetStore do
   defp normalize_weights(keys, []) do
     List.duplicate(1.0, length(keys))
   end
-  
+
   defp normalize_weights(keys, weights) do
     weights ++ List.duplicate(1.0, length(keys) - length(weights))
   end
@@ -548,4 +570,3 @@ defmodule Veidrodelis.ZsetStore do
   defp aggregate_scores(scores, :min), do: Enum.min(scores)
   defp aggregate_scores(scores, :max), do: Enum.max(scores)
 end
-

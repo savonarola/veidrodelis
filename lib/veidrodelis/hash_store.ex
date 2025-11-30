@@ -218,4 +218,3 @@ defmodule Veidrodelis.HashStore do
     :ok
   end
 end
-

@@ -351,7 +351,7 @@ defmodule Veidrodelis.StringStore do
 
         # Set bit if exactly one source has it
         if count == 1 do
-          acc ||| (1 <<< (7 - bit_pos))
+          acc ||| 1 <<< (7 - bit_pos)
         else
           acc
         end

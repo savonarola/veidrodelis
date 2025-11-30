@@ -173,9 +173,15 @@ defmodule Veidrodelis.Test.Toxiproxy do
     - {:error, reason} on failure
   """
   def add_reset_peer(proxy, timeout_ms \\ 0, stream \\ :downstream) do
-    add_toxic(proxy, "reset_peer_#{stream}_#{:erlang.unique_integer([:positive])}", "reset_peer", stream, %{
-      timeout: timeout_ms
-    })
+    add_toxic(
+      proxy,
+      "reset_peer_#{stream}_#{:erlang.unique_integer([:positive])}",
+      "reset_peer",
+      stream,
+      %{
+        timeout: timeout_ms
+      }
+    )
   end
 
   @doc """
