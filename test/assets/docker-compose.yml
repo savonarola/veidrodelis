@@ -1,8 +1,6 @@
-version: '3.8'
-
 services:
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: veidrodelis-redis
     ports:
       - "16378:6379"
@@ -10,7 +8,7 @@ services:
       redis-server
       --repl-diskless-sync yes
       --save 60 1
-      --loglevel verbose
+      --loglevel debug
     networks:
       - veidrodelis-net
 

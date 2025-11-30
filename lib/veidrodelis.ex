@@ -175,7 +175,7 @@ defmodule Veidrodelis do
   ## Options
 
     * `:id` - Required. Unique identifier for this Veidrodelis instance
-    * `:decoder` - Optional. Module implementing the Veidrodelis decoder behaviour (default: DefaultDecoder)
+    * `:decoder` - Required. Module implementing the Veidrodelis decoder behaviour
     * `:host` - Redis host (default: "localhost")
     * `:port` - Redis port (default: 6379)
     * `:username` - Redis username for ACL authentication (default: nil)
@@ -212,7 +212,7 @@ defmodule Veidrodelis do
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
     id = Keyword.fetch!(opts, :id)
-    decoder = Keyword.get(opts, :decoder, DefaultDecoder)
+    decoder = Keyword.fetch!(opts, :decoder)
 
     # Extract redis connection options
     redis_opts =
@@ -293,20 +293,12 @@ defmodule Veidrodelis do
   @impl Vdr.RedisStream.Callback
   def on_replication_start(%__MODULE__{} = state) do
     # Reinitialize with existing ID and decoder
-    new_state = reinitialize_state(state)
-    {:ok, new_state}
+    reinitialize_state(state)
   end
 
   def on_replication_start({id, decoder}) when is_atom(decoder) do
-    # Initialize new state with custom decoder
-    state = initialize_state(id, decoder)
-    {:ok, state}
-  end
-
-  def on_replication_start(id) do
-    # Initialize new state with default decoder
-    state = initialize_state(id, DefaultDecoder)
-    {:ok, state}
+    # Initialize new state with decoder
+    initialize_state(id, decoder)
   end
 
   @impl Vdr.RedisStream.Callback
@@ -390,9 +382,6 @@ defmodule Veidrodelis do
   # Private functions
 
   defp initialize_state(id, decoder) do
-    # Ensure registry table exists
-    ensure_registry_table()
-
     # Register with Vdr.Registry for automatic cleanup at the very beginning
     cleanup_fun = fn ->
       # Deregister from global ETS registry
@@ -403,57 +392,63 @@ defmodule Veidrodelis do
       :ets.delete(:veidrodelis_registry, {id, :zsets})
     end
 
-    :ok = Vdr.Registry.register(id, self(), cleanup_fun)
+    case Vdr.Registry.register(id, self(), cleanup_fun) do
+      :ok ->
+        # Create key registry table
+        key_registry = :ets.new(:key_registry, [:set, :private])
 
-    # Create key registry table
-    key_registry = :ets.new(:key_registry, [:set, :private])
+        # Cache decoder function availability
+        decoder_funs = %{
+          string_key: function_exported?(decoder, :decode_string_key, 1),
+          string_value: function_exported?(decoder, :decode_string_value, 2),
+          set_key: function_exported?(decoder, :decode_set_key, 1),
+          set_entry: function_exported?(decoder, :decode_set_entry, 2),
+          list_key: function_exported?(decoder, :decode_list_key, 1),
+          list_entry: function_exported?(decoder, :decode_list_entry, 2),
+          hash_key: function_exported?(decoder, :decode_hash_key, 1),
+          hash_hkey: function_exported?(decoder, :decode_hash_hkey, 2),
+          hash_entry: function_exported?(decoder, :decode_hash_entry, 3),
+          zset_key: function_exported?(decoder, :decode_zset_key, 1),
+          zset_entry: function_exported?(decoder, :decode_zset_entry, 2)
+        }
 
-    # Cache decoder function availability
-    decoder_funs = %{
-      string_key: function_exported?(decoder, :decode_string_key, 1),
-      string_value: function_exported?(decoder, :decode_string_value, 2),
-      set_key: function_exported?(decoder, :decode_set_key, 1),
-      set_entry: function_exported?(decoder, :decode_set_entry, 2),
-      list_key: function_exported?(decoder, :decode_list_key, 1),
-      list_entry: function_exported?(decoder, :decode_list_entry, 2),
-      hash_key: function_exported?(decoder, :decode_hash_key, 1),
-      hash_hkey: function_exported?(decoder, :decode_hash_hkey, 2),
-      hash_entry: function_exported?(decoder, :decode_hash_entry, 3),
-      zset_key: function_exported?(decoder, :decode_zset_key, 1),
-      zset_entry: function_exported?(decoder, :decode_zset_entry, 2)
-    }
+        # Create stores with decoder functions
+        strings = StringStore.new(&decode_string_value(decoder, decoder_funs, &1, &2))
+        lists = ListStore.new(decode_fun: &decode_list_entry(decoder, decoder_funs, &1, &2))
+        sets = SetStore.new(&decode_set_entry(decoder, decoder_funs, &1, &2))
 
-    # Create stores with decoder functions
-    strings = StringStore.new(&decode_string_value(decoder, decoder_funs, &1, &2))
-    lists = ListStore.new(decode_fun: &decode_list_entry(decoder, decoder_funs, &1, &2))
-    sets = SetStore.new(&decode_set_entry(decoder, decoder_funs, &1, &2))
+        hashes =
+          HashStore.new(
+            &decode_hash_hkey(decoder, decoder_funs, &1, &2),
+            &decode_hash_entry(decoder, decoder_funs, &1, &2, &3)
+          )
 
-    hashes =
-      HashStore.new(
-        &decode_hash_hkey(decoder, decoder_funs, &1, &2),
-        &decode_hash_entry(decoder, decoder_funs, &1, &2, &3)
-      )
+        zsets = ZsetStore.new(&decode_zset_entry(decoder, decoder_funs, &1, &2))
 
-    zsets = ZsetStore.new(&decode_zset_entry(decoder, decoder_funs, &1, &2))
+        # Register stores in global registry
+        :ets.insert(:veidrodelis_registry, {{id, :strings}, strings})
+        :ets.insert(:veidrodelis_registry, {{id, :lists}, lists})
+        :ets.insert(:veidrodelis_registry, {{id, :sets}, sets})
+        :ets.insert(:veidrodelis_registry, {{id, :hashes}, hashes})
+        :ets.insert(:veidrodelis_registry, {{id, :zsets}, zsets})
 
-    # Register stores in global registry
-    :ets.insert(:veidrodelis_registry, {{id, :strings}, strings})
-    :ets.insert(:veidrodelis_registry, {{id, :lists}, lists})
-    :ets.insert(:veidrodelis_registry, {{id, :sets}, sets})
-    :ets.insert(:veidrodelis_registry, {{id, :hashes}, hashes})
-    :ets.insert(:veidrodelis_registry, {{id, :zsets}, zsets})
+        state = %__MODULE__{
+          id: id,
+          decoder: decoder,
+          key_registry: key_registry,
+          strings: strings,
+          lists: lists,
+          sets: sets,
+          hashes: hashes,
+          zsets: zsets,
+          decoder_funs: decoder_funs
+        }
 
-    %__MODULE__{
-      id: id,
-      decoder: decoder,
-      key_registry: key_registry,
-      strings: strings,
-      lists: lists,
-      sets: sets,
-      hashes: hashes,
-      zsets: zsets,
-      decoder_funs: decoder_funs
-    }
+        {:ok, state}
+
+      {:error, reason} ->
+        {:error, {:registry_register_failed, reason}}
+    end
   end
 
   defp reinitialize_state(%__MODULE__{id: id, decoder: decoder} = state) do
@@ -479,20 +474,10 @@ defmodule Veidrodelis do
     :ok
   end
 
-  defp ensure_registry_table do
-    case :ets.whereis(:veidrodelis_registry) do
-      :undefined ->
-        :ets.new(:veidrodelis_registry, [:set, :public, :named_table])
-
-      _ ->
-        :ok
-    end
-  end
-
   defp lookup_store(id, type) do
     case :ets.lookup(:veidrodelis_registry, {id, type}) do
       [{{^id, ^type}, store}] -> store
-      [] -> raise "No store registered for #{inspect(id)} / #{inspect(type)}"
+      [] -> raise ArgumentError, "No store registered for #{inspect(id)} / #{inspect(type)}"
     end
   end
 

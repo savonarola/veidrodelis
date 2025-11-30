@@ -85,13 +85,13 @@ defmodule Veidrodelis.ReplicaTest do
         # Verify we received commands from RDB
         command_in_list(%Command.Set{key: "key1", value: "value1"}, commands) &&
           command_in_list(%Command.Set{key: "key2", value: "value2"}, commands) &&
-          command_in_list(%Command.RPush{key: "mylist", values: values}, commands) &&
-          command_in_list(%Command.SAdd{key: "myset", members: members}, commands) &&
-          command_in_list(%Command.ZAdd{key: "myzset", members: members}, commands) &&
-          command_in_list(%Command.HSet{key: "myhash", fields: fields}, commands) &&
+          command_in_list(%Command.RPush{key: "mylist"}, commands) &&
+          command_in_list(%Command.SAdd{key: "myset"}, commands) &&
+          command_in_list(%Command.ZAdd{key: "myzset"}, commands) &&
+          command_in_list(%Command.HSet{key: "myhash"}, commands) &&
           command_in_list(%Command.Set{key: "key3", value: "value3"}, commands) &&
-          command_in_list(%Command.RPush{key: "mylist", values: values}, commands) &&
-          command_in_list(%Command.SAdd{key: "myset", members: members}, commands)
+          command_in_list(%Command.RPush{key: "mylist"}, commands) &&
+          command_in_list(%Command.SAdd{key: "myset"}, commands)
       end
 
       Replica.stop(replica)
@@ -230,17 +230,14 @@ defmodule Veidrodelis.ReplicaTest do
         Replica.get_replication_state(replica) == :streaming
       end
 
+      assert_happens_within 1500 do
+        commands = CollectorCallback.commands(Replica.get_callback_state(replica))
+        command_in_list(%Command.SAdd{key: "testset"}, commands)
+      end
+
       callback_state = Replica.get_callback_state(replica)
       commands = CollectorCallback.commands(callback_state)
-
-      sadd_commands = filter_commands(%Command.SAdd{}, commands)
-
-      # Should have 1 SADD command with both members
-      assert length(sadd_commands) >= 1
-
-      # Verify both members are present in the command
-      assert command_in_list(%Command.SAdd{key: "testset", members: members}, commands)
-      [%Command.SAdd{members: members}] = sadd_commands
+      [%Command.SAdd{members: members}] = filter_commands(%Command.SAdd{}, commands)
       assert "member1" in members and "member2" in members
 
       Replica.stop(replica)
@@ -262,17 +259,21 @@ defmodule Veidrodelis.ReplicaTest do
         Replica.get_replication_state(replica) == :streaming
       end
 
-      callback_state = Replica.get_callback_state(replica)
-      commands = CollectorCallback.commands(callback_state)
+      assert_happens_within 1500 do
+        commands =
+          replica
+          |> Replica.get_callback_state()
+          |> CollectorCallback.commands()
 
+        command_in_list(%Command.ZAdd{key: "testzset"}, commands)
+      end
+
+      state = Replica.get_callback_state(replica)
+      commands = CollectorCallback.commands(state)
       zadd_commands = filter_commands(%Command.ZAdd{}, commands)
 
-      # Should have 1 ZADD command with both members
-      assert length(zadd_commands) >= 1
-
-      # Verify both members with correct scores are present in the command
-      assert command_in_list(%Command.ZAdd{key: "testzset", members: members}, commands)
       [%Command.ZAdd{members: members}] = zadd_commands
+
       assert {1.0, "member1"} in members
       assert {2.5, "member2"} in members
 
@@ -414,7 +415,7 @@ defmodule Veidrodelis.ReplicaTest do
 
         command_in_list(%Command.Set{key: "streamkey1", value: "streamvalue1"}, commands) &&
           command_in_list(%Command.Set{key: "streamkey2", value: "streamvalue2"}, commands) &&
-          command_in_list(%Command.RPush{key: "streamlist", values: values}, commands)
+          command_in_list(%Command.RPush{key: "streamlist"}, commands)
       end
 
       Replica.stop(replica)
@@ -515,6 +516,7 @@ defmodule Veidrodelis.ReplicaTest do
     test "handles connection to non-existent Redis" do
       original_level = Logger.level()
       Logger.configure(level: :critical)
+
       on_exit(fn ->
         Logger.configure(level: original_level)
       end)

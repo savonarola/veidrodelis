@@ -261,9 +261,19 @@ defmodule Vdr.RedisStream.Replica do
     handle_disconnect(state, :connection_closed)
   end
 
+  def handle_info({:tcp_closed, _socket}, state) do
+    Logger.warning("Connection closed (stale socket)")
+    {:noreply, state}
+  end
+
   def handle_info({:ssl_closed, socket}, %{socket: socket} = state) do
     Logger.warning("SSL connection closed")
     handle_disconnect(state, :ssl_connection_closed)
+  end
+
+  def handle_info({:ssl_closed, _socket}, state) do
+    Logger.warning("SSL connection closed (stale socket)")
+    {:noreply, state}
   end
 
   def handle_info({:tcp_error, socket, reason}, %{socket: socket} = state) do
@@ -471,12 +481,10 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   defp handle_data(data, state) do
-    # Add data to buffer (prepend to iolist)
     new_buffer = [data | state.buffer]
     new_buffer_size = state.buffer_size + byte_size(data)
     new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
 
-    # Process based on current state
     result =
       case new_state.state do
         :ping ->
@@ -913,7 +921,7 @@ defmodule Vdr.RedisStream.Replica do
           <<"+CONTINUE"::binary, _::binary>> ->
             binary = buffer_to_binary(state)
 
-            case :binary.split(binary, "\r\n\n") do
+            case :binary.split(binary, "\r\n") do
               [<<"+CONTINUE"::binary, _::binary>>, rest] ->
                 new_state = %{
                   state
@@ -973,6 +981,21 @@ defmodule Vdr.RedisStream.Replica do
                   :incomplete
               end
 
+            ## Redis has a replicationCron fun running once a second.
+            ## It sends a single \n to the replicas waiting for the RDB snapshot.
+            ## We should handle it and ignore.
+            <<"\n"::binary, _::binary>> ->
+              binary = buffer_to_binary(state)
+              <<"\n"::binary, rest::binary>> = binary
+
+              new_state = %{
+                state
+                | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
+                  buffer_size: byte_size(rest)
+              }
+
+              parse_bulk_string_header(new_state)
+
             _ ->
               {:error, :invalid_bulk_string_header}
           end
@@ -1009,6 +1032,11 @@ defmodule Vdr.RedisStream.Replica do
                 :incomplete
             end
 
+          <<"\n"::binary, _::binary>> ->
+            binary = buffer_to_binary(state)
+            <<"\n"::binary, rest::binary>> = binary
+            new_state = %{state | buffer: if(byte_size(rest) > 0, do: [rest], else: []), buffer_size: byte_size(rest)}
+            parse_command(new_state)
           _ ->
             :incomplete
         end

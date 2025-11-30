@@ -187,8 +187,10 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       end
 
       # on_replication_start should NOT be called again for partial resync
-      callback_state = Replica.get_callback_state(replica)
-      assert Map.get(callback_state, :replication_starts) == 1
+      assert_happens_within 2000 do
+        callback_state = Replica.get_callback_state(replica)
+        1 == CollectorCallback.replication_starts(callback_state)
+      end
 
       Replica.stop(replica)
     end

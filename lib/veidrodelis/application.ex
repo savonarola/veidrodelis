@@ -9,7 +9,7 @@ defmodule Vdr.Application do
       Vdr.Registry
     ]
 
-    opts = [strategy: :one_for_one, name: Vdr.Supervisor]
+    opts = [strategy: :one_for_one, name: Vdr.Application.Supervisor]
     Supervisor.start_link(children, opts)
   end
 end

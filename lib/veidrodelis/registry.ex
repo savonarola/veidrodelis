@@ -75,6 +75,7 @@ defmodule Vdr.Registry do
   def init(:ok) do
     # Trap exits to ensure cleanup on terminate
     Process.flag(:trap_exit, true)
+    _ = :ets.new(:veidrodelis_registry, [:set, :public, :named_table])
     # State is a map: id => {pid, cleanup_fun, monitor_ref}
     {:ok, %{}}
   end

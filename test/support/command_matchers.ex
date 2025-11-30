@@ -7,10 +7,10 @@ defmodule CommandMatchers do
 
   defmacro command_in_list(command, command_list) do
     quote do
-      assert Enum.any?(unquote(command_list), fn
-               unquote(command) -> true
-               _ -> false
-             end)
+      Enum.any?(unquote(command_list), fn
+        unquote(command) -> true
+        _ -> false
+      end)
     end
   end
 
