@@ -4,35 +4,28 @@ defmodule Veidrodelis.HashStoreTest do
   alias Veidrodelis.HashStore
 
   setup do
-    # Create a unique table name for each test
-    table_name = :"hash_store_#{:erlang.unique_integer([:positive])}"
-
     # Simple decode functions that return values as-is
     decode_hkey_fun = fn _key, field -> field end
     decode_fun = fn _key, _hkey, value -> value end
 
-    store = HashStore.new(table_name, decode_hkey_fun, decode_fun)
+    store = HashStore.new(decode_hkey_fun, decode_fun)
 
-    on_exit(fn ->
-      HashStore.destroy(store)
-    end)
-
-    {:ok, store: store, table: table_name}
+    {:ok, store: store}
   end
 
-  describe "new/3" do
+  describe "new/2" do
     test "creates a new ETS table and returns a struct" do
       decode_hkey_fun = fn _key, field -> field end
       decode_fun = fn _key, _hkey, value -> value end
-      store = HashStore.new(:test_hash_table, decode_hkey_fun, decode_fun)
+      store = HashStore.new(decode_hkey_fun, decode_fun)
 
       assert %HashStore{
-               table: :test_hash_table,
+               tid: tid,
                decode_hkey_fun: ^decode_hkey_fun,
                decode_fun: ^decode_fun
              } = store
 
-      assert :ets.info(:test_hash_table) != :undefined
+      assert is_reference(tid)
 
       # Clean up
       HashStore.destroy(store)
@@ -300,7 +293,7 @@ defmodule Veidrodelis.HashStoreTest do
       decode_hkey_fun = fn _key, field -> String.upcase(field) end
       decode_fun = fn _key, _hkey, value -> value end
 
-      store = HashStore.new(:case_insensitive_hash, decode_hkey_fun, decode_fun)
+      store = HashStore.new(decode_hkey_fun, decode_fun)
 
       :ok =
         HashStore.hset(store, 0, "myhash", [
@@ -327,7 +320,7 @@ defmodule Veidrodelis.HashStoreTest do
       decode_hkey_fun = fn key, field -> {key, field} end
       decode_fun = fn _key, _hkey, value -> value end
 
-      store = HashStore.new(:key_aware_hash, decode_hkey_fun, decode_fun)
+      store = HashStore.new(decode_hkey_fun, decode_fun)
 
       :ok = HashStore.hset(store, 0, "hash1", [{"field1", "value1"}])
       :ok = HashStore.hset(store, 0, "hash2", [{"field1", "value2"}])
@@ -356,7 +349,7 @@ defmodule Veidrodelis.HashStoreTest do
         end
       end
 
-      store = HashStore.new(:numeric_hash, decode_hkey_fun, decode_fun)
+      store = HashStore.new(decode_hkey_fun, decode_fun)
 
       :ok =
         HashStore.hset(store, 0, "myhash", [
@@ -382,7 +375,7 @@ defmodule Veidrodelis.HashStoreTest do
         {key, hkey, value}
       end
 
-      store = HashStore.new(:context_hash, decode_hkey_fun, decode_fun)
+      store = HashStore.new(decode_hkey_fun, decode_fun)
 
       :ok = HashStore.hset(store, 0, "myhash", [{"field1", "value1"}])
 
