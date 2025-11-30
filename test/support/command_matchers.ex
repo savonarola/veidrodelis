@@ -5,8 +5,6 @@ defmodule CommandMatchers do
     end
   end
 
-  import Logger
-
   defmacro assert_command_in_list(command, command_list) do
     quote do
       assert Enum.any?(unquote(command_list), fn

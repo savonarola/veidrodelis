@@ -4,6 +4,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
   alias Veidrodelis.RedisStream.Replica
   alias Veidrodelis.Command
   alias Veidrodelis.Test.Toxiproxy
+  use CommandMatchers
 
   # Callback module that collects all commands
   defmodule CollectorCallback do
@@ -24,6 +25,16 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       replication_starts = Map.get(state, :replication_starts, 0)
       new_state = Map.put(state, :replication_starts, replication_starts + 1)
       {:ok, new_state}
+    end
+
+    def commands(state) do
+      Map.get(state, :commands, [])
+      |> Enum.map(fn {_ts, _db, cmd} -> cmd end)
+      |> Enum.reverse()
+    end
+
+    def replication_starts(state) do
+      Map.get(state, :replication_starts, 0)
     end
   end
 
@@ -73,28 +84,29 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for initial sync
-      Process.sleep(1500)
+      assert_happens_within 1500 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Verify initial command was received
       callback_state = Replica.get_callback_state(replica)
-      commands = Map.get(callback_state, :commands, [])
+      commands = CollectorCallback.commands(callback_state)
 
-      assert Enum.any?(commands, fn
-               {_ts, _db, %Command.Set{key: "before_disconnect", value: "value1"}} -> true
-               _ -> false
-             end)
+      assert_command_in_list %Command.Set{key: "before_disconnect", value: "value1"}, commands
 
       # Break connection
       :ok = Toxiproxy.break_connection("redis")
 
       # Wait for disconnection to be detected
-      Process.sleep(500)
+      Process.sleep(1000)
 
       # Restore connection
       :ok = Toxiproxy.restore_connection("redis")
 
       # Wait longer for both replica and redix to reconnect and stabilize
-      Process.sleep(5000)
+      assert_happens_within 5000 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Write new data after reconnection - use fresh connection
       {:ok, redis_new} = Redix.start_link(host: @redis_host, port: @redis_port)
@@ -103,16 +115,11 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       Redix.stop(redis_new)
 
       # Wait for replication to process
-      Process.sleep(2000)
-
-      # Verify we received the new command
-      callback_state = Replica.get_callback_state(replica)
-      commands = Map.get(callback_state, :commands, [])
-
-      assert Enum.any?(commands, fn
-               {_ts, _db, %Command.Set{key: "after_reconnect", value: "value2"}} -> true
-               _ -> false
-             end)
+      assert_happens_within 2000 do
+        callback_state = Replica.get_callback_state(replica)
+        commands = CollectorCallback.commands(callback_state)
+        assert_command_in_list %Command.Set{key: "after_reconnect", value: "value2"}, commands
+      end
 
       Replica.stop(replica)
     end
@@ -133,34 +140,33 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for initial sync
-      Process.sleep(1500)
+      assert_happens_within 1500 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Hard reset the connection (this toxic only fires once)
       {:ok, toxic} = Toxiproxy.add_reset_peer("redis", 0)
 
       # Wait for disconnection
-      Process.sleep(500)
+      Process.sleep(1000)
 
       # Remove the toxic so connection can stabilize
       Toxiproxy.remove_toxic("redis", toxic["name"])
 
       # Wait for reconnection
-      Process.sleep(2000)
+      assert_happens_within 2000 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Write new data
       Redix.command!(redis, ["SET", "after_reset", "value"])
 
       # Wait for replication
-      Process.sleep(500)
-
-      # Verify we received the command
-      callback_state = Replica.get_callback_state(replica)
-      commands = Map.get(callback_state, :commands, [])
-
-      assert Enum.any?(commands, fn
-               {_ts, _db, %Command.Set{key: "after_reset"}} -> true
-               _ -> false
-             end)
+      assert_happens_within 500 do
+        callback_state = Replica.get_callback_state(replica)
+        commands = CollectorCallback.commands(callback_state)
+        assert_command_in_list %Command.Set{key: "after_reset"}, commands
+      end
 
       # Clean up
       Toxiproxy.reset("redis")
@@ -183,11 +189,13 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for initial sync
-      Process.sleep(1500)
+      assert_happens_within 1500 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Check that on_replication_start was called once on initial full sync
       callback_state = Replica.get_callback_state(replica)
-      assert Map.get(callback_state, :replication_starts) == 1
+      assert 1 == CollectorCallback.replication_starts(callback_state)
 
       Replica.stop(replica)
     end
@@ -208,11 +216,13 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for initial sync
-      Process.sleep(1500)
+      assert_happens_within 1500 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Check that on_replication_start was called once
       callback_state = Replica.get_callback_state(replica)
-      assert Map.get(callback_state, :replication_starts) == 1
+      assert 1 == CollectorCallback.replication_starts(callback_state)
 
       # Break and restore connection quickly (should trigger partial resync)
       :ok = Toxiproxy.break_connection("redis")
@@ -220,11 +230,13 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       :ok = Toxiproxy.restore_connection("redis")
 
       # Wait for reconnection
-      Process.sleep(2000)
+      assert_happens_within 2000 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # on_replication_start should NOT be called again for partial resync
       callback_state = Replica.get_callback_state(replica)
-      assert Map.get(callback_state, :replication_starts) == 1
+      assert 1 == CollectorCallback.replication_starts(callback_state)
 
       Replica.stop(replica)
     end
@@ -255,7 +267,9 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       :ok = Toxiproxy.enable("redis")
 
       # Wait for successful connection
-      Process.sleep(2000)
+      assert_happens_within 2000 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Replica should still be alive
       assert Process.alive?(replica)
@@ -279,13 +293,17 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for initial sync
-      Process.sleep(1500)
+      assert_happens_within 1500 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Simulate 2-second network outage
       :ok = Toxiproxy.simulate_outage("redis", 2000)
 
       # Wait for reconnection
-      Process.sleep(5000)
+      assert_happens_within 5000 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Write new data - use fresh connection
       {:ok, redis_new} = Redix.start_link(host: @redis_host, port: @redis_port)
@@ -294,21 +312,18 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       Redix.stop(redis_new)
 
       # Wait for replication
-      Process.sleep(2000)
+      assert_happens_within 2000 do
+        callback_state = Replica.get_callback_state(replica)
+        commands = CollectorCallback.commands(callback_state)
+        assert_command_in_list %Command.Set{key: "after_outage"}, commands
+      end
 
       # Verify we received both commands
       callback_state = Replica.get_callback_state(replica)
-      commands = Map.get(callback_state, :commands, [])
+      commands = CollectorCallback.commands(callback_state)
 
-      assert Enum.any?(commands, fn
-               {_ts, _db, %Command.Set{key: "before_outage"}} -> true
-               _ -> false
-             end)
-
-      assert Enum.any?(commands, fn
-               {_ts, _db, %Command.Set{key: "after_outage"}} -> true
-               _ -> false
-             end)
+      assert_command_in_list %Command.Set{key: "before_outage", value: "value1"}, commands
+      assert_command_in_list %Command.Set{key: "after_outage", value: "value2"}, commands
 
       Replica.stop(replica)
     end
@@ -331,7 +346,9 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for initial sync
-      Process.sleep(1500)
+      assert_happens_within 1500 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Get initial offset
       initial_offset = Replica.get_offset(replica)
@@ -343,7 +360,9 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       :ok = Toxiproxy.restore_connection("redis")
 
       # Wait for reconnection
-      Process.sleep(2000)
+      assert_happens_within 2000 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Offset should be preserved or increased
       final_offset = Replica.get_offset(replica)
