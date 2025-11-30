@@ -4,8 +4,53 @@ defmodule Veidrodelis.ListStoreTest do
   alias Veidrodelis.ListStore
 
   setup do
-    {:ok, store} = ListStore.start_link()
+    store = ListStore.new()
     {:ok, store: store}
+  end
+
+  describe "new/1" do
+    test "creates a new GenServer and returns a struct" do
+      store = ListStore.new()
+
+      assert %ListStore{pid: pid} = store
+      assert is_pid(pid)
+      assert Process.alive?(pid)
+
+      # Clean up
+      ListStore.destroy(store)
+    end
+
+    test "accepts GenServer options" do
+      store = ListStore.new(name: :test_list_store)
+
+      assert %ListStore{pid: pid} = store
+      assert Process.alive?(pid)
+
+      # Verify it's registered
+      assert Process.whereis(:test_list_store) == pid
+
+      # Clean up
+      ListStore.destroy(store)
+    end
+  end
+
+  describe "destroy/1" do
+    test "stops the GenServer process" do
+      store = ListStore.new()
+
+      assert Process.alive?(store.pid)
+
+      :ok = ListStore.destroy(store)
+
+      # Give it a moment to stop
+      Process.sleep(10)
+      refute Process.alive?(store.pid)
+    end
+
+    test "returns :ok" do
+      store = ListStore.new()
+      assert :ok = ListStore.destroy(store)
+    end
   end
 
   describe "lpush/4" do

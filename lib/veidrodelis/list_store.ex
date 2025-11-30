@@ -22,7 +22,12 @@ defmodule Veidrodelis.ListStore do
 
   use GenServer
 
-  @type server :: GenServer.server()
+  defstruct [:pid]
+
+  @type t :: %__MODULE__{
+          pid: pid()
+        }
+
   @type db :: non_neg_integer()
   @type key :: any()
   @type value :: any()
@@ -31,11 +36,12 @@ defmodule Veidrodelis.ListStore do
   # Client API
 
   @doc """
-  Starts the list store server.
+  Creates a new list store.
   """
-  @spec start_link(keyword()) :: GenServer.on_start()
-  def start_link(opts \\ []) do
-    GenServer.start_link(__MODULE__, %{}, opts)
+  @spec new(keyword()) :: t()
+  def new(opts \\ []) do
+    {:ok, pid} = GenServer.start_link(__MODULE__, %{}, opts)
+    %__MODULE__{pid: pid}
   end
 
   @doc """
@@ -43,50 +49,50 @@ defmodule Veidrodelis.ListStore do
   Elements are inserted one after the other, so LPUSH key "a" "b" "c"
   results in ["c", "b", "a"] being prepended.
   """
-  @spec lpush(server(), db(), key(), [value()]) :: :ok
-  def lpush(server, db, key, values) when is_list(values) do
-    GenServer.cast(server, {:lpush, db, key, values})
+  @spec lpush(t(), db(), key(), [value()]) :: :ok
+  def lpush(%__MODULE__{pid: pid}, db, key, values) when is_list(values) do
+    GenServer.cast(pid, {:lpush, db, key, values})
   end
 
   @doc """
   Insert all values at the tail of the list.
   Elements are inserted in order.
   """
-  @spec rpush(server(), db(), key(), [value()]) :: :ok
-  def rpush(server, db, key, values) when is_list(values) do
-    GenServer.cast(server, {:rpush, db, key, values})
+  @spec rpush(t(), db(), key(), [value()]) :: :ok
+  def rpush(%__MODULE__{pid: pid}, db, key, values) when is_list(values) do
+    GenServer.cast(pid, {:rpush, db, key, values})
   end
 
   @doc """
   Insert values at the head, only if the key exists.
   """
-  @spec lpushx(server(), db(), key(), [value()]) :: :ok
-  def lpushx(server, db, key, values) when is_list(values) do
-    GenServer.cast(server, {:lpushx, db, key, values})
+  @spec lpushx(t(), db(), key(), [value()]) :: :ok
+  def lpushx(%__MODULE__{pid: pid}, db, key, values) when is_list(values) do
+    GenServer.cast(pid, {:lpushx, db, key, values})
   end
 
   @doc """
   Insert values at the tail, only if the key exists.
   """
-  @spec rpushx(server(), db(), key(), [value()]) :: :ok
-  def rpushx(server, db, key, values) when is_list(values) do
-    GenServer.cast(server, {:rpushx, db, key, values})
+  @spec rpushx(t(), db(), key(), [value()]) :: :ok
+  def rpushx(%__MODULE__{pid: pid}, db, key, values) when is_list(values) do
+    GenServer.cast(pid, {:rpushx, db, key, values})
   end
 
   @doc """
   Remove and return the first element of the list.
   """
-  @spec lpop(server(), db(), key()) :: :ok
-  def lpop(server, db, key) do
-    GenServer.cast(server, {:lpop, db, key})
+  @spec lpop(t(), db(), key()) :: :ok
+  def lpop(%__MODULE__{pid: pid}, db, key) do
+    GenServer.cast(pid, {:lpop, db, key})
   end
 
   @doc """
   Remove and return the last element of the list.
   """
-  @spec rpop(server(), db(), key()) :: :ok
-  def rpop(server, db, key) do
-    GenServer.cast(server, {:rpop, db, key})
+  @spec rpop(t(), db(), key()) :: :ok
+  def rpop(%__MODULE__{pid: pid}, db, key) do
+    GenServer.cast(pid, {:rpop, db, key})
   end
 
   @doc """
@@ -95,61 +101,70 @@ defmodule Veidrodelis.ListStore do
   - count < 0: Remove elements from tail to head
   - count = 0: Remove all occurrences
   """
-  @spec lrem(server(), db(), key(), integer(), value()) :: :ok
-  def lrem(server, db, key, count, element) do
-    GenServer.cast(server, {:lrem, db, key, count, element})
+  @spec lrem(t(), db(), key(), integer(), value()) :: :ok
+  def lrem(%__MODULE__{pid: pid}, db, key, count, element) do
+    GenServer.cast(pid, {:lrem, db, key, count, element})
   end
 
   @doc """
   Trim the list to the specified range.
   Both start and stop are inclusive and support negative indices.
   """
-  @spec ltrim(server(), db(), key(), integer(), integer()) :: :ok
-  def ltrim(server, db, key, start_idx, stop_idx) do
-    GenServer.cast(server, {:ltrim, db, key, start_idx, stop_idx})
+  @spec ltrim(t(), db(), key(), integer(), integer()) :: :ok
+  def ltrim(%__MODULE__{pid: pid}, db, key, start_idx, stop_idx) do
+    GenServer.cast(pid, {:ltrim, db, key, start_idx, stop_idx})
   end
 
   @doc """
   Set the list element at index to value.
   Supports negative indices.
   """
-  @spec lset(server(), db(), key(), integer(), value()) :: :ok
-  def lset(server, db, key, index, value) do
-    GenServer.cast(server, {:lset, db, key, index, value})
+  @spec lset(t(), db(), key(), integer(), value()) :: :ok
+  def lset(%__MODULE__{pid: pid}, db, key, index, value) do
+    GenServer.cast(pid, {:lset, db, key, index, value})
   end
 
   @doc """
   Insert value before or after the pivot element.
   Position must be :before or :after.
   """
-  @spec linsert(server(), db(), key(), position(), value(), value()) :: :ok
-  def linsert(server, db, key, position, pivot, value) when position in [:before, :after] do
-    GenServer.cast(server, {:linsert, db, key, position, pivot, value})
+  @spec linsert(t(), db(), key(), position(), value(), value()) :: :ok
+  def linsert(%__MODULE__{pid: pid}, db, key, position, pivot, value) when position in [:before, :after] do
+    GenServer.cast(pid, {:linsert, db, key, position, pivot, value})
   end
 
   @doc """
   Atomically pop the last element from source and push it to the head of dest.
   """
-  @spec rpoplpush(server(), db(), key(), key()) :: :ok
-  def rpoplpush(server, db, source, dest) do
-    GenServer.cast(server, {:rpoplpush, db, source, dest})
+  @spec rpoplpush(t(), db(), key(), key()) :: :ok
+  def rpoplpush(%__MODULE__{pid: pid}, db, source, dest) do
+    GenServer.cast(pid, {:rpoplpush, db, source, dest})
   end
 
   @doc """
   Delete the list at the specified key.
   """
-  @spec del(server(), db(), key()) :: :ok
-  def del(server, db, key) do
-    GenServer.cast(server, {:del, db, key})
+  @spec del(t(), db(), key()) :: :ok
+  def del(%__MODULE__{pid: pid}, db, key) do
+    GenServer.cast(pid, {:del, db, key})
   end
 
   @doc """
   Get a range of elements from the list.
   Both start and stop are inclusive and support negative indices.
   """
-  @spec get_range(server(), db(), key(), integer(), integer()) :: [value()]
-  def get_range(server, db, key, start_idx, stop_idx) do
-    GenServer.call(server, {:get_range, db, key, start_idx, stop_idx})
+  @spec get_range(t(), db(), key(), integer(), integer()) :: [value()]
+  def get_range(%__MODULE__{pid: pid}, db, key, start_idx, stop_idx) do
+    GenServer.call(pid, {:get_range, db, key, start_idx, stop_idx})
+  end
+
+  @doc """
+  Stops the GenServer and releases resources.
+  """
+  @spec destroy(t()) :: :ok
+  def destroy(%__MODULE__{pid: pid}) do
+    GenServer.stop(pid)
+    :ok
   end
 
   # Server callbacks
