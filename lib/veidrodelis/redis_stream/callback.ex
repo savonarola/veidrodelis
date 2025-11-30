@@ -63,6 +63,29 @@ defmodule Veidrodelis.RedisStream.Callback do
   alias Veidrodelis.Command
 
   @doc """
+  Called when a full replication is about to start.
+
+  This callback is invoked before the RDB transfer begins, either on the initial
+  connection or after a disconnection that requires a full resync. This allows
+  your application to reset its state before receiving the snapshot.
+
+  ## Parameters
+
+    * `state` - Current state
+
+  ## Returns
+
+    * `{:ok, new_state}` - Continue with replication using new state
+    * `{:error, reason}` - Halt replication with error
+
+  ## Optional
+
+  This callback is optional. If not implemented, replication will proceed with
+  the existing state.
+  """
+  @callback on_replication_start(state :: term()) :: {:ok, term()} | {:error, term()}
+
+  @doc """
   Called when a Redis command is parsed from the RDB file.
 
   ## Parameters
@@ -82,4 +105,6 @@ defmodule Veidrodelis.RedisStream.Callback do
               command :: Command.t()
             ) ::
               {:ok, term()} | {:error, term()}
+
+  @optional_callbacks on_replication_start: 1
 end

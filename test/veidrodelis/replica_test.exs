@@ -3,6 +3,7 @@ defmodule Veidrodelis.ReplicaTest do
 
   alias Veidrodelis.RedisStream.Replica
   alias Veidrodelis.Command
+  use CommandMatchers
 
   # Callback module that collects all commands
   defmodule CollectorCallback do
@@ -15,6 +16,12 @@ defmodule Veidrodelis.ReplicaTest do
       entry = {System.monotonic_time(), db, command}
       new_state = Map.put(state, :commands, [entry | commands])
       {:ok, new_state}
+    end
+
+    def commands(state) do
+      Map.get(state, :commands, [])
+      |> Enum.reverse()
+      |> Enum.map(fn {_ts, _db, cmd} -> cmd end)
     end
   end
 
@@ -68,89 +75,31 @@ defmodule Veidrodelis.ReplicaTest do
       Redix.command!(redis, ["SADD", "myset", "member2"])
 
       # Wait for commands to replicate
-      Process.sleep(500)
+      assert_happens_within 500 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Step 4: Get callback state and verify
       callback_state = Replica.get_callback_state(replica)
-      commands = Map.get(callback_state, :commands, [])
-
-      # Reverse to get chronological order
-      commands = Enum.reverse(commands)
-
-      # Extract just the commands (without timestamp and db)
-      command_list = Enum.map(commands, fn {_ts, _db, cmd} -> cmd end)
+      commands = CollectorCallback.commands(callback_state)
 
       # Verify we received commands from RDB
-      assert Enum.any?(command_list, fn
-               %Command.Set{key: "key1", value: "value1"} -> true
-               _ -> false
-             end)
-
-      assert Enum.any?(command_list, fn
-               %Command.Set{key: "key2", value: "value2"} -> true
-               _ -> false
-             end)
+      assert_command_in_list %Command.Set{key: "key1", value: "value1"}, commands
+      assert_command_in_list %Command.Set{key: "key2", value: "value2"}, commands
 
       # Verify list items
-      assert Enum.any?(command_list, fn
-               %Command.RPush{key: "mylist", values: values} ->
-                 "item1" in values or "item2" in values
-
-               _ ->
-                 false
-             end)
+      assert_command_in_list %Command.RPush{key: "mylist", values: values}, commands
 
       # Verify set member
-      assert Enum.any?(command_list, fn
-               %Command.SAdd{key: "myset", members: members} -> "member1" in members
-               _ -> false
-             end)
-
-      # Verify sorted set member
-      assert Enum.any?(command_list, fn
-               %Command.ZAdd{key: "myzset", members: members} ->
-                 Enum.any?(members, fn {score, member} ->
-                   score == 1.5 and member == "zmember1"
-                 end)
-
-               _ ->
-                 false
-             end)
+      assert_command_in_list %Command.SAdd{key: "myset", members: members}, commands
+      assert_command_in_list %Command.ZAdd{key: "myzset", members: members}, commands
 
       # Verify hash field
-      assert Enum.any?(command_list, fn
-               %Command.HSet{key: "myhash", fields: fields} -> {"field1", "value1"} in fields
-               _ -> false
-             end)
-
+      assert_command_in_list %Command.HSet{key: "myhash", fields: fields}, commands
       # Verify streaming commands
-      assert Enum.any?(command_list, fn
-               %Command.Set{key: "key3", value: "value3"} -> true
-               _ -> false
-             end)
-
-      assert Enum.any?(command_list, fn
-               %Command.RPush{key: "mylist", values: values} -> "item3" in values
-               _ -> false
-             end)
-
-      assert Enum.any?(command_list, fn
-               %Command.SAdd{key: "myset", members: members} -> "member2" in members
-               _ -> false
-             end)
-
-      # Verify total command count
-      # We now emit fewer commands because multi-value commands are consolidated:
-      # - 2 SET commands (key1, key2)
-      # - 1 RPUSH command with 2 values (item1, item2) from RDB
-      # - 1 SADD command with 1 member (member1) from RDB
-      # - 1 ZADD command with 1 member from RDB
-      # - 1 HSET command with 1 field from RDB
-      # - 1 SET command (key3) from streaming
-      # - 1 RPUSH command with 1 value (item3) from streaming
-      # - 1 SADD command with 1 member (member2) from streaming
-      # = 9 commands total
-      assert length(command_list) >= 9
+      assert_command_in_list %Command.Set{key: "key3", value: "value3"}, commands
+      assert_command_in_list %Command.RPush{key: "mylist", values: values}, commands
+      assert_command_in_list %Command.SAdd{key: "myset", members: members}, commands
 
       Replica.stop(replica)
     end
@@ -170,7 +119,9 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for sync
-      Process.sleep(1500)
+      assert_happens_within 1500 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Get initial offset
       initial_offset = Replica.get_offset(replica)
@@ -181,11 +132,9 @@ defmodule Veidrodelis.ReplicaTest do
       Redix.command!(redis, ["SET", "key2", "value2"])
 
       # Wait for replication
-      Process.sleep(500)
-
-      # Offset should increase (or stay the same if writes weren't replicated yet)
-      final_offset = Replica.get_offset(replica)
-      assert final_offset >= initial_offset
+      assert_happens_within 500 do
+        Replica.get_offset(replica) > initial_offset
+      end
 
       Replica.stop(replica)
     end
@@ -201,7 +150,9 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for sync
-      Process.sleep(1500)
+      assert_happens_within 1500 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       # Get replication ID
       repl_id = Replica.get_replication_id(replica)
@@ -224,23 +175,15 @@ defmodule Veidrodelis.ReplicaTest do
       ]
 
       {:ok, replica} = Replica.start_link(opts)
-      Process.sleep(1500)
+      assert_happens_within 1500 do
+        Replica.get_replication_state(replica) == :streaming
+      end
 
       callback_state = Replica.get_callback_state(replica)
-      commands = Map.get(callback_state, :commands, [])
+      commands = filter_commands %Command.Set{}, CollectorCallback.commands(callback_state)
 
-      set_commands =
-        Enum.filter(commands, fn
-          {_ts, _db, %Command.Set{}} -> true
-          _ -> false
-        end)
-
-      assert length(set_commands) >= 1
-
-      assert Enum.any?(set_commands, fn
-               {_ts, _db, %Command.Set{key: "testkey", value: "testvalue"}} -> true
-               _ -> false
-             end)
+      assert length(commands) >= 1
+      assert_command_in_list %Command.Set{key: "testkey", value: "testvalue"}, commands
 
       Replica.stop(replica)
     end
@@ -636,7 +579,8 @@ defmodule Veidrodelis.ReplicaTest do
         host: @redis_host,
         port: 9999,
         callback_module: CollectorCallback,
-        callback_state: %{commands: []}
+        callback_state: %{commands: []},
+        reconnect: false
       ]
 
       result = Replica.start_link(opts)

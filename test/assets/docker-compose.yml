@@ -4,7 +4,8 @@ services:
   redis:
     image: redis:7-alpine
     container_name: veidrodelis-redis
-    # No external ports - only accessible through toxiproxy
+    ports:
+      - "16378:6379"
     command: >
       redis-server
       --repl-diskless-sync yes

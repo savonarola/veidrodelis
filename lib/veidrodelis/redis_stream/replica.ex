@@ -90,11 +90,21 @@ defmodule Veidrodelis.RedisStream.Replica do
     * `:callback_module` - Module implementing `Veidrodelis.RedisStream.Callback`
     * `:callback_state` - Initial state for callbacks
     * `:name` - GenServer name (optional)
+    * `:reconnect` - Enable automatic reconnection (default: true)
+    * `:reconnect_delay_ms` - Initial delay before reconnection in ms (default: 1000)
+    * `:max_reconnect_delay_ms` - Maximum delay between reconnection attempts in ms (default: 30000)
 
   ## Authentication
 
   For Redis 6+ ACL authentication, provide both `:username` and `:password`.
   For older Redis versions, provide only `:password`.
+
+  ## Reconnection
+
+  When enabled, the replica will automatically attempt to reconnect on connection failures
+  or disconnects. It will use exponential backoff starting from `:reconnect_delay_ms` up to
+  `:max_reconnect_delay_ms`. The replica will attempt partial resync (PSYNC) when possible
+  to avoid full RDB transfer.
 
   ## Returns
 
@@ -144,10 +154,20 @@ defmodule Veidrodelis.RedisStream.Replica do
     GenServer.call(server, :get_callback_state)
   end
 
+  @doc """
+  Get the current replication state.
+  """
+  @spec get_replication_state(GenServer.server()) :: term()
+  def get_replication_state(server) do
+    GenServer.call(server, :get_replication_state)
+  end
+
   # Server callbacks
 
   @impl true
   def init(opts) do
+    Process.flag(:trap_exit, true)
+
     state = %{
       host: Keyword.get(opts, :host, "localhost"),
       port: Keyword.get(opts, :port, @default_port),
@@ -157,8 +177,17 @@ defmodule Veidrodelis.RedisStream.Replica do
       ssl_opts: Keyword.get(opts, :ssl_opts, []),
       callback_module: Keyword.fetch!(opts, :callback_module),
       callback_state: Keyword.fetch!(opts, :callback_state),
+      # Reconnection options
+      reconnect_enabled: Keyword.get(opts, :reconnect, true),
+      reconnect_delay_ms: Keyword.get(opts, :reconnect_delay_ms, 1000),
+      max_reconnect_delay_ms: Keyword.get(opts, :max_reconnect_delay_ms, 30_000),
+      current_reconnect_delay_ms: Keyword.get(opts, :reconnect_delay_ms, 1000),
+      # Connection state
       socket: nil,
       transport: nil,
+      # Replication state (preserved across reconnections)
+      saved_replication_id: nil,
+      saved_replication_offset: 0,
       replication_id: nil,
       replication_offset: 0,
       rdb_parser: nil,
@@ -180,12 +209,25 @@ defmodule Veidrodelis.RedisStream.Replica do
   def handle_continue(:connect, state) do
     case connect(state) do
       {:ok, new_state} ->
+        # Reset reconnect delay on successful connection
+        new_state = %{new_state | current_reconnect_delay_ms: state.reconnect_delay_ms}
         {:noreply, new_state}
 
       {:error, reason} ->
         Logger.error("Failed to connect: #{inspect(reason)}")
-        {:stop, {:connection_failed, reason}, state}
+
+        if state.reconnect_enabled do
+          schedule_reconnect(state)
+        else
+          {:stop, {:connection_failed, reason}, state}
+        end
     end
+  end
+
+  @impl true
+  def handle_continue(:reconnect, state) do
+    Logger.info("Attempting to reconnect...")
+    handle_continue(:connect, state)
   end
 
   @impl true
@@ -201,6 +243,10 @@ defmodule Veidrodelis.RedisStream.Replica do
     {:reply, state.callback_state, state}
   end
 
+  def handle_call(:get_replication_state, _from, state) do
+    {:reply, state.state, state}
+  end
+
   @impl true
   def handle_info({:tcp, socket, data}, %{socket: socket} = state) do
     handle_data(data, state)
@@ -212,22 +258,26 @@ defmodule Veidrodelis.RedisStream.Replica do
 
   def handle_info({:tcp_closed, socket}, %{socket: socket} = state) do
     Logger.warning("Connection closed")
-    {:stop, :connection_closed, state}
+    handle_disconnect(state, :connection_closed)
   end
 
   def handle_info({:ssl_closed, socket}, %{socket: socket} = state) do
     Logger.warning("SSL connection closed")
-    {:stop, :connection_closed, state}
+    handle_disconnect(state, :ssl_connection_closed)
   end
 
   def handle_info({:tcp_error, socket, reason}, %{socket: socket} = state) do
     Logger.error("TCP error: #{inspect(reason)}")
-    {:stop, {:tcp_error, reason}, state}
+    handle_disconnect(state, {:tcp_error, reason})
   end
 
   def handle_info({:ssl_error, socket, reason}, %{socket: socket} = state) do
     Logger.error("SSL error: #{inspect(reason)}")
-    {:stop, {:ssl_error, reason}, state}
+    handle_disconnect(state, {:ssl_error, reason})
+  end
+
+  def handle_info(:reconnect_timeout, state) do
+    {:noreply, state, {:continue, :reconnect}}
   end
 
   @impl true
@@ -240,6 +290,47 @@ defmodule Veidrodelis.RedisStream.Replica do
   end
 
   # Private functions
+
+  defp handle_disconnect(state, reason) do
+    # Close existing socket if any
+    if state.socket do
+      transport_close(state.transport, state.socket)
+    end
+
+    # Save replication state for potential partial resync
+    new_state = %{
+      state
+      | socket: nil,
+        transport: nil,
+        saved_replication_id: state.replication_id || state.saved_replication_id,
+        saved_replication_offset: state.replication_offset,
+        # Clear current replication state but keep saved values
+        buffer: [],
+        buffer_size: 0,
+        state: :init,
+        rdb_parser: nil,
+        rdb_bulk_size: nil,
+        rdb_bytes_read: 0
+    }
+
+    if new_state.reconnect_enabled do
+      Logger.info("Will attempt to reconnect after #{new_state.current_reconnect_delay_ms}ms")
+      schedule_reconnect(new_state)
+    else
+      {:stop, reason, new_state}
+    end
+  end
+
+  defp schedule_reconnect(state) do
+    # Schedule reconnection with current delay
+    Process.send_after(self(), :reconnect_timeout, state.current_reconnect_delay_ms)
+
+    # Calculate next delay with exponential backoff (capped at max)
+    next_delay = min(state.current_reconnect_delay_ms * 2, state.max_reconnect_delay_ms)
+    new_state = %{state | current_reconnect_delay_ms: next_delay}
+
+    {:noreply, new_state}
+  end
 
   defp connect(state) do
     transport = if state.ssl, do: :ssl, else: :tcp
@@ -337,10 +428,27 @@ defmodule Veidrodelis.RedisStream.Replica do
   end
 
   defp send_psync(state) do
-    Logger.debug("Sending PSYNC")
+    # Try partial resync if we have saved replication state
+    {repl_id, repl_offset} =
+      if state.saved_replication_id do
+        {state.saved_replication_id, state.saved_replication_offset}
+      else
+        {"?", -1}
+      end
 
-    # Send PSYNC ? -1 to start a full sync
-    cmd = "*3\r\n$5\r\nPSYNC\r\n$1\r\n?\r\n$2\r\n-1\r\n"
+    if repl_id == "?" do
+      Logger.debug("Sending PSYNC for full sync")
+    else
+      Logger.debug("Sending PSYNC for partial resync (#{repl_id} #{repl_offset})")
+    end
+
+    # Build PSYNC command
+    repl_id_len = byte_size(repl_id)
+    offset_str = Integer.to_string(repl_offset)
+    offset_len = byte_size(offset_str)
+
+    cmd =
+      "*3\r\n$5\r\nPSYNC\r\n$#{repl_id_len}\r\n#{repl_id}\r\n$#{offset_len}\r\n#{offset_str}\r\n"
 
     case transport_send(state.transport, state.socket, cmd) do
       :ok ->
@@ -459,25 +567,67 @@ defmodule Veidrodelis.RedisStream.Replica do
   end
 
   defp handle_psync_response(state) do
-    # PSYNC response format: +FULLRESYNC <replication_id> <offset>\r\n
-    # followed by RDB file: $<rdb_size>\r\n<rdb_data>
-    case parse_fullresync_response(state) do
-      {:ok, replication_id, offset, new_state} ->
+    # PSYNC response can be:
+    # - +FULLRESYNC <replication_id> <offset>\r\n (full sync)
+    # - +CONTINUE\r\n (partial resync accepted)
+    case parse_psync_response(state) do
+      {:ok, :fullresync, replication_id, offset, new_state} ->
         Logger.info("PSYNC: FULLRESYNC #{replication_id} #{offset}")
 
+        # Call on_replication_start callback if implemented
+        callback_state_update_result =
+          if function_exported?(state.callback_module, :on_replication_start, 1) do
+            case state.callback_module.on_replication_start(state.callback_state) do
+              {:ok, new_callback_state} ->
+                Logger.debug("on_replication_start callback succeeded")
+                {:ok, new_callback_state}
+
+              {:error, reason} ->
+                Logger.error("on_replication_start callback failed: #{inspect(reason)}")
+                {:error, reason}
+            end
+          else
+            {:ok, state.callback_state}
+          end
+
+        case callback_state_update_result do
+          {:ok, updated_callback_state} ->
+            new_state = %{
+              new_state
+              | callback_state: updated_callback_state,
+                replication_id: replication_id,
+                replication_offset: offset,
+                state: :rdb_transfer
+            }
+
+            # Create RDB parser
+            rdb_parser = RDB.create(state.callback_module, new_state.callback_state)
+            new_state = %{new_state | rdb_parser: rdb_parser}
+
+            # Start parsing RDB data
+            handle_rdb_data(new_state)
+
+          {:error, reason} ->
+            {:stop, {:on_replication_start_failed, reason}, new_state}
+        end
+
+      {:ok, :continue, new_state} ->
+        Logger.info("PSYNC: CONTINUE - partial resync accepted")
+
+        # Continue with saved replication state, go straight to streaming
         new_state = %{
           new_state
-          | replication_id: replication_id,
-            replication_offset: offset,
-            state: :rdb_transfer
+          | replication_id: state.saved_replication_id,
+            replication_offset: state.saved_replication_offset,
+            state: :streaming
         }
 
-        # Create RDB parser
-        rdb_parser = RDB.create(state.callback_module, state.callback_state)
-        new_state = %{new_state | rdb_parser: rdb_parser}
-
-        # Start parsing RDB data
-        handle_rdb_data(new_state)
+        # Process any buffered command data
+        if new_state.buffer_size > 0 do
+          handle_command_stream(new_state)
+        else
+          {:noreply, new_state}
+        end
 
       :incomplete ->
         {:noreply, state}
@@ -584,7 +734,13 @@ defmodule Veidrodelis.RedisStream.Replica do
   defp handle_command_stream(state) do
     # Parse commands from the stream
     case parse_command(state) do
-      {:ok, command, new_state} ->
+      {:ok, command, bytes_consumed, new_state} ->
+        # Update replication offset
+        new_state = %{
+          new_state
+          | replication_offset: new_state.replication_offset + bytes_consumed
+        }
+
         # Process the command
         new_state = process_command(command, new_state)
 
@@ -611,7 +767,15 @@ defmodule Veidrodelis.RedisStream.Replica do
   end
 
   defp process_command(["PING"], state) do
-    # PING in replication stream, just ignore
+    # PING in replication stream - send REPLCONF ACK with current offset
+    Logger.debug("Received PING, sending REPLCONF ACK #{state.replication_offset}")
+
+    offset = state.replication_offset
+
+    cmd =
+      "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$#{byte_size(Integer.to_string(offset))}\r\n#{offset}\r\n"
+
+    transport_send(state.transport, state.socket, cmd)
     state
   end
 
@@ -711,7 +875,7 @@ defmodule Veidrodelis.RedisStream.Replica do
     end
   end
 
-  defp parse_fullresync_response(state) do
+  defp parse_psync_response(state) do
     case peek_bytes(state, min(state.buffer_size, 1024)) do
       {:ok, peek} ->
         case peek do
@@ -729,7 +893,24 @@ defmodule Veidrodelis.RedisStream.Replica do
                     buffer_size: byte_size(rest)
                 }
 
-                {:ok, replication_id, offset, new_state}
+                {:ok, :fullresync, replication_id, offset, new_state}
+
+              _ ->
+                :incomplete
+            end
+
+          <<"+CONTINUE"::binary, _::binary>> ->
+            binary = buffer_to_binary(state)
+
+            case :binary.split(binary, "\r\n\n") do
+              [<<"+CONTINUE"::binary, _::binary>>, rest] ->
+                new_state = %{
+                  state
+                  | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
+                    buffer_size: byte_size(rest)
+                }
+
+                {:ok, :continue, new_state}
 
               _ ->
                 :incomplete
@@ -792,6 +973,8 @@ defmodule Veidrodelis.RedisStream.Replica do
   end
 
   defp parse_command(state) do
+    original_buffer_size = state.buffer_size
+
     case peek_bytes(state, min(state.buffer_size, 64)) do
       {:ok, peek} ->
         case peek do
@@ -802,7 +985,14 @@ defmodule Veidrodelis.RedisStream.Replica do
               [<<"*"::binary, count_str::binary>>, rest] ->
                 count = String.to_integer(count_str)
 
-                parse_array_elements(rest, count, [], state)
+                case parse_array_elements(rest, count, [], state) do
+                  {:ok, command, new_state} ->
+                    bytes_consumed = original_buffer_size - new_state.buffer_size
+                    {:ok, command, bytes_consumed, new_state}
+
+                  other ->
+                    other
+                end
 
               _ ->
                 :incomplete
