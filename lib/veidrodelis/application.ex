@@ -1,4 +1,4 @@
-defmodule Veidrodelis.Application do
+defmodule Vdr.Application do
   @moduledoc false
 
   use Application
@@ -7,7 +7,7 @@ defmodule Veidrodelis.Application do
   def start(_type, _args) do
     children = []
 
-    opts = [strategy: :one_for_one, name: Veidrodelis.Supervisor]
+    opts = [strategy: :one_for_one, name: Vdr.Supervisor]
     Supervisor.start_link(children, opts)
   end
 end

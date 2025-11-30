@@ -1,7 +1,7 @@
-defmodule Veidrodelis.ZsetStoreTest do
+defmodule Vdr.ZsetStoreTest do
   use ExUnit.Case, async: true
 
-  alias Veidrodelis.ZsetStore
+  alias Vdr.ZsetStore
 
   setup do
     # Simple decode function that returns members as-is

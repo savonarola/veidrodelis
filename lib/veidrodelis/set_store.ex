@@ -1,4 +1,4 @@
-defmodule Veidrodelis.SetStore do
+defmodule Vdr.SetStore do
   @moduledoc """
   An ETS-backed store for Redis set operations.
 

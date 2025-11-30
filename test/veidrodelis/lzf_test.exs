@@ -1,8 +1,8 @@
-defmodule Veidrodelis.LZFTest do
+defmodule Vdr.LZFTest do
   use ExUnit.Case, async: true
   import Bitwise
 
-  alias Veidrodelis.LZF
+  alias Vdr.LZF
 
   describe "decompress/2" do
     test "decompresses simple literal data" do

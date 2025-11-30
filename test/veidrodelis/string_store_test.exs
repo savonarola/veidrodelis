@@ -1,7 +1,7 @@
-defmodule Veidrodelis.StringStoreTest do
+defmodule Vdr.StringStoreTest do
   use ExUnit.Case, async: true
 
-  alias Veidrodelis.StringStore
+  alias Vdr.StringStore
 
   setup do
     # Simple decode function that returns the length

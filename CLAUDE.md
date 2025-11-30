@@ -84,7 +84,7 @@ The project is implemented entirely in Elixir, leveraging the language's excelle
 
 **RDB Parser ([lib/veidrodelis/rdb.ex](lib/veidrodelis/rdb.ex))**
 - Pure Elixir implementation of the RDB parser
-- Entry point: `Veidrodelis.RDB.parse(binary, callback_module, initial_state)`
+- Entry point: `Vdr.RDB.parse(binary, callback_module, initial_state)`
 - Stateless streaming parser that processes opcodes sequentially
 - Supports all Redis data types: strings, lists, sets, sorted sets, hashes
 - Handles multiple encoding formats: ziplist, listpack, intset, quicklist variants

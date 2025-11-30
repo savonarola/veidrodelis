@@ -43,12 +43,12 @@ defmodule Veidrodelis do
       set_store = Veidrodelis.sets(:my_instance)
 
       # Query data
-      value = Veidrodelis.StringStore.get(string_store, 0, "mykey")
+      value = Vdr.StringStore.get(string_store, 0, "mykey")
   """
 
-  @behaviour Veidrodelis.RedisStream.Callback
+  @behaviour Vdr.RedisStream.Callback
 
-  alias Veidrodelis.{StringStore, ListStore, SetStore, HashStore, ZsetStore, Command}
+  alias Vdr.{StringStore, ListStore, SetStore, HashStore, ZsetStore, Command}
 
   defstruct [
     :id,
@@ -204,7 +204,7 @@ defmodule Veidrodelis do
 
       # Access stores
       string_store = Veidrodelis.strings(:my_instance)
-      value = Veidrodelis.StringStore.get_decoded(string_store, 0, "mykey")
+      value = Vdr.StringStore.get_decoded(string_store, 0, "mykey")
 
       # Stop when done
       Veidrodelis.stop(pid)
@@ -235,7 +235,7 @@ defmodule Veidrodelis do
         callback_state: {id, decoder}
       ] ++ redis_opts
 
-    Veidrodelis.RedisStream.Replica.start_link(replica_opts)
+    Vdr.RedisStream.Replica.start_link(replica_opts)
   end
 
   @doc """
@@ -260,7 +260,7 @@ defmodule Veidrodelis do
   """
   @spec stop(GenServer.server()) :: :ok
   def stop(server) do
-    Veidrodelis.RedisStream.Replica.stop(server)
+    Vdr.RedisStream.Replica.stop(server)
   end
 
   @doc """
@@ -285,12 +285,12 @@ defmodule Veidrodelis do
   """
   @spec get_replication_state(GenServer.server()) :: atom()
   def get_replication_state(server) do
-    Veidrodelis.RedisStream.Replica.get_replication_state(server)
+    Vdr.RedisStream.Replica.get_replication_state(server)
   end
 
   # RedisStream.Callback implementation
 
-  @impl Veidrodelis.RedisStream.Callback
+  @impl Vdr.RedisStream.Callback
   def on_replication_start(%__MODULE__{} = state) do
     # Reinitialize with existing ID and decoder
     new_state = reinitialize_state(state)
@@ -309,7 +309,7 @@ defmodule Veidrodelis do
     {:ok, state}
   end
 
-  @impl Veidrodelis.RedisStream.Callback
+  @impl Vdr.RedisStream.Callback
   def on_command(%__MODULE__{} = state, db, command) do
     case handle_command(state, db, command) do
       :ok -> {:ok, state}
@@ -317,7 +317,7 @@ defmodule Veidrodelis do
     end
   end
 
-  @impl Veidrodelis.RedisStream.Callback
+  @impl Vdr.RedisStream.Callback
   def on_destroy(%__MODULE__{} = state) do
     # Destroy stores (may fail if tables are not owned by this process)
     try do

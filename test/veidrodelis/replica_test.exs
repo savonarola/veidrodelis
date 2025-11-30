@@ -1,13 +1,13 @@
 defmodule Veidrodelis.ReplicaTest do
   use ExUnit.Case, async: false
 
-  alias Veidrodelis.RedisStream.Replica
-  alias Veidrodelis.Command
+  alias Vdr.RedisStream.Replica
+  alias Vdr.Command
   use CommandMatchers
 
   # Callback module that collects all commands
   defmodule CollectorCallback do
-    @behaviour Veidrodelis.RedisStream.Callback
+    @behaviour Vdr.RedisStream.Callback
 
     @impl true
     def on_command(state, db, command) do

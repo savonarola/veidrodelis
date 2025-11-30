@@ -100,5 +100,5 @@ static ErlNifFunc nif_funcs[] = {
     {"decompress", 2, decompress_nif}
 };
 
-ERL_NIF_INIT(Elixir.Veidrodelis.LZF, nif_funcs, NULL, NULL, NULL, NULL)
+ERL_NIF_INIT(Elixir.Vdr.LZF, nif_funcs, NULL, NULL, NULL, NULL)
 

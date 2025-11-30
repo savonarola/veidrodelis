@@ -1,4 +1,4 @@
-defmodule Veidrodelis.RedisStream.Replica do
+defmodule Vdr.RedisStream.Replica do
   @moduledoc """
   Redis replication client that connects to a Redis master and receives
   replication stream via PSYNC.
@@ -16,7 +16,7 @@ defmodule Veidrodelis.RedisStream.Replica do
       defmodule MyCallback do
         @behaviour Veidrodelis.RedisStream.Callback
 
-        alias Veidrodelis.Command
+        alias Vdr.Command
 
         @impl true
         def on_command(state, db, %Command.Set{key: key, value: value}) do
@@ -56,20 +56,20 @@ defmodule Veidrodelis.RedisStream.Replica do
         callback_state: %{count: 0}
       ]
 
-      {:ok, replica} = Veidrodelis.RedisStream.Replica.start_link(opts)
+      {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
 
       # Get current replication offset
-      offset = Veidrodelis.RedisStream.Replica.get_offset(replica)
+      offset = Vdr.RedisStream.Replica.get_offset(replica)
 
       # Get callback state
-      state = Veidrodelis.RedisStream.Replica.get_callback_state(replica)
+      state = Vdr.RedisStream.Replica.get_callback_state(replica)
   """
 
   use GenServer
   require Logger
 
-  alias Veidrodelis.RDB
-  alias Veidrodelis.RedisStream.CommandParser
+  alias Vdr.RDB
+  alias Vdr.RedisStream.CommandParser
 
   @default_port 6379
   @default_timeout 5000
@@ -87,7 +87,7 @@ defmodule Veidrodelis.RedisStream.Replica do
     * `:password` - Redis password (default: nil)
     * `:ssl` - Use SSL/TLS (default: false)
     * `:ssl_opts` - SSL options (default: [])
-    * `:callback_module` - Module implementing `Veidrodelis.RedisStream.Callback`
+    * `:callback_module` - Module implementing `Vdr.RedisStream.Callback`
     * `:callback_state` - Initial state for callbacks
     * `:name` - GenServer name (optional)
     * `:reconnect` - Enable automatic reconnection (default: true)
@@ -953,6 +953,7 @@ defmodule Veidrodelis.RedisStream.Replica do
     else
       case peek_bytes(state, min(state.buffer_size, 64)) do
         {:ok, peek} ->
+          dbg(peek)
           case peek do
             <<"$"::binary, _::binary>> ->
               binary = buffer_to_binary(state)

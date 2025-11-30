@@ -1,7 +1,7 @@
-defmodule Veidrodelis.HashStoreTest do
+defmodule Vdr.HashStoreTest do
   use ExUnit.Case, async: true
 
-  alias Veidrodelis.HashStore
+  alias Vdr.HashStore
 
   setup do
     # Simple decode functions that return values as-is

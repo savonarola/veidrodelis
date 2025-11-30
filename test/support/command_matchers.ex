@@ -5,7 +5,7 @@ defmodule CommandMatchers do
     end
   end
 
-  defmacro assert_command_in_list(command, command_list) do
+  defmacro command_in_list(command, command_list) do
     quote do
       assert Enum.any?(unquote(command_list), fn
                unquote(command) -> true

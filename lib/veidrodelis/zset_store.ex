@@ -1,4 +1,4 @@
-defmodule Veidrodelis.ZsetStore do
+defmodule Vdr.ZsetStore do
   @moduledoc """
   An ETS-backed store for Redis sorted set (zset) operations.
 

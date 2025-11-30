@@ -1,4 +1,4 @@
-defmodule Veidrodelis.Supervisor do
+defmodule Vdr.Supervisor do
   @moduledoc false
 
   use Supervisor

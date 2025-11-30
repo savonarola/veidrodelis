@@ -100,10 +100,10 @@ defmodule VeidrodelisTest do
       string_store = Veidrodelis.strings(instance_id)
 
       # Verify decoded data in store
-      assert Veidrodelis.StringStore.get_decoded(string_store, 0, "str:key1") ==
+      assert Vdr.StringStore.get_decoded(string_store, 0, "str:key1") ==
                {:string_value, "str:key1", "value1"}
 
-      assert Veidrodelis.StringStore.get_decoded(string_store, 0, "str:key2") ==
+      assert Vdr.StringStore.get_decoded(string_store, 0, "str:key2") ==
                {:string_value, "str:key2", "value2"}
 
       # Verify data in Redis hasn't changed
@@ -139,7 +139,7 @@ defmodule VeidrodelisTest do
       set_store = Veidrodelis.sets(instance_id)
 
       # Verify decoded data in store
-      members = Veidrodelis.SetStore.smembers(set_store, 0, "set:myset")
+      members = Vdr.SetStore.smembers(set_store, 0, "set:myset")
       assert length(members) == 3
       assert {:set_entry, "member1"} in members
       assert {:set_entry, "member2"} in members
@@ -181,7 +181,7 @@ defmodule VeidrodelisTest do
       list_store = Veidrodelis.lists(instance_id)
 
       # Verify decoded data in store
-      items = Veidrodelis.ListStore.get_range(list_store, 0, "list:mylist", 0, -1)
+      items = Vdr.ListStore.get_range(list_store, 0, "list:mylist", 0, -1)
       assert items == [{:list_entry, "item1"}, {:list_entry, "item2"}, {:list_entry, "item3"}]
 
       # Verify data in Redis hasn't changed
@@ -217,8 +217,8 @@ defmodule VeidrodelisTest do
       hash_store = Veidrodelis.hashes(instance_id)
 
       # Verify decoded data in store (pass raw field, it will be decoded)
-      value1 = Veidrodelis.HashStore.hget(hash_store, 0, "hash:myhash", "field1")
-      value2 = Veidrodelis.HashStore.hget(hash_store, 0, "hash:myhash", "field2")
+      value1 = Vdr.HashStore.hget(hash_store, 0, "hash:myhash", "field1")
+      value2 = Vdr.HashStore.hget(hash_store, 0, "hash:myhash", "field2")
 
       assert value1 == {:hash_value, {:hash_field, "field1"}, "value1"}
       assert value2 == {:hash_value, {:hash_field, "field2"}, "value2"}
@@ -256,7 +256,7 @@ defmodule VeidrodelisTest do
       zset_store = Veidrodelis.zsets(instance_id)
 
       # Verify decoded data in store (zrange returns tuples with scores)
-      members_with_scores = Veidrodelis.ZsetStore.zrange(zset_store, 0, "zset:myzset", 0, -1)
+      members_with_scores = Vdr.ZsetStore.zrange(zset_store, 0, "zset:myzset", 0, -1)
 
       assert members_with_scores == [
                {{:zset_entry, "member1"}, 1.0},
@@ -275,7 +275,7 @@ defmodule VeidrodelisTest do
       # Start Veidrodelis FIRST (before writing data)
       instance_id = :"test_streaming_#{:erlang.unique_integer([:positive])}"
 
-      {:ok, replica} =
+      {:ok, vdr} =
         Veidrodelis.start_link(
           id: instance_id,
           decoder: TestDecoder,
@@ -285,7 +285,7 @@ defmodule VeidrodelisTest do
 
       # Wait for replication to start
       assert_happens_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
       # NOW write data to Redis (these will come via streaming, not RDB)
@@ -299,9 +299,9 @@ defmodule VeidrodelisTest do
         set_store = Veidrodelis.sets(instance_id)
         list_store = Veidrodelis.lists(instance_id)
 
-        Veidrodelis.StringStore.get_decoded(string_store, 0, "str:stream_key") != nil &&
-          Veidrodelis.SetStore.scard(set_store, 0, "set:stream_set") == 2 &&
-          length(Veidrodelis.ListStore.get_range(list_store, 0, "list:stream_list", 0, -1)) == 2
+        Vdr.StringStore.get_decoded(string_store, 0, "str:stream_key") != nil &&
+          Vdr.SetStore.scard(set_store, 0, "set:stream_set") == 2 &&
+          length(Vdr.ListStore.get_range(list_store, 0, "list:stream_list", 0, -1)) == 2
       end
 
       # Verify the data
@@ -309,14 +309,14 @@ defmodule VeidrodelisTest do
       set_store = Veidrodelis.sets(instance_id)
       list_store = Veidrodelis.lists(instance_id)
 
-      assert Veidrodelis.StringStore.get_decoded(string_store, 0, "str:stream_key") ==
+      assert Vdr.StringStore.get_decoded(string_store, 0, "str:stream_key") ==
                {:string_value, "str:stream_key", "stream_value"}
 
-      members = Veidrodelis.SetStore.smembers(set_store, 0, "set:stream_set")
+      members = Vdr.SetStore.smembers(set_store, 0, "set:stream_set")
       assert {:set_entry, "s1"} in members
       assert {:set_entry, "s2"} in members
 
-      items = Veidrodelis.ListStore.get_range(list_store, 0, "list:stream_list", 0, -1)
+      items = Vdr.ListStore.get_range(list_store, 0, "list:stream_list", 0, -1)
       assert items == [{:list_entry, "l1"}, {:list_entry, "l2"}]
 
       Veidrodelis.stop(vdr)
@@ -347,7 +347,7 @@ defmodule VeidrodelisTest do
       # Verify string is there
       string_store = Veidrodelis.strings(instance_id)
 
-      assert Veidrodelis.StringStore.get_decoded(string_store, 0, "str:changeable") ==
+      assert Vdr.StringStore.get_decoded(string_store, 0, "str:changeable") ==
                {:string_value, "str:changeable", "initial_string"}
 
       # Change type to list
@@ -357,14 +357,14 @@ defmodule VeidrodelisTest do
       # Wait for change to replicate
       assert_happens_within 1000 do
         list_store = Veidrodelis.lists(instance_id)
-        length(Veidrodelis.ListStore.get_range(list_store, 0, "list:changeable", 0, -1)) == 1
+        length(Vdr.ListStore.get_range(list_store, 0, "list:changeable", 0, -1)) == 1
       end
 
       # Verify string is gone and list is there
-      assert Veidrodelis.StringStore.get_decoded(string_store, 0, "str:changeable") == nil
+      assert Vdr.StringStore.get_decoded(string_store, 0, "str:changeable") == nil
 
       list_store = Veidrodelis.lists(instance_id)
-      items = Veidrodelis.ListStore.get_range(list_store, 0, "list:changeable", 0, -1)
+      items = Vdr.ListStore.get_range(list_store, 0, "list:changeable", 0, -1)
       assert items == [{:list_entry, "list_item"}]
 
       Veidrodelis.stop(vdr)
@@ -401,10 +401,10 @@ defmodule VeidrodelisTest do
       # Verify data in both databases
       string_store = Veidrodelis.strings(instance_id)
 
-      assert Veidrodelis.StringStore.get_decoded(string_store, 0, "str:db0_key") ==
+      assert Vdr.StringStore.get_decoded(string_store, 0, "str:db0_key") ==
                {:string_value, "str:db0_key", "db0_value"}
 
-      assert Veidrodelis.StringStore.get_decoded(string_store, 1, "str:db1_key") ==
+      assert Vdr.StringStore.get_decoded(string_store, 1, "str:db1_key") ==
                {:string_value, "str:db1_key", "db1_value"}
 
       # Verify Redis data

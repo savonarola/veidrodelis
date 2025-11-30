@@ -1,4 +1,4 @@
-defmodule Veidrodelis.StringStore do
+defmodule Vdr.StringStore do
   @moduledoc """
   An ETS-backed store for Redis string operations.
 

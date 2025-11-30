@@ -1,4 +1,4 @@
-defmodule Veidrodelis.LZF do
+defmodule Vdr.LZF do
   @moduledoc """
   LZF compression and decompression using a NIF (Native Implemented Function).
 
@@ -42,7 +42,7 @@ defmodule Veidrodelis.LZF do
 
   ## Example
 
-      iex> {:ok, compressed} = Veidrodelis.LZF.compress("hello world")
+      iex> {:ok, compressed} = Vdr.LZF.compress("hello world")
       {:ok, <<...>>}
   """
   @spec compress(binary()) :: {:ok, binary()} | {:error, term()}
@@ -65,8 +65,8 @@ defmodule Veidrodelis.LZF do
 
   ## Example
 
-      iex> {:ok, compressed} = Veidrodelis.LZF.compress("hello world")
-      iex> {:ok, decompressed} = Veidrodelis.LZF.decompress(compressed, 11)
+      iex> {:ok, compressed} = Vdr.LZF.compress("hello world")
+      iex> {:ok, decompressed} = Vdr.LZF.decompress(compressed, 11)
       {:ok, "hello world"}
   """
   @spec decompress(binary(), non_neg_integer()) :: {:ok, binary()} | {:error, term()}

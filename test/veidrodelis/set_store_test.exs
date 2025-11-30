@@ -1,7 +1,7 @@
-defmodule Veidrodelis.SetStoreTest do
+defmodule Vdr.SetStoreTest do
   use ExUnit.Case, async: true
 
-  alias Veidrodelis.SetStore
+  alias Vdr.SetStore
 
   setup do
     # Simple decode function that returns the element as-is

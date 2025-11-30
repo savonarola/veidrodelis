@@ -1,7 +1,7 @@
-defmodule Veidrodelis.ListStoreTest do
+defmodule Vdr.ListStoreTest do
   use ExUnit.Case, async: true
 
-  alias Veidrodelis.ListStore
+  alias Vdr.ListStore
 
   setup do
     store = ListStore.new()

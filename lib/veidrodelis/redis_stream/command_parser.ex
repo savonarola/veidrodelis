@@ -1,4 +1,4 @@
-defmodule Veidrodelis.RedisStream.CommandParser do
+defmodule Vdr.RedisStream.CommandParser do
   @moduledoc """
   Parses Redis replication stream commands (as RESP arrays) into Command structs.
 
@@ -7,7 +7,7 @@ defmodule Veidrodelis.RedisStream.CommandParser do
   zsets, and lists are used.
   """
 
-  alias Veidrodelis.Command
+  alias Vdr.Command
 
   @doc """
   Parse a Redis command represented as a list of binary arguments into a Command struct.

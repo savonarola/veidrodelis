@@ -1,4 +1,4 @@
-defmodule Veidrodelis.HashStore do
+defmodule Vdr.HashStore do
   @moduledoc """
   An ETS-backed store for Redis hash operations.
 

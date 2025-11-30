@@ -1,7 +1,7 @@
-defmodule Veidrodelis.RDB do
+defmodule Vdr.RDB do
   import Bitwise
 
-  alias Veidrodelis.Command
+  alias Vdr.Command
 
   @moduledoc """
   Redis RDB (Redis Database) file parser.
@@ -12,9 +12,9 @@ defmodule Veidrodelis.RDB do
   ## Example - Parse Complete File
 
       defmodule MyCallback do
-        @behaviour Veidrodelis.RedisStream.Callback
+        @behaviour Vdr.RedisStream.Callback
 
-        alias Veidrodelis.Command
+        alias Vdr.Command
 
         @impl true
         def on_command(state, db, %Command.Set{key: key, value: value}) do
@@ -51,7 +51,7 @@ defmodule Veidrodelis.RDB do
       end
 
       {:ok, rdb_binary} = File.read("dump.rdb")
-      {:ok, final_state} = Veidrodelis.RDB.parse(rdb_binary, MyCallback, %{})
+      {:ok, final_state} = Vdr.RDB.parse(rdb_binary, MyCallback, %{})
 
   ## Example - Streaming/Chunked Parsing
 
@@ -59,7 +59,7 @@ defmodule Veidrodelis.RDB do
   large RDB files or reading from network streams:
 
       # Create parser
-      parser = Veidrodelis.RDB.create(MyCallback, %{})
+      parser = Vdr.RDB.create(MyCallback, %{})
 
       # Feed data in chunks
       {:ok, parser} = Veidrodelis.RDB.data(parser, chunk1)
@@ -67,7 +67,7 @@ defmodule Veidrodelis.RDB do
       {:ok, parser} = Veidrodelis.RDB.data(parser, chunk3)
 
       # Finish and get final state
-      {:ok, final_state} = Veidrodelis.RDB.finish(parser)
+      {:ok, final_state} = Vdr.RDB.finish(parser)
 
   The streaming API efficiently accumulates data chunks in a list and only converts
   to binary when needed, avoiding expensive binary concatenation operations.
@@ -159,7 +159,7 @@ defmodule Veidrodelis.RDB do
 
   ## Parameters
 
-    * `callback_module` - Module implementing the `Veidrodelis.RedisStream.Callback` behaviour
+    * `callback_module` - Module implementing the `Vdr.RedisStream.Callback` behaviour
     * `initial_state` - Initial state passed to callbacks
 
   ## Returns
@@ -168,10 +168,10 @@ defmodule Veidrodelis.RDB do
 
   ## Example
 
-      parser = Veidrodelis.RDB.create(MyCallback, %{})
+      parser = Vdr.RDB.create(MyCallback, %{})
       {:ok, parser} = Veidrodelis.RDB.data(parser, chunk1)
       {:ok, parser} = Veidrodelis.RDB.data(parser, chunk2)
-      {:ok, final_state} = Veidrodelis.RDB.finish(parser)
+      {:ok, final_state} = Vdr.RDB.finish(parser)
   """
   @spec create(module(), term()) :: t()
   def create(callback_module, initial_state) do
@@ -257,7 +257,7 @@ defmodule Veidrodelis.RDB do
 
   ## Example
 
-      parser = Veidrodelis.RDB.create(MyCallback, %{count: 0})
+      parser = Vdr.RDB.create(MyCallback, %{count: 0})
       {:ok, parser} = Veidrodelis.RDB.data(parser, chunk1)
 
       # Inspect intermediate state
@@ -287,13 +287,13 @@ defmodule Veidrodelis.RDB do
 
   ## Example
 
-      parser = Veidrodelis.RDB.create(MyCallback, %{count: 0})
+      parser = Vdr.RDB.create(MyCallback, %{count: 0})
       {:ok, parser} = Veidrodelis.RDB.data(parser, chunk1)
 
       # Update state externally
       current_state = Veidrodelis.RDB.get_state(parser)
       updated_state = Map.update!(current_state, :count, &(&1 + 100))
-      parser = Veidrodelis.RDB.put_state(parser, updated_state)
+      parser = Vdr.RDB.put_state(parser, updated_state)
 
       # Continue parsing with updated state
       {:ok, parser} = Veidrodelis.RDB.data(parser, chunk2)
@@ -652,7 +652,7 @@ defmodule Veidrodelis.RDB do
   ## Parameters
 
     * `rdb_binary` - Binary content of an RDB file
-    * `callback_module` - Module implementing the `Veidrodelis.RedisStream.Callback` behaviour
+    * `callback_module` - Module implementing the `Vdr.RedisStream.Callback` behaviour
     * `initial_state` - Initial state passed to callbacks
 
   ## Returns
@@ -1358,7 +1358,7 @@ defmodule Veidrodelis.RDB do
 
   # LZF decompression using NIF
   defp lzf_decompress(comp_data, uncomp_len) do
-    case Veidrodelis.LZF.decompress(comp_data, uncomp_len) do
+    case Vdr.LZF.decompress(comp_data, uncomp_len) do
       {:ok, decompressed} ->
         decompressed
 

@@ -1,4 +1,4 @@
-defmodule Veidrodelis.RedisStream.Callback do
+defmodule Vdr.RedisStream.Callback do
   @moduledoc """
   Behaviour for processing Redis commands as a stream.
 
@@ -20,9 +20,9 @@ defmodule Veidrodelis.RedisStream.Callback do
   ## Example
 
       defmodule MyCallback do
-        @behaviour Veidrodelis.RedisStream.Callback
+        @behaviour Vdr.RedisStream.Callback
 
-        alias Veidrodelis.Command
+        alias Vdr.Command
 
         @impl true
         def on_command(state, db, %Command.Set{key: key, value: value}) do
@@ -57,10 +57,10 @@ defmodule Veidrodelis.RedisStream.Callback do
       end
 
       {:ok, rdb_binary} = File.read("dump.rdb")
-      {:ok, final_state} = Veidrodelis.RDB.parse(rdb_binary, MyCallback, %{})
+      {:ok, final_state} = Vdr.RDB.parse(rdb_binary, MyCallback, %{})
   """
 
-  alias Veidrodelis.Command
+  alias Vdr.Command
 
   @doc """
   Called when a full replication is about to start.

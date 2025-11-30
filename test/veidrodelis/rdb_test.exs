@@ -1,9 +1,9 @@
-defmodule Veidrodelis.RDBTest do
+defmodule Vdr.RDBTest do
   use ExUnit.Case, async: true
 
-  @behaviour Veidrodelis.RedisStream.Callback
+  @behaviour Vdr.RedisStream.Callback
 
-  alias Veidrodelis.Command
+  alias Vdr.Command
 
   @moduledoc """
   Tests for RDB parsing with various Redis data types.
@@ -56,7 +56,7 @@ defmodule Veidrodelis.RDBTest do
     case File.read(dump_file) do
       {:ok, rdb_binary} ->
         initial_state = %{strings: [], sets: [], zsets: [], lists: [], hashes: []}
-        {:ok, final_state} = Veidrodelis.RDB.parse(rdb_binary, __MODULE__, initial_state)
+        {:ok, final_state} = Vdr.RDB.parse(rdb_binary, __MODULE__, initial_state)
         {:ok, parsed: final_state}
 
       {:error, _} ->
@@ -265,10 +265,10 @@ defmodule Veidrodelis.RDBTest do
       {:ok, rdb_binary} = File.read(dump_file)
 
       initial_state = %{strings: []}
-      parser = Veidrodelis.RDB.create(__MODULE__, initial_state)
+      parser = Vdr.RDB.create(__MODULE__, initial_state)
 
-      {:ok, parser} = Veidrodelis.RDB.data(parser, rdb_binary)
-      {:ok, final_state} = Veidrodelis.RDB.finish(parser)
+      {:ok, parser} = Vdr.RDB.data(parser, rdb_binary)
+      {:ok, final_state} = Vdr.RDB.finish(parser)
 
       strings = Map.get(final_state, :strings)
       assert length(strings) > 0
@@ -283,18 +283,18 @@ defmodule Veidrodelis.RDBTest do
       chunks = split_into_chunks(rdb_binary, 10)
 
       initial_state = %{strings: []}
-      parser = Veidrodelis.RDB.create(__MODULE__, initial_state)
+      parser = Vdr.RDB.create(__MODULE__, initial_state)
 
       # Feed all chunks
       parser =
         Enum.reduce(chunks, parser, fn chunk, acc_parser ->
-          case Veidrodelis.RDB.data(acc_parser, chunk) do
+          case Vdr.RDB.data(acc_parser, chunk) do
             {:ok, new_parser} -> new_parser
             {:error, :already_finished} -> acc_parser
           end
         end)
 
-      {:ok, final_state} = Veidrodelis.RDB.finish(parser)
+      {:ok, final_state} = Vdr.RDB.finish(parser)
 
       strings = Map.get(final_state, :strings)
       assert length(strings) > 0
@@ -309,18 +309,18 @@ defmodule Veidrodelis.RDBTest do
       chunks = split_into_chunks(rdb_binary, 3)
 
       initial_state = %{strings: [], lists: []}
-      parser = Veidrodelis.RDB.create(__MODULE__, initial_state)
+      parser = Vdr.RDB.create(__MODULE__, initial_state)
 
       # Feed all chunks
       parser =
         Enum.reduce(chunks, parser, fn chunk, acc_parser ->
-          case Veidrodelis.RDB.data(acc_parser, chunk) do
+          case Vdr.RDB.data(acc_parser, chunk) do
             {:ok, new_parser} -> new_parser
             {:error, :already_finished} -> acc_parser
           end
         end)
 
-      {:ok, final_state} = Veidrodelis.RDB.finish(parser)
+      {:ok, final_state} = Vdr.RDB.finish(parser)
 
       strings = Map.get(final_state, :strings)
       lists = Map.get(final_state, :lists)
@@ -333,12 +333,12 @@ defmodule Veidrodelis.RDBTest do
       partial_rdb = <<"REDIS", "0012">>
 
       initial_state = %{}
-      parser = Veidrodelis.RDB.create(__MODULE__, initial_state)
+      parser = Vdr.RDB.create(__MODULE__, initial_state)
 
-      {:ok, parser} = Veidrodelis.RDB.data(parser, partial_rdb)
+      {:ok, parser} = Vdr.RDB.data(parser, partial_rdb)
 
       # Should return error because we haven't reached EOF
-      assert {:error, :incomplete_rdb} = Veidrodelis.RDB.finish(parser)
+      assert {:error, :incomplete_rdb} = Vdr.RDB.finish(parser)
     end
 
     test "returns error when data called after finish" do
@@ -346,13 +346,13 @@ defmodule Veidrodelis.RDBTest do
       minimal_rdb = <<"REDIS", "0012", 255>>
 
       initial_state = %{}
-      parser = Veidrodelis.RDB.create(__MODULE__, initial_state)
+      parser = Vdr.RDB.create(__MODULE__, initial_state)
 
-      {:ok, parser} = Veidrodelis.RDB.data(parser, minimal_rdb)
-      {:ok, _final_state} = Veidrodelis.RDB.finish(parser)
+      {:ok, parser} = Vdr.RDB.data(parser, minimal_rdb)
+      {:ok, _final_state} = Vdr.RDB.finish(parser)
 
       # Should return error when trying to feed more data
-      assert {:error, :already_finished} = Veidrodelis.RDB.data(parser, <<>>)
+      assert {:error, :already_finished} = Vdr.RDB.data(parser, <<>>)
     end
 
     test "accumulates chunks without binary concatenation" do
@@ -363,18 +363,18 @@ defmodule Veidrodelis.RDBTest do
       chunks = split_into_random_chunks(rdb_binary, 5, 30)
 
       initial_state = %{strings: [], lists: [], hashes: []}
-      parser = Veidrodelis.RDB.create(__MODULE__, initial_state)
+      parser = Vdr.RDB.create(__MODULE__, initial_state)
 
       # Feed all chunks
       parser =
         Enum.reduce(chunks, parser, fn chunk, acc_parser ->
-          case Veidrodelis.RDB.data(acc_parser, chunk) do
+          case Vdr.RDB.data(acc_parser, chunk) do
             {:ok, new_parser} -> new_parser
             {:error, :already_finished} -> acc_parser
           end
         end)
 
-      {:ok, final_state} = Veidrodelis.RDB.finish(parser)
+      {:ok, final_state} = Vdr.RDB.finish(parser)
 
       # Verify all data was parsed correctly
       strings = Map.get(final_state, :strings)
@@ -395,29 +395,29 @@ defmodule Veidrodelis.RDBTest do
       <<chunk1::binary-size(chunk_size), chunk2::binary>> = rdb_binary
 
       initial_state = %{strings: [], count: 0}
-      parser = Veidrodelis.RDB.create(__MODULE__, initial_state)
+      parser = Vdr.RDB.create(__MODULE__, initial_state)
 
       # Feed first chunk
-      {:ok, parser} = Veidrodelis.RDB.data(parser, chunk1)
+      {:ok, parser} = Vdr.RDB.data(parser, chunk1)
 
       # Get intermediate state
-      intermediate_state = Veidrodelis.RDB.get_state(parser)
+      intermediate_state = Vdr.RDB.get_state(parser)
       assert is_map(intermediate_state)
       assert Map.has_key?(intermediate_state, :strings)
       assert Map.has_key?(intermediate_state, :count)
 
       # Modify state externally
       modified_state = Map.put(intermediate_state, :count, 999)
-      parser = Veidrodelis.RDB.put_state(parser, modified_state)
+      parser = Vdr.RDB.put_state(parser, modified_state)
 
       # Verify state was updated
-      assert Veidrodelis.RDB.get_state(parser).count == 999
+      assert Vdr.RDB.get_state(parser).count == 999
 
       # Feed second chunk
-      {:ok, parser} = Veidrodelis.RDB.data(parser, chunk2)
+      {:ok, parser} = Vdr.RDB.data(parser, chunk2)
 
       # Finish and verify final state includes our modification
-      {:ok, final_state} = Veidrodelis.RDB.finish(parser)
+      {:ok, final_state} = Vdr.RDB.finish(parser)
       assert final_state.count == 999
       assert length(final_state.strings) > 0
     end

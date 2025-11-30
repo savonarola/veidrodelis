@@ -1,4 +1,4 @@
-defmodule Veidrodelis.ListStore do
+defmodule Vdr.ListStore do
   @moduledoc """
   A GenServer that manages a map of lists indexed by arbitrary keys.
 

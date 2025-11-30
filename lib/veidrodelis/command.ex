@@ -1,4 +1,4 @@
-defmodule Veidrodelis.Command do
+defmodule Vdr.Command do
   @moduledoc """
   Redis command structs representing write operations parsed from RDB files.
 
@@ -11,7 +11,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis SET command.
 
     ## Example
-        %Veidrodelis.Command.Set{key: "mykey", value: "myvalue"}
+        %Vdr.Command.Set{key: "mykey", value: "myvalue"}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -26,7 +26,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis RPUSH command.
 
     ## Example
-        %Veidrodelis.Command.RPush{key: "mylist", values: ["elem1", "elem2"]}
+        %Vdr.Command.RPush{key: "mylist", values: ["elem1", "elem2"]}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -41,7 +41,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis SADD command.
 
     ## Example
-        %Veidrodelis.Command.SAdd{key: "myset", members: ["member1", "member2"]}
+        %Vdr.Command.SAdd{key: "myset", members: ["member1", "member2"]}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -56,7 +56,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis ZADD command.
 
     ## Example
-        %Veidrodelis.Command.ZAdd{key: "myzset", members: [{1.5, "member1"}, {2.0, "member2"}]}
+        %Vdr.Command.ZAdd{key: "myzset", members: [{1.5, "member1"}, {2.0, "member2"}]}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -71,7 +71,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis HSET command.
 
     ## Example
-        %Veidrodelis.Command.HSet{key: "myhash", fields: [{"field1", "value1"}, {"field2", "value2"}]}
+        %Vdr.Command.HSet{key: "myhash", fields: [{"field1", "value1"}, {"field2", "value2"}]}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -86,7 +86,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis PEXPIREAT command for setting key expiration.
 
     ## Example
-        %Veidrodelis.Command.PExpireAt{key: "mykey", timestamp_ms: 1609459200000}
+        %Vdr.Command.PExpireAt{key: "mykey", timestamp_ms: 1609459200000}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -103,7 +103,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis DEL command for deleting one or more keys.
 
     ## Example
-        %Veidrodelis.Command.Del{keys: ["key1", "key2"]}
+        %Vdr.Command.Del{keys: ["key1", "key2"]}
     """
     @type t :: %__MODULE__{
             keys: [binary()]
@@ -117,7 +117,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis RENAME command.
 
     ## Example
-        %Veidrodelis.Command.Rename{key: "oldkey", newkey: "newkey"}
+        %Vdr.Command.Rename{key: "oldkey", newkey: "newkey"}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -132,7 +132,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis RENAMENX command.
 
     ## Example
-        %Veidrodelis.Command.RenameNX{key: "oldkey", newkey: "newkey"}
+        %Vdr.Command.RenameNX{key: "oldkey", newkey: "newkey"}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -147,7 +147,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis MOVE command.
 
     ## Example
-        %Veidrodelis.Command.Move{key: "mykey", db: 1}
+        %Vdr.Command.Move{key: "mykey", db: 1}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -164,7 +164,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis MSET command for setting multiple keys.
 
     ## Example
-        %Veidrodelis.Command.MSet{pairs: [{"key1", "value1"}, {"key2", "value2"}]}
+        %Vdr.Command.MSet{pairs: [{"key1", "value1"}, {"key2", "value2"}]}
     """
     @type t :: %__MODULE__{
             pairs: [{binary(), binary()}]
@@ -178,7 +178,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis APPEND command.
 
     ## Example
-        %Veidrodelis.Command.Append{key: "mykey", value: "data"}
+        %Vdr.Command.Append{key: "mykey", value: "data"}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -193,7 +193,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis SETRANGE command.
 
     ## Example
-        %Veidrodelis.Command.SetRange{key: "mykey", offset: 10, value: "data"}
+        %Vdr.Command.SetRange{key: "mykey", offset: 10, value: "data"}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -209,7 +209,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis SETBIT command.
 
     ## Example
-        %Veidrodelis.Command.SetBit{key: "mykey", offset: 100, value: 1}
+        %Vdr.Command.SetBit{key: "mykey", offset: 100, value: 1}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -227,7 +227,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis LPUSH command.
 
     ## Example
-        %Veidrodelis.Command.LPush{key: "mylist", values: ["elem1", "elem2"]}
+        %Vdr.Command.LPush{key: "mylist", values: ["elem1", "elem2"]}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -242,7 +242,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis LPUSHX command.
 
     ## Example
-        %Veidrodelis.Command.LPushX{key: "mylist", values: ["elem1"]}
+        %Vdr.Command.LPushX{key: "mylist", values: ["elem1"]}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -257,7 +257,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis RPUSHX command.
 
     ## Example
-        %Veidrodelis.Command.RPushX{key: "mylist", values: ["elem1"]}
+        %Vdr.Command.RPushX{key: "mylist", values: ["elem1"]}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -272,7 +272,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis LPOP command.
 
     ## Example
-        %Veidrodelis.Command.LPop{key: "mylist"}
+        %Vdr.Command.LPop{key: "mylist"}
     """
     @type t :: %__MODULE__{
             key: binary()
@@ -286,7 +286,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis RPOP command.
 
     ## Example
-        %Veidrodelis.Command.RPop{key: "mylist"}
+        %Vdr.Command.RPop{key: "mylist"}
     """
     @type t :: %__MODULE__{
             key: binary()
@@ -300,7 +300,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis LREM command.
 
     ## Example
-        %Veidrodelis.Command.LRem{key: "mylist", count: 2, value: "element"}
+        %Vdr.Command.LRem{key: "mylist", count: 2, value: "element"}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -316,7 +316,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis LTRIM command.
 
     ## Example
-        %Veidrodelis.Command.LTrim{key: "mylist", start: 0, stop: 99}
+        %Vdr.Command.LTrim{key: "mylist", start: 0, stop: 99}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -332,7 +332,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis LSET command.
 
     ## Example
-        %Veidrodelis.Command.LSet{key: "mylist", index: 0, value: "element"}
+        %Vdr.Command.LSet{key: "mylist", index: 0, value: "element"}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -348,7 +348,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis LINSERT command.
 
     ## Example
-        %Veidrodelis.Command.LInsert{key: "mylist", before_after: :before, pivot: "marker", element: "new"}
+        %Vdr.Command.LInsert{key: "mylist", before_after: :before, pivot: "marker", element: "new"}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -365,7 +365,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis RPOPLPUSH command.
 
     ## Example
-        %Veidrodelis.Command.RPopLPush{source: "source_list", destination: "dest_list"}
+        %Vdr.Command.RPopLPush{source: "source_list", destination: "dest_list"}
     """
     @type t :: %__MODULE__{
             source: binary(),
@@ -382,7 +382,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis HDEL command.
 
     ## Example
-        %Veidrodelis.Command.HDel{key: "myhash", fields: ["field1", "field2"]}
+        %Vdr.Command.HDel{key: "myhash", fields: ["field1", "field2"]}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -399,7 +399,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis SREM command.
 
     ## Example
-        %Veidrodelis.Command.SRem{key: "myset", members: ["member1", "member2"]}
+        %Vdr.Command.SRem{key: "myset", members: ["member1", "member2"]}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -414,7 +414,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis SMOVE command.
 
     ## Example
-        %Veidrodelis.Command.SMove{source: "set1", destination: "set2", member: "value"}
+        %Vdr.Command.SMove{source: "set1", destination: "set2", member: "value"}
     """
     @type t :: %__MODULE__{
             source: binary(),
@@ -430,7 +430,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis SINTERSTORE command.
 
     ## Example
-        %Veidrodelis.Command.SInterStore{destination: "result", keys: ["set1", "set2"]}
+        %Vdr.Command.SInterStore{destination: "result", keys: ["set1", "set2"]}
     """
     @type t :: %__MODULE__{
             destination: binary(),
@@ -445,7 +445,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis SUNIONSTORE command.
 
     ## Example
-        %Veidrodelis.Command.SUnionStore{destination: "result", keys: ["set1", "set2"]}
+        %Vdr.Command.SUnionStore{destination: "result", keys: ["set1", "set2"]}
     """
     @type t :: %__MODULE__{
             destination: binary(),
@@ -460,7 +460,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis SDIFFSTORE command.
 
     ## Example
-        %Veidrodelis.Command.SDiffStore{destination: "result", keys: ["set1", "set2"]}
+        %Vdr.Command.SDiffStore{destination: "result", keys: ["set1", "set2"]}
     """
     @type t :: %__MODULE__{
             destination: binary(),
@@ -477,7 +477,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis ZREM command.
 
     ## Example
-        %Veidrodelis.Command.ZRem{key: "myzset", members: ["member1", "member2"]}
+        %Vdr.Command.ZRem{key: "myzset", members: ["member1", "member2"]}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -492,7 +492,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis ZPOPMAX command.
 
     ## Example
-        %Veidrodelis.Command.ZPopMax{key: "myzset", count: 1}
+        %Vdr.Command.ZPopMax{key: "myzset", count: 1}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -507,7 +507,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis ZPOPMIN command.
 
     ## Example
-        %Veidrodelis.Command.ZPopMin{key: "myzset", count: 1}
+        %Vdr.Command.ZPopMin{key: "myzset", count: 1}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -522,7 +522,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis ZREMRANGEBYRANK command.
 
     ## Example
-        %Veidrodelis.Command.ZRemRangeByRank{key: "myzset", start: 0, stop: 10}
+        %Vdr.Command.ZRemRangeByRank{key: "myzset", start: 0, stop: 10}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -538,7 +538,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis ZREMRANGEBYSCORE command.
 
     ## Example
-        %Veidrodelis.Command.ZRemRangeByScore{key: "myzset", min: "0", max: "100"}
+        %Vdr.Command.ZRemRangeByScore{key: "myzset", min: "0", max: "100"}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -554,7 +554,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis ZREMRANGEBYLEX command.
 
     ## Example
-        %Veidrodelis.Command.ZRemRangeByLex{key: "myzset", min: "[a", max: "[z"}
+        %Vdr.Command.ZRemRangeByLex{key: "myzset", min: "[a", max: "[z"}
     """
     @type t :: %__MODULE__{
             key: binary(),
@@ -570,7 +570,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis ZUNIONSTORE command.
 
     ## Example
-        %Veidrodelis.Command.ZUnionStore{destination: "result", keys: ["zset1", "zset2"], weights: [1.0, 2.0], aggregate: :sum}
+        %Vdr.Command.ZUnionStore{destination: "result", keys: ["zset1", "zset2"], weights: [1.0, 2.0], aggregate: :sum}
     """
     @type t :: %__MODULE__{
             destination: binary(),
@@ -587,7 +587,7 @@ defmodule Veidrodelis.Command do
     Represents a Redis ZINTERSTORE command.
 
     ## Example
-        %Veidrodelis.Command.ZInterStore{destination: "result", keys: ["zset1", "zset2"], weights: [1.0, 2.0], aggregate: :sum}
+        %Vdr.Command.ZInterStore{destination: "result", keys: ["zset1", "zset2"], weights: [1.0, 2.0], aggregate: :sum}
     """
     @type t :: %__MODULE__{
             destination: binary(),
@@ -608,8 +608,8 @@ defmodule Veidrodelis.Command do
     Used for commands that don't have a specific struct definition.
 
     ## Example
-        %Veidrodelis.Command.Generic{args: ["PING"]}
-        %Veidrodelis.Command.Generic{args: ["CONFIG", "SET", "timeout", "300"]}
+        %Vdr.Command.Generic{args: ["PING"]}
+        %Vdr.Command.Generic{args: ["CONFIG", "SET", "timeout", "300"]}
     """
     @type t :: %__MODULE__{
             args: [binary()]
