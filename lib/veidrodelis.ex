@@ -263,6 +263,31 @@ defmodule Veidrodelis do
     Veidrodelis.RedisStream.Replica.stop(server)
   end
 
+  @doc """
+  Gets the current replication state of a Veidrodelis instance.
+
+  ## Parameters
+
+    * `server` - The PID or name of the Veidrodelis instance
+
+  ## Returns
+
+    * `:connecting` - Connecting to Redis
+    * `:handshake` - Performing replication handshake
+    * `:rdb` - Receiving RDB snapshot
+    * `:streaming` - Actively streaming commands
+
+  ## Example
+
+      {:ok, pid} = Veidrodelis.start_link(id: :my_instance, host: "localhost")
+      state = Veidrodelis.get_replication_state(pid)
+      #=> :streaming
+  """
+  @spec get_replication_state(GenServer.server()) :: atom()
+  def get_replication_state(server) do
+    Veidrodelis.RedisStream.Replica.get_replication_state(server)
+  end
+
   # RedisStream.Callback implementation
 
   @impl Veidrodelis.RedisStream.Callback

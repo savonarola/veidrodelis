@@ -1,7 +1,6 @@
 defmodule VeidrodelisTest do
   use ExUnit.Case, async: false
 
-  alias Veidrodelis.RedisStream.Replica
   use CommandMatchers
 
   @redis_host "localhost"
@@ -81,7 +80,7 @@ defmodule VeidrodelisTest do
       # Start Veidrodelis instance with custom decoder
       instance_id = :"test_strings_#{:erlang.unique_integer([:positive])}"
 
-      {:ok, replica} =
+      {:ok, vdr} =
         Veidrodelis.start_link(
           id: instance_id,
           decoder: TestDecoder,
@@ -91,7 +90,7 @@ defmodule VeidrodelisTest do
 
       # Wait for replication
       assert_happens_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
       # Give it a moment to process commands
@@ -111,7 +110,7 @@ defmodule VeidrodelisTest do
       assert Redix.command!(redis, ["GET", "key1"]) == "value1"
       assert Redix.command!(redis, ["GET", "key2"]) == "value2"
 
-      Veidrodelis.stop(replica)
+      Veidrodelis.stop(vdr)
     end
 
     test "processes set commands with decoder", %{redis: redis} do
@@ -121,7 +120,7 @@ defmodule VeidrodelisTest do
       # Start Veidrodelis instance with custom decoder
       instance_id = :"test_sets_#{:erlang.unique_integer([:positive])}"
 
-      {:ok, replica} =
+      {:ok, vdr} =
         Veidrodelis.start_link(
           id: instance_id,
           decoder: TestDecoder,
@@ -131,7 +130,7 @@ defmodule VeidrodelisTest do
 
       # Wait for replication
       assert_happens_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
       Process.sleep(100)
@@ -153,7 +152,7 @@ defmodule VeidrodelisTest do
       assert "member2" in redis_members
       assert "member3" in redis_members
 
-      Veidrodelis.stop(replica)
+      Veidrodelis.stop(vdr)
     end
 
     test "processes list commands with decoder", %{redis: redis} do
@@ -163,7 +162,7 @@ defmodule VeidrodelisTest do
       # Start Veidrodelis instance with custom decoder
       instance_id = :"test_lists_#{:erlang.unique_integer([:positive])}"
 
-      {:ok, replica} =
+      {:ok, vdr} =
         Veidrodelis.start_link(
           id: instance_id,
           decoder: TestDecoder,
@@ -173,7 +172,7 @@ defmodule VeidrodelisTest do
 
       # Wait for replication
       assert_happens_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
       Process.sleep(100)
@@ -189,7 +188,7 @@ defmodule VeidrodelisTest do
       redis_items = Redix.command!(redis, ["LRANGE", "mylist", "0", "-1"])
       assert redis_items == ["item1", "item2", "item3"]
 
-      Veidrodelis.stop(replica)
+      Veidrodelis.stop(vdr)
     end
 
     test "processes hash commands with decoder", %{redis: redis} do
@@ -199,7 +198,7 @@ defmodule VeidrodelisTest do
       # Start Veidrodelis instance with custom decoder
       instance_id = :"test_hashes_#{:erlang.unique_integer([:positive])}"
 
-      {:ok, replica} =
+      {:ok, vdr} =
         Veidrodelis.start_link(
           id: instance_id,
           decoder: TestDecoder,
@@ -209,7 +208,7 @@ defmodule VeidrodelisTest do
 
       # Wait for replication
       assert_happens_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
       Process.sleep(100)
@@ -228,7 +227,7 @@ defmodule VeidrodelisTest do
       assert Redix.command!(redis, ["HGET", "myhash", "field1"]) == "value1"
       assert Redix.command!(redis, ["HGET", "myhash", "field2"]) == "value2"
 
-      Veidrodelis.stop(replica)
+      Veidrodelis.stop(vdr)
     end
 
     test "processes zset commands with decoder", %{redis: redis} do
@@ -238,7 +237,7 @@ defmodule VeidrodelisTest do
       # Start Veidrodelis instance with custom decoder
       instance_id = :"test_zsets_#{:erlang.unique_integer([:positive])}"
 
-      {:ok, replica} =
+      {:ok, vdr} =
         Veidrodelis.start_link(
           id: instance_id,
           decoder: TestDecoder,
@@ -248,7 +247,7 @@ defmodule VeidrodelisTest do
 
       # Wait for replication
       assert_happens_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
       Process.sleep(100)
@@ -269,7 +268,7 @@ defmodule VeidrodelisTest do
       redis_members = Redix.command!(redis, ["ZRANGE", "myzset", "0", "-1", "WITHSCORES"])
       assert redis_members == ["member1", "1", "member2", "2.5", "member3", "3"]
 
-      Veidrodelis.stop(replica)
+      Veidrodelis.stop(vdr)
     end
 
     test "processes streaming commands with decoder", %{redis: redis} do
@@ -320,7 +319,7 @@ defmodule VeidrodelisTest do
       items = Veidrodelis.ListStore.get_range(list_store, 0, "list:stream_list", 0, -1)
       assert items == [{:list_entry, "l1"}, {:list_entry, "l2"}]
 
-      Veidrodelis.stop(replica)
+      Veidrodelis.stop(vdr)
     end
 
     test "handles type changes correctly", %{redis: redis} do
@@ -330,7 +329,7 @@ defmodule VeidrodelisTest do
       # Start Veidrodelis instance
       instance_id = :"test_type_change_#{:erlang.unique_integer([:positive])}"
 
-      {:ok, replica} =
+      {:ok, vdr} =
         Veidrodelis.start_link(
           id: instance_id,
           decoder: TestDecoder,
@@ -340,7 +339,7 @@ defmodule VeidrodelisTest do
 
       # Wait for replication
       assert_happens_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
       Process.sleep(100)
@@ -368,7 +367,7 @@ defmodule VeidrodelisTest do
       items = Veidrodelis.ListStore.get_range(list_store, 0, "list:changeable", 0, -1)
       assert items == [{:list_entry, "list_item"}]
 
-      Veidrodelis.stop(replica)
+      Veidrodelis.stop(vdr)
     end
 
     test "handles multiple databases", %{redis: redis} do
@@ -384,7 +383,7 @@ defmodule VeidrodelisTest do
       # Start Veidrodelis instance
       instance_id = :"test_multi_db_#{:erlang.unique_integer([:positive])}"
 
-      {:ok, replica} =
+      {:ok, vdr} =
         Veidrodelis.start_link(
           id: instance_id,
           decoder: TestDecoder,
@@ -394,7 +393,7 @@ defmodule VeidrodelisTest do
 
       # Wait for replication
       assert_happens_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
       Process.sleep(100)
@@ -415,14 +414,14 @@ defmodule VeidrodelisTest do
       Redix.command!(redis, ["SELECT", "1"])
       assert Redix.command!(redis, ["GET", "db1_key"]) == "db1_value"
 
-      Veidrodelis.stop(replica)
+      Veidrodelis.stop(vdr)
     end
 
     test "on_destroy is called on termination", %{redis: _redis} do
       # Start Veidrodelis instance
       instance_id = :"test_destroy_#{:erlang.unique_integer([:positive])}"
 
-      {:ok, replica} =
+      {:ok, vdr} =
         Veidrodelis.start_link(
           id: instance_id,
           decoder: TestDecoder,
@@ -432,14 +431,14 @@ defmodule VeidrodelisTest do
 
       # Wait for replication
       assert_happens_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
       # Verify stores are registered
       assert Veidrodelis.strings(instance_id) != nil
 
       # Stop Veidrodelis (should call on_destroy)
-      Veidrodelis.stop(replica)
+      Veidrodelis.stop(vdr)
 
       # Give it a moment to cleanup
       Process.sleep(100)
