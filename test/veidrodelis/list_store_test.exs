@@ -32,6 +32,32 @@ defmodule Veidrodelis.ListStoreTest do
       # Clean up
       ListStore.destroy(store)
     end
+
+    test "accepts decode_fun option" do
+      decode_fun = fn _key, val -> {:decoded, val} end
+      store = ListStore.new(decode_fun: decode_fun)
+
+      assert %ListStore{pid: pid} = store
+      assert Process.alive?(pid)
+
+      # Test that decode function is used
+      ListStore.lpush(store, 0, "mylist", ["test"])
+      assert [{:decoded, "test"}] = ListStore.get_range(store, 0, "mylist", 0, -1)
+
+      # Clean up
+      ListStore.destroy(store)
+    end
+
+    test "defaults to identity function when decode_fun not provided" do
+      store = ListStore.new()
+
+      # Non-binary values should pass through unchanged
+      ListStore.lpush(store, 0, "mylist", [123, "test", :atom])
+      assert [:atom, "test", 123] = ListStore.get_range(store, 0, "mylist", 0, -1)
+
+      # Clean up
+      ListStore.destroy(store)
+    end
   end
 
   describe "destroy/1" do
@@ -507,6 +533,132 @@ defmodule Veidrodelis.ListStoreTest do
       Process.sleep(10)
 
       assert ["d", "b", "a", "c"] = ListStore.get_range(store, 0, "mylist", 0, -1)
+    end
+  end
+
+  describe "decode_fun callback" do
+    test "decodes binary values when pushing", %{store: _store} do
+      decode_fun = fn key, val -> {:decoded, key, val} end
+      store = ListStore.new(decode_fun: decode_fun)
+
+      ListStore.lpush(store, 0, "mylist", ["a", "b"])
+
+      assert [{:decoded, "mylist", "b"}, {:decoded, "mylist", "a"}] =
+               ListStore.get_range(store, 0, "mylist", 0, -1)
+
+      ListStore.destroy(store)
+    end
+
+    test "decodes binary values when appending", %{store: _store} do
+      decode_fun = fn _key, val -> String.upcase(val) end
+      store = ListStore.new(decode_fun: decode_fun)
+
+      ListStore.rpush(store, 0, "mylist", ["hello", "world"])
+      assert ["HELLO", "WORLD"] = ListStore.get_range(store, 0, "mylist", 0, -1)
+
+      ListStore.destroy(store)
+    end
+
+    test "decodes binary values in lrem operation", %{store: _store} do
+      decode_fun = fn _key, val -> String.upcase(val) end
+      store = ListStore.new(decode_fun: decode_fun)
+
+      ListStore.rpush(store, 0, "mylist", ["a", "b", "a"])
+      ListStore.lrem(store, 0, "mylist", 1, "a")
+      Process.sleep(10)
+      assert ["B", "A"] = ListStore.get_range(store, 0, "mylist", 0, -1)
+
+      ListStore.destroy(store)
+    end
+
+    test "decodes binary values in lset operation", %{store: _store} do
+      decode_fun = fn _key, val -> String.upcase(val) end
+      store = ListStore.new(decode_fun: decode_fun)
+
+      ListStore.rpush(store, 0, "mylist", ["a", "b", "c"])
+      ListStore.lset(store, 0, "mylist", 1, "x")
+      Process.sleep(10)
+      assert ["A", "X", "C"] = ListStore.get_range(store, 0, "mylist", 0, -1)
+
+      ListStore.destroy(store)
+    end
+
+    test "decodes binary values in linsert operation", %{store: _store} do
+      decode_fun = fn _key, val -> String.upcase(val) end
+      store = ListStore.new(decode_fun: decode_fun)
+
+      ListStore.rpush(store, 0, "mylist", ["a", "b", "c"])
+      ListStore.linsert(store, 0, "mylist", :before, "b", "x")
+      Process.sleep(10)
+      assert ["A", "X", "B", "C"] = ListStore.get_range(store, 0, "mylist", 0, -1)
+
+      ListStore.destroy(store)
+    end
+
+    test "passes non-binary values through unchanged", %{store: _store} do
+      decode_fun = fn _key, val -> {:decoded, val} end
+      store = ListStore.new(decode_fun: decode_fun)
+
+      # Non-binary values should not be decoded
+      ListStore.lpush(store, 0, "mylist", [123, :atom, "binary"])
+      result = ListStore.get_range(store, 0, "mylist", 0, -1)
+      # Binary "binary" should be decoded, non-binaries pass through
+      assert Enum.member?(result, {:decoded, "binary"})
+      assert Enum.member?(result, 123)
+      assert Enum.member?(result, :atom)
+      refute Enum.member?(result, "binary")
+
+      ListStore.destroy(store)
+    end
+
+    test "decode function receives correct key", %{store: _store} do
+      received_keys = Agent.start_link(fn -> [] end) |> elem(1)
+
+      decode_fun = fn key, val ->
+        Agent.update(received_keys, fn keys -> [key | keys] end)
+        val
+      end
+
+      store = ListStore.new(decode_fun: decode_fun)
+
+      ListStore.lpush(store, 0, "key1", ["a"])
+      ListStore.rpush(store, 0, "key2", ["b"])
+      Process.sleep(10)
+
+      keys = Agent.get(received_keys, & &1)
+      assert "key1" in keys
+      assert "key2" in keys
+
+      ListStore.destroy(store)
+    end
+
+    test "works with lpushx and rpushx", %{store: _store} do
+      decode_fun = fn _key, val -> String.upcase(val) end
+      store = ListStore.new(decode_fun: decode_fun)
+
+      ListStore.rpush(store, 0, "mylist", ["a"])
+      ListStore.lpushx(store, 0, "mylist", ["b"])
+      ListStore.rpushx(store, 0, "mylist", ["c"])
+      Process.sleep(10)
+
+      assert ["B", "A", "C"] = ListStore.get_range(store, 0, "mylist", 0, -1)
+
+      ListStore.destroy(store)
+    end
+
+    test "works with rpoplpush", %{store: _store} do
+      decode_fun = fn _key, val -> String.upcase(val) end
+      store = ListStore.new(decode_fun: decode_fun)
+
+      ListStore.rpush(store, 0, "source", ["a", "b"])
+      ListStore.rpush(store, 0, "dest", ["x"])
+      ListStore.rpoplpush(store, 0, "source", "dest")
+      Process.sleep(10)
+
+      assert ["A"] = ListStore.get_range(store, 0, "source", 0, -1)
+      assert ["B", "X"] = ListStore.get_range(store, 0, "dest", 0, -1)
+
+      ListStore.destroy(store)
     end
   end
 end

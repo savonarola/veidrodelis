@@ -18,6 +18,9 @@ defmodule Veidrodelis.ListStore do
   TODO
 
   Use pool and dispatch by db
+
+  TODO use 2-list representation
+  to make push-pop from both ends effective
   """
 
   use GenServer
@@ -32,15 +35,20 @@ defmodule Veidrodelis.ListStore do
   @type key :: any()
   @type value :: any()
   @type position :: :before | :after
+  @type decode_fun :: (key(), binary() -> term())
 
   # Client API
 
   @doc """
   Creates a new list store.
+
+  Options:
+  - `:decode_fun` - A function `(key, binary) -> term()` used to decode binary values
   """
   @spec new(keyword()) :: t()
   def new(opts \\ []) do
-    {:ok, pid} = GenServer.start_link(__MODULE__, %{}, opts)
+    decode_fun = Keyword.get(opts, :decode_fun, fn _key, val -> val end)
+    {:ok, pid} = GenServer.start_link(__MODULE__, %{decode_fun: decode_fun}, opts)
     %__MODULE__{pid: pid}
   end
 
@@ -171,134 +179,156 @@ defmodule Veidrodelis.ListStore do
   # Server callbacks
 
   @impl true
-  def init(_opts) do
-    {:ok, %{}}
+  def init(opts) do
+    decode_fun = Map.get(opts, :decode_fun, fn _key, val -> val end)
+    {:ok, %{data: %{}, decode_fun: decode_fun}}
   end
 
   @impl true
   def handle_cast({:lpush, db, key, values}, state) do
     db_key = {db, key}
-    list = Map.get(state, db_key, [])
-    # Insert elements one by one at head, so reverse first
-    new_list = Enum.reverse(values) ++ list
-    {:noreply, Map.put(state, db_key, new_list)}
+    decode_fun = state.decode_fun
+    list = Map.get(state.data, db_key, [])
+    # Decode binary values and insert elements one by one at head, so reverse first
+    decoded_values = Enum.map(values, &decode_if_binary(decode_fun, key, &1))
+    new_list = Enum.reverse(decoded_values) ++ list
+    {:noreply, %{state | data: Map.put(state.data, db_key, new_list)}}
   end
 
   def handle_cast({:rpush, db, key, values}, state) do
     db_key = {db, key}
-    list = Map.get(state, db_key, [])
-    new_list = list ++ values
-    {:noreply, Map.put(state, db_key, new_list)}
+    decode_fun = state.decode_fun
+    list = Map.get(state.data, db_key, [])
+    decoded_values = Enum.map(values, &decode_if_binary(decode_fun, key, &1))
+    new_list = list ++ decoded_values
+    {:noreply, %{state | data: Map.put(state.data, db_key, new_list)}}
   end
 
   def handle_cast({:lpushx, db, key, values}, state) do
     db_key = {db, key}
+    decode_fun = state.decode_fun
 
-    case Map.get(state, db_key) do
+    case Map.get(state.data, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
-        new_list = Enum.reverse(values) ++ list
-        {:noreply, Map.put(state, db_key, new_list)}
+        decoded_values = Enum.map(values, &decode_if_binary(decode_fun, key, &1))
+        new_list = Enum.reverse(decoded_values) ++ list
+        {:noreply, %{state | data: Map.put(state.data, db_key, new_list)}}
     end
   end
 
   def handle_cast({:rpushx, db, key, values}, state) do
     db_key = {db, key}
+    decode_fun = state.decode_fun
 
-    case Map.get(state, db_key) do
+    case Map.get(state.data, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
-        new_list = list ++ values
-        {:noreply, Map.put(state, db_key, new_list)}
+        decoded_values = Enum.map(values, &decode_if_binary(decode_fun, key, &1))
+        new_list = list ++ decoded_values
+        {:noreply, %{state | data: Map.put(state.data, db_key, new_list)}}
     end
   end
 
   def handle_cast({:lpop, db, key}, state) do
     db_key = {db, key}
 
-    case Map.get(state, db_key) do
+    case Map.get(state.data, db_key) do
       nil ->
         {:noreply, state}
 
       [] ->
-        {:noreply, Map.delete(state, db_key)}
+        {:noreply, %{state | data: Map.delete(state.data, db_key)}}
 
       [_head | tail] ->
-        new_state =
-          if tail == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, tail)
+        new_data =
+          if tail == [],
+            do: Map.delete(state.data, db_key),
+            else: Map.put(state.data, db_key, tail)
 
-        {:noreply, new_state}
+        {:noreply, %{state | data: new_data}}
     end
   end
 
   def handle_cast({:rpop, db, key}, state) do
     db_key = {db, key}
 
-    case Map.get(state, db_key) do
+    case Map.get(state.data, db_key) do
       nil ->
         {:noreply, state}
 
       [] ->
-        {:noreply, Map.delete(state, db_key)}
+        {:noreply, %{state | data: Map.delete(state.data, db_key)}}
 
       list ->
         new_list = Enum.drop(list, -1)
 
-        new_state =
-          if new_list == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, new_list)
+        new_data =
+          if new_list == [],
+            do: Map.delete(state.data, db_key),
+            else: Map.put(state.data, db_key, new_list)
 
-        {:noreply, new_state}
+        {:noreply, %{state | data: new_data}}
     end
   end
 
   def handle_cast({:lrem, db, key, count, element}, state) do
     db_key = {db, key}
+    decode_fun = state.decode_fun
 
-    case Map.get(state, db_key) do
+    case Map.get(state.data, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
-        new_list = remove_elements(list, count, element)
+        decoded_element = decode_if_binary(decode_fun, key, element)
+        new_list = remove_elements(list, count, decoded_element)
 
-        new_state =
-          if new_list == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, new_list)
+        new_data =
+          if new_list == [],
+            do: Map.delete(state.data, db_key),
+            else: Map.put(state.data, db_key, new_list)
 
-        {:noreply, new_state}
+        {:noreply, %{state | data: new_data}}
     end
   end
 
   def handle_cast({:ltrim, db, key, start_idx, stop_idx}, state) do
     db_key = {db, key}
 
-    case Map.get(state, db_key) do
+    case Map.get(state.data, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
         new_list = slice_list(list, start_idx, stop_idx)
 
-        new_state =
-          if new_list == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, new_list)
+        new_data =
+          if new_list == [],
+            do: Map.delete(state.data, db_key),
+            else: Map.put(state.data, db_key, new_list)
 
-        {:noreply, new_state}
+        {:noreply, %{state | data: new_data}}
     end
   end
 
   def handle_cast({:lset, db, key, index, value}, state) do
     db_key = {db, key}
+    decode_fun = state.decode_fun
 
-    case Map.get(state, db_key) do
+    case Map.get(state.data, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
-        case set_at_index(list, index, value) do
-          {:ok, new_list} -> {:noreply, Map.put(state, db_key, new_list)}
+        decoded_value = decode_if_binary(decode_fun, key, value)
+
+        case set_at_index(list, index, decoded_value) do
+          {:ok, new_list} -> {:noreply, %{state | data: Map.put(state.data, db_key, new_list)}}
           :error -> {:noreply, state}
         end
     end
@@ -306,14 +336,18 @@ defmodule Veidrodelis.ListStore do
 
   def handle_cast({:linsert, db, key, position, pivot, value}, state) do
     db_key = {db, key}
+    decode_fun = state.decode_fun
 
-    case Map.get(state, db_key) do
+    case Map.get(state.data, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
-        case insert_at_pivot(list, position, pivot, value) do
-          {:ok, new_list} -> {:noreply, Map.put(state, db_key, new_list)}
+        decoded_pivot = decode_if_binary(decode_fun, key, pivot)
+        decoded_value = decode_if_binary(decode_fun, key, value)
+
+        case insert_at_pivot(list, position, decoded_pivot, decoded_value) do
+          {:ok, new_list} -> {:noreply, %{state | data: Map.put(state.data, db_key, new_list)}}
           :error -> {:noreply, state}
         end
     end
@@ -323,12 +357,12 @@ defmodule Veidrodelis.ListStore do
     source_key = {db, source}
     dest_key = {db, dest}
 
-    case Map.get(state, source_key) do
+    case Map.get(state.data, source_key) do
       nil ->
         {:noreply, state}
 
       [] ->
-        {:noreply, Map.delete(state, source_key)}
+        {:noreply, %{state | data: Map.delete(state.data, source_key)}}
 
       source_list ->
         popped = List.last(source_list)
@@ -337,32 +371,32 @@ defmodule Veidrodelis.ListStore do
         if source == dest do
           # Same key: just rotate the list
           new_list = [popped | new_source]
-          {:noreply, Map.put(state, dest_key, new_list)}
+          {:noreply, %{state | data: Map.put(state.data, dest_key, new_list)}}
         else
           # Different keys: update both
-          dest_list = Map.get(state, dest_key, [])
+          dest_list = Map.get(state.data, dest_key, [])
           new_dest = [popped | dest_list]
 
-          state =
+          new_data =
             if new_source == [],
-              do: Map.delete(state, source_key),
-              else: Map.put(state, source_key, new_source)
+              do: Map.delete(state.data, source_key),
+              else: Map.put(state.data, source_key, new_source)
 
-          state = Map.put(state, dest_key, new_dest)
-          {:noreply, state}
+          new_data = Map.put(new_data, dest_key, new_dest)
+          {:noreply, %{state | data: new_data}}
         end
     end
   end
 
   def handle_cast({:del, db, key}, state) do
     db_key = {db, key}
-    {:noreply, Map.delete(state, db_key)}
+    {:noreply, %{state | data: Map.delete(state.data, db_key)}}
   end
 
   @impl true
   def handle_call({:get_range, db, key, start_idx, stop_idx}, _from, state) do
     db_key = {db, key}
-    list = Map.get(state, db_key, [])
+    list = Map.get(state.data, db_key, [])
     result = slice_list(list, start_idx, stop_idx)
     {:reply, result, state}
   end
@@ -449,5 +483,15 @@ defmodule Veidrodelis.ListStore do
   @spec find_pivot_index([value()], value()) :: non_neg_integer() | nil
   defp find_pivot_index(list, pivot) do
     Enum.find_index(list, fn x -> x == pivot end)
+  end
+
+  # Helper function to decode binary values using the decode function
+  @spec decode_if_binary(decode_fun(), key(), value()) :: term()
+  defp decode_if_binary(decode_fun, key, value) when is_binary(value) do
+    decode_fun.(key, value)
+  end
+
+  defp decode_if_binary(_decode_fun, _key, value) do
+    value
   end
 end
