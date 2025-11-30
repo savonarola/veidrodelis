@@ -91,7 +91,7 @@ defmodule Veidrodelis.RedisStream.Callback do
   ## Parameters
 
     * `state` - Current state
-    * `db` - Database number (0-15)
+    * `db` - Database number
     * `command` - A command struct from `Veidrodelis.Command`
 
   ## Returns
@@ -106,5 +106,27 @@ defmodule Veidrodelis.RedisStream.Callback do
             ) ::
               {:ok, term()} | {:error, term()}
 
-  @optional_callbacks on_replication_start: 1
+  @doc """
+  Called when the replication connection is being terminated.
+
+  This callback is invoked in the `terminate/2` callback of the replica GenServer,
+  allowing your application to clean up resources before shutdown.
+
+  ## Parameters
+
+    * `state` - Current state
+
+  ## Returns
+
+    * `:ok` - Cleanup successful
+    * `{:error, reason}` - Cleanup failed (error is logged but doesn't prevent termination)
+
+  ## Optional
+
+  This callback is optional. If not implemented, termination will proceed without
+  additional cleanup.
+  """
+  @callback on_destroy(state :: term()) :: :ok | {:error, term()}
+
+  @optional_callbacks on_replication_start: 1, on_destroy: 1
 end

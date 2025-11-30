@@ -282,6 +282,17 @@ defmodule Veidrodelis.RedisStream.Replica do
 
   @impl true
   def terminate(_reason, state) do
+    # Call on_destroy callback if implemented
+    if function_exported?(state.callback_module, :on_destroy, 1) do
+      case state.callback_module.on_destroy(state.callback_state) do
+        :ok ->
+          Logger.debug("on_destroy callback succeeded")
+
+        {:error, reason} ->
+          Logger.error("on_destroy callback failed: #{inspect(reason)}")
+      end
+    end
+
     if state.socket do
       transport_close(state.transport, state.socket)
     end

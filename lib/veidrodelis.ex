@@ -50,7 +50,17 @@ defmodule Veidrodelis do
 
   alias Veidrodelis.{StringStore, ListStore, SetStore, HashStore, ZsetStore, Command}
 
-  defstruct [:id, :decoder, :key_registry, :strings, :lists, :sets, :hashes, :zsets]
+  defstruct [
+    :id,
+    :decoder,
+    :key_registry,
+    :strings,
+    :lists,
+    :sets,
+    :hashes,
+    :zsets,
+    :decoder_funs
+  ]
 
   @type id :: term()
   @type key :: binary()
@@ -62,6 +72,20 @@ defmodule Veidrodelis do
   @type hash_hkey :: any()
   @type zset_key :: any()
 
+  @type decoder_funs :: %{
+          string_key: boolean(),
+          string_value: boolean(),
+          set_key: boolean(),
+          set_entry: boolean(),
+          list_key: boolean(),
+          list_entry: boolean(),
+          hash_key: boolean(),
+          hash_hkey: boolean(),
+          hash_entry: boolean(),
+          zset_key: boolean(),
+          zset_entry: boolean()
+        }
+
   @type t :: %__MODULE__{
           id: id(),
           decoder: module(),
@@ -70,7 +94,8 @@ defmodule Veidrodelis do
           lists: ListStore.t(),
           sets: SetStore.t(),
           hashes: HashStore.t(),
-          zsets: ZsetStore.t()
+          zsets: ZsetStore.t(),
+          decoder_funs: decoder_funs()
         }
 
   # Behaviour callbacks for decoders
@@ -165,6 +190,24 @@ defmodule Veidrodelis do
     end
   end
 
+  @impl Veidrodelis.RedisStream.Callback
+  def on_destroy(%__MODULE__{} = state) do
+    # Destroy stores
+    destroy_stores(state)
+
+    # Deregister from global registry
+    :ets.delete(:veidrodelis_registry, {state.id, :strings})
+    :ets.delete(:veidrodelis_registry, {state.id, :lists})
+    :ets.delete(:veidrodelis_registry, {state.id, :sets})
+    :ets.delete(:veidrodelis_registry, {state.id, :hashes})
+    :ets.delete(:veidrodelis_registry, {state.id, :zsets})
+
+    # Delete key registry
+    :ets.delete(state.key_registry)
+
+    :ok
+  end
+
   # Store accessor functions
 
   @doc """
@@ -216,15 +259,33 @@ defmodule Veidrodelis do
     # Create key registry table
     key_registry = :ets.new(:key_registry, [:set, :private])
 
+    # Cache decoder function availability
+    decoder_funs = %{
+      string_key: function_exported?(decoder, :decode_string_key, 1),
+      string_value: function_exported?(decoder, :decode_string_value, 2),
+      set_key: function_exported?(decoder, :decode_set_key, 1),
+      set_entry: function_exported?(decoder, :decode_set_entry, 2),
+      list_key: function_exported?(decoder, :decode_list_key, 1),
+      list_entry: function_exported?(decoder, :decode_list_entry, 2),
+      hash_key: function_exported?(decoder, :decode_hash_key, 1),
+      hash_hkey: function_exported?(decoder, :decode_hash_hkey, 2),
+      hash_entry: function_exported?(decoder, :decode_hash_entry, 3),
+      zset_key: function_exported?(decoder, :decode_zset_key, 1),
+      zset_entry: function_exported?(decoder, :decode_zset_entry, 2)
+    }
+
     # Create stores with decoder functions
-    strings = StringStore.new(&decode_string_value(decoder, &1, &2))
-    lists = ListStore.new()
-    sets = SetStore.new(&decode_set_entry(decoder, &1, &2))
+    strings = StringStore.new(&decode_string_value(decoder, decoder_funs, &1, &2))
+    lists = ListStore.new(decode_fun: &decode_list_entry(decoder, decoder_funs, &1, &2))
+    sets = SetStore.new(&decode_set_entry(decoder, decoder_funs, &1, &2))
 
     hashes =
-      HashStore.new(&decode_hash_hkey(decoder, &1, &2), &decode_hash_entry(decoder, &1, &2, &3))
+      HashStore.new(
+        &decode_hash_hkey(decoder, decoder_funs, &1, &2),
+        &decode_hash_entry(decoder, decoder_funs, &1, &2, &3)
+      )
 
-    zsets = ZsetStore.new(&decode_zset_entry(decoder, &1, &2))
+    zsets = ZsetStore.new(&decode_zset_entry(decoder, decoder_funs, &1, &2))
 
     # Register stores in global registry
     :ets.insert(:veidrodelis_registry, {{id, :strings}, strings})
@@ -241,7 +302,8 @@ defmodule Veidrodelis do
       lists: lists,
       sets: sets,
       hashes: hashes,
-      zsets: zsets
+      zsets: zsets,
+      decoder_funs: decoder_funs
     }
   end
 
@@ -290,7 +352,7 @@ defmodule Veidrodelis do
   end
 
   defp handle_command(state, db, %Command.Set{key: raw_key, value: raw_value}) do
-    decoded_key = decode_string_key(state.decoder, raw_key)
+    decoded_key = decode_string_key(state.decoder, state.decoder_funs, raw_key)
     handle_key_type_change(state, db, raw_key, :string)
     StringStore.set(state.strings, db, decoded_key, raw_value)
   end
@@ -302,80 +364,92 @@ defmodule Veidrodelis do
 
     decoded_pairs =
       Enum.map(pairs, fn {raw_key, raw_value} ->
-        {decode_string_key(state.decoder, raw_key), raw_value}
+        {decode_string_key(state.decoder, state.decoder_funs, raw_key), raw_value}
       end)
 
     StringStore.mset(state.strings, db, decoded_pairs)
   end
 
   defp handle_command(state, db, %Command.Append{key: raw_key, value: raw_value}) do
-    decoded_key = decode_string_key(state.decoder, raw_key)
+    decoded_key = decode_string_key(state.decoder, state.decoder_funs, raw_key)
     handle_key_type_change(state, db, raw_key, :string)
     StringStore.append(state.strings, db, decoded_key, raw_value)
   end
 
   defp handle_command(state, db, %Command.SetRange{key: raw_key, offset: offset, value: raw_value}) do
-    decoded_key = decode_string_key(state.decoder, raw_key)
+    decoded_key = decode_string_key(state.decoder, state.decoder_funs, raw_key)
     handle_key_type_change(state, db, raw_key, :string)
     StringStore.setrange(state.strings, db, decoded_key, offset, raw_value)
   end
 
   defp handle_command(state, db, %Command.SetBit{key: raw_key, offset: offset, value: bit}) do
-    decoded_key = decode_string_key(state.decoder, raw_key)
+    decoded_key = decode_string_key(state.decoder, state.decoder_funs, raw_key)
     handle_key_type_change(state, db, raw_key, :string)
     StringStore.setbit(state.strings, db, decoded_key, offset, bit)
   end
 
   defp handle_command(state, db, %Command.RPush{key: raw_key, values: values}) do
     handle_key_type_change(state, db, raw_key, :list)
-    decoded_key = decode_list_key(state.decoder, raw_key)
-    decoded_values = Enum.map(values, &decode_list_entry(state.decoder, decoded_key, &1))
+    decoded_key = decode_list_key(state.decoder, state.decoder_funs, raw_key)
+
+    decoded_values =
+      Enum.map(values, &decode_list_entry(state.decoder, state.decoder_funs, decoded_key, &1))
+
     ListStore.rpush(state.lists, db, decoded_key, decoded_values)
   end
 
   defp handle_command(state, db, %Command.LPush{key: raw_key, values: values}) do
     handle_key_type_change(state, db, raw_key, :list)
-    decoded_key = decode_list_key(state.decoder, raw_key)
-    decoded_values = Enum.map(values, &decode_list_entry(state.decoder, decoded_key, &1))
+    decoded_key = decode_list_key(state.decoder, state.decoder_funs, raw_key)
+
+    decoded_values =
+      Enum.map(values, &decode_list_entry(state.decoder, state.decoder_funs, decoded_key, &1))
+
     ListStore.lpush(state.lists, db, decoded_key, decoded_values)
   end
 
   defp handle_command(state, db, %Command.RPushX{key: raw_key, values: values}) do
-    decoded_key = decode_list_key(state.decoder, raw_key)
-    decoded_values = Enum.map(values, &decode_list_entry(state.decoder, decoded_key, &1))
+    decoded_key = decode_list_key(state.decoder, state.decoder_funs, raw_key)
+
+    decoded_values =
+      Enum.map(values, &decode_list_entry(state.decoder, state.decoder_funs, decoded_key, &1))
+
     ListStore.rpushx(state.lists, db, decoded_key, decoded_values)
   end
 
   defp handle_command(state, db, %Command.LPushX{key: raw_key, values: values}) do
-    decoded_key = decode_list_key(state.decoder, raw_key)
-    decoded_values = Enum.map(values, &decode_list_entry(state.decoder, decoded_key, &1))
+    decoded_key = decode_list_key(state.decoder, state.decoder_funs, raw_key)
+
+    decoded_values =
+      Enum.map(values, &decode_list_entry(state.decoder, state.decoder_funs, decoded_key, &1))
+
     ListStore.lpushx(state.lists, db, decoded_key, decoded_values)
   end
 
   defp handle_command(state, db, %Command.LPop{key: raw_key}) do
-    decoded_key = decode_list_key(state.decoder, raw_key)
+    decoded_key = decode_list_key(state.decoder, state.decoder_funs, raw_key)
     ListStore.lpop(state.lists, db, decoded_key)
   end
 
   defp handle_command(state, db, %Command.RPop{key: raw_key}) do
-    decoded_key = decode_list_key(state.decoder, raw_key)
+    decoded_key = decode_list_key(state.decoder, state.decoder_funs, raw_key)
     ListStore.rpop(state.lists, db, decoded_key)
   end
 
   defp handle_command(state, db, %Command.LRem{key: raw_key, count: count, value: value}) do
-    decoded_key = decode_list_key(state.decoder, raw_key)
-    decoded_value = decode_list_entry(state.decoder, decoded_key, value)
+    decoded_key = decode_list_key(state.decoder, state.decoder_funs, raw_key)
+    decoded_value = decode_list_entry(state.decoder, state.decoder_funs, decoded_key, value)
     ListStore.lrem(state.lists, db, decoded_key, count, decoded_value)
   end
 
   defp handle_command(state, db, %Command.LTrim{key: raw_key, start: start_idx, stop: stop_idx}) do
-    decoded_key = decode_list_key(state.decoder, raw_key)
+    decoded_key = decode_list_key(state.decoder, state.decoder_funs, raw_key)
     ListStore.ltrim(state.lists, db, decoded_key, start_idx, stop_idx)
   end
 
   defp handle_command(state, db, %Command.LSet{key: raw_key, index: index, value: value}) do
-    decoded_key = decode_list_key(state.decoder, raw_key)
-    decoded_value = decode_list_entry(state.decoder, decoded_key, value)
+    decoded_key = decode_list_key(state.decoder, state.decoder_funs, raw_key)
+    decoded_value = decode_list_entry(state.decoder, state.decoder_funs, decoded_key, value)
     ListStore.lset(state.lists, db, decoded_key, index, decoded_value)
   end
 
@@ -385,26 +459,26 @@ defmodule Veidrodelis do
          pivot: pivot,
          element: element
        }) do
-    decoded_key = decode_list_key(state.decoder, raw_key)
-    decoded_pivot = decode_list_entry(state.decoder, decoded_key, pivot)
-    decoded_element = decode_list_entry(state.decoder, decoded_key, element)
+    decoded_key = decode_list_key(state.decoder, state.decoder_funs, raw_key)
+    decoded_pivot = decode_list_entry(state.decoder, state.decoder_funs, decoded_key, pivot)
+    decoded_element = decode_list_entry(state.decoder, state.decoder_funs, decoded_key, element)
     ListStore.linsert(state.lists, db, decoded_key, position, decoded_pivot, decoded_element)
   end
 
   defp handle_command(state, db, %Command.RPopLPush{source: raw_source, destination: raw_dest}) do
-    decoded_source = decode_list_key(state.decoder, raw_source)
-    decoded_dest = decode_list_key(state.decoder, raw_dest)
+    decoded_source = decode_list_key(state.decoder, state.decoder_funs, raw_source)
+    decoded_dest = decode_list_key(state.decoder, state.decoder_funs, raw_dest)
     ListStore.rpoplpush(state.lists, db, decoded_source, decoded_dest)
   end
 
   defp handle_command(state, db, %Command.SAdd{key: raw_key, members: members}) do
     handle_key_type_change(state, db, raw_key, :set)
-    decoded_key = decode_set_key(state.decoder, raw_key)
+    decoded_key = decode_set_key(state.decoder, state.decoder_funs, raw_key)
     SetStore.sadd(state.sets, db, decoded_key, members)
   end
 
   defp handle_command(state, db, %Command.SRem{key: raw_key, members: members}) do
-    decoded_key = decode_set_key(state.decoder, raw_key)
+    decoded_key = decode_set_key(state.decoder, state.decoder_funs, raw_key)
     SetStore.srem(state.sets, db, decoded_key, members)
   end
 
@@ -413,62 +487,62 @@ defmodule Veidrodelis do
          destination: raw_dest,
          member: member
        }) do
-    decoded_source = decode_set_key(state.decoder, raw_source)
-    decoded_dest = decode_set_key(state.decoder, raw_dest)
+    decoded_source = decode_set_key(state.decoder, state.decoder_funs, raw_source)
+    decoded_dest = decode_set_key(state.decoder, state.decoder_funs, raw_dest)
     SetStore.smove(state.sets, db, decoded_source, decoded_dest, member)
   end
 
   defp handle_command(state, db, %Command.SInterStore{destination: raw_dest, keys: raw_keys}) do
     handle_key_type_change(state, db, raw_dest, :set)
-    decoded_dest = decode_set_key(state.decoder, raw_dest)
-    decoded_keys = Enum.map(raw_keys, &decode_set_key(state.decoder, &1))
+    decoded_dest = decode_set_key(state.decoder, state.decoder_funs, raw_dest)
+    decoded_keys = Enum.map(raw_keys, &decode_set_key(state.decoder, state.decoder_funs, &1))
     SetStore.sinterstore(state.sets, db, decoded_dest, decoded_keys)
   end
 
   defp handle_command(state, db, %Command.SUnionStore{destination: raw_dest, keys: raw_keys}) do
     handle_key_type_change(state, db, raw_dest, :set)
-    decoded_dest = decode_set_key(state.decoder, raw_dest)
-    decoded_keys = Enum.map(raw_keys, &decode_set_key(state.decoder, &1))
+    decoded_dest = decode_set_key(state.decoder, state.decoder_funs, raw_dest)
+    decoded_keys = Enum.map(raw_keys, &decode_set_key(state.decoder, state.decoder_funs, &1))
     SetStore.sunionstore(state.sets, db, decoded_dest, decoded_keys)
   end
 
   defp handle_command(state, db, %Command.SDiffStore{destination: raw_dest, keys: raw_keys}) do
     handle_key_type_change(state, db, raw_dest, :set)
-    decoded_dest = decode_set_key(state.decoder, raw_dest)
-    decoded_keys = Enum.map(raw_keys, &decode_set_key(state.decoder, &1))
+    decoded_dest = decode_set_key(state.decoder, state.decoder_funs, raw_dest)
+    decoded_keys = Enum.map(raw_keys, &decode_set_key(state.decoder, state.decoder_funs, &1))
     SetStore.sdiffstore(state.sets, db, decoded_dest, decoded_keys)
   end
 
   defp handle_command(state, db, %Command.HSet{key: raw_key, fields: field_values}) do
     handle_key_type_change(state, db, raw_key, :hash)
-    decoded_key = decode_hash_key(state.decoder, raw_key)
+    decoded_key = decode_hash_key(state.decoder, state.decoder_funs, raw_key)
     HashStore.hset(state.hashes, db, decoded_key, field_values)
   end
 
   defp handle_command(state, db, %Command.HDel{key: raw_key, fields: fields}) do
-    decoded_key = decode_hash_key(state.decoder, raw_key)
+    decoded_key = decode_hash_key(state.decoder, state.decoder_funs, raw_key)
     HashStore.hdel(state.hashes, db, decoded_key, fields)
   end
 
   defp handle_command(state, db, %Command.ZAdd{key: raw_key, members: members}) do
     handle_key_type_change(state, db, raw_key, :zset)
-    decoded_key = decode_zset_key(state.decoder, raw_key)
+    decoded_key = decode_zset_key(state.decoder, state.decoder_funs, raw_key)
     ZsetStore.zadd(state.zsets, db, decoded_key, members)
   end
 
   defp handle_command(state, db, %Command.ZRem{key: raw_key, members: members}) do
-    decoded_key = decode_zset_key(state.decoder, raw_key)
+    decoded_key = decode_zset_key(state.decoder, state.decoder_funs, raw_key)
     ZsetStore.zrem(state.zsets, db, decoded_key, members)
   end
 
   defp handle_command(state, db, %Command.ZPopMax{key: raw_key, count: count}) do
-    decoded_key = decode_zset_key(state.decoder, raw_key)
+    decoded_key = decode_zset_key(state.decoder, state.decoder_funs, raw_key)
     ZsetStore.zpopmax(state.zsets, db, decoded_key, count)
     :ok
   end
 
   defp handle_command(state, db, %Command.ZPopMin{key: raw_key, count: count}) do
-    decoded_key = decode_zset_key(state.decoder, raw_key)
+    decoded_key = decode_zset_key(state.decoder, state.decoder_funs, raw_key)
     ZsetStore.zpopmin(state.zsets, db, decoded_key, count)
     :ok
   end
@@ -478,12 +552,12 @@ defmodule Veidrodelis do
          start: start_idx,
          stop: stop_idx
        }) do
-    decoded_key = decode_zset_key(state.decoder, raw_key)
+    decoded_key = decode_zset_key(state.decoder, state.decoder_funs, raw_key)
     ZsetStore.zremrangebyrank(state.zsets, db, decoded_key, start_idx, stop_idx)
   end
 
   defp handle_command(state, db, %Command.ZRemRangeByScore{key: raw_key, min: min, max: max}) do
-    decoded_key = decode_zset_key(state.decoder, raw_key)
+    decoded_key = decode_zset_key(state.decoder, state.decoder_funs, raw_key)
     # Parse min/max from binary strings
     min_score = parse_score(min)
     max_score = parse_score(max)
@@ -491,7 +565,7 @@ defmodule Veidrodelis do
   end
 
   defp handle_command(state, db, %Command.ZRemRangeByLex{key: raw_key, min: min, max: max}) do
-    decoded_key = decode_zset_key(state.decoder, raw_key)
+    decoded_key = decode_zset_key(state.decoder, state.decoder_funs, raw_key)
     ZsetStore.zremrangebylex(state.zsets, db, decoded_key, min, max)
   end
 
@@ -502,8 +576,8 @@ defmodule Veidrodelis do
          aggregate: aggregate
        }) do
     handle_key_type_change(state, db, raw_dest, :zset)
-    decoded_dest = decode_zset_key(state.decoder, raw_dest)
-    decoded_keys = Enum.map(raw_keys, &decode_zset_key(state.decoder, &1))
+    decoded_dest = decode_zset_key(state.decoder, state.decoder_funs, raw_dest)
+    decoded_keys = Enum.map(raw_keys, &decode_zset_key(state.decoder, state.decoder_funs, &1))
 
     ZsetStore.zunionstore(
       state.zsets,
@@ -522,8 +596,8 @@ defmodule Veidrodelis do
          aggregate: aggregate
        }) do
     handle_key_type_change(state, db, raw_dest, :zset)
-    decoded_dest = decode_zset_key(state.decoder, raw_dest)
-    decoded_keys = Enum.map(raw_keys, &decode_zset_key(state.decoder, &1))
+    decoded_dest = decode_zset_key(state.decoder, state.decoder_funs, raw_dest)
+    decoded_keys = Enum.map(raw_keys, &decode_zset_key(state.decoder, state.decoder_funs, &1))
 
     ZsetStore.zinterstore(
       state.zsets,
@@ -576,27 +650,27 @@ defmodule Veidrodelis do
   end
 
   defp delete_from_store(state, db, raw_key, :string) do
-    decoded_key = decode_string_key(state.decoder, raw_key)
+    decoded_key = decode_string_key(state.decoder, state.decoder_funs, raw_key)
     StringStore.del(state.strings, db, decoded_key)
   end
 
   defp delete_from_store(state, db, raw_key, :list) do
-    decoded_key = decode_list_key(state.decoder, raw_key)
+    decoded_key = decode_list_key(state.decoder, state.decoder_funs, raw_key)
     ListStore.del(state.lists, db, decoded_key)
   end
 
   defp delete_from_store(state, db, raw_key, :set) do
-    decoded_key = decode_set_key(state.decoder, raw_key)
+    decoded_key = decode_set_key(state.decoder, state.decoder_funs, raw_key)
     SetStore.del(state.sets, db, decoded_key)
   end
 
   defp delete_from_store(state, db, raw_key, :hash) do
-    decoded_key = decode_hash_key(state.decoder, raw_key)
+    decoded_key = decode_hash_key(state.decoder, state.decoder_funs, raw_key)
     HashStore.del(state.hashes, db, decoded_key)
   end
 
   defp delete_from_store(state, db, raw_key, :zset) do
-    decoded_key = decode_zset_key(state.decoder, raw_key)
+    decoded_key = decode_zset_key(state.decoder, state.decoder_funs, raw_key)
     ZsetStore.del(state.zsets, db, decoded_key)
   end
 
@@ -626,88 +700,88 @@ defmodule Veidrodelis do
 
   # Decoder wrapper functions that handle optional callbacks
 
-  defp decode_string_key(decoder, key) do
-    if function_exported?(decoder, :decode_string_key, 1) do
+  defp decode_string_key(decoder, decoder_funs, key) do
+    if decoder_funs.string_key do
       decoder.decode_string_key(key)
     else
       key
     end
   end
 
-  defp decode_string_value(decoder, key, value) do
-    if function_exported?(decoder, :decode_string_value, 2) do
+  defp decode_string_value(decoder, decoder_funs, key, value) do
+    if decoder_funs.string_value do
       decoder.decode_string_value(key, value)
     else
       value
     end
   end
 
-  defp decode_set_key(decoder, key) do
-    if function_exported?(decoder, :decode_set_key, 1) do
+  defp decode_set_key(decoder, decoder_funs, key) do
+    if decoder_funs.set_key do
       decoder.decode_set_key(key)
     else
       key
     end
   end
 
-  defp decode_set_entry(decoder, key, entry) do
-    if function_exported?(decoder, :decode_set_entry, 2) do
+  defp decode_set_entry(decoder, decoder_funs, key, entry) do
+    if decoder_funs.set_entry do
       decoder.decode_set_entry(key, entry)
     else
       entry
     end
   end
 
-  defp decode_list_key(decoder, key) do
-    if function_exported?(decoder, :decode_list_key, 1) do
+  defp decode_list_key(decoder, decoder_funs, key) do
+    if decoder_funs.list_key do
       decoder.decode_list_key(key)
     else
       key
     end
   end
 
-  defp decode_list_entry(decoder, key, entry) do
-    if function_exported?(decoder, :decode_list_entry, 2) do
+  defp decode_list_entry(decoder, decoder_funs, key, entry) do
+    if decoder_funs.list_entry do
       decoder.decode_list_entry(key, entry)
     else
       entry
     end
   end
 
-  defp decode_hash_key(decoder, key) do
-    if function_exported?(decoder, :decode_hash_key, 1) do
+  defp decode_hash_key(decoder, decoder_funs, key) do
+    if decoder_funs.hash_key do
       decoder.decode_hash_key(key)
     else
       key
     end
   end
 
-  defp decode_hash_hkey(decoder, key, hkey) do
-    if function_exported?(decoder, :decode_hash_hkey, 2) do
+  defp decode_hash_hkey(decoder, decoder_funs, key, hkey) do
+    if decoder_funs.hash_hkey do
       decoder.decode_hash_hkey(key, hkey)
     else
       hkey
     end
   end
 
-  defp decode_hash_entry(decoder, key, hkey, value) do
-    if function_exported?(decoder, :decode_hash_entry, 3) do
+  defp decode_hash_entry(decoder, decoder_funs, key, hkey, value) do
+    if decoder_funs.hash_entry do
       decoder.decode_hash_entry(key, hkey, value)
     else
       value
     end
   end
 
-  defp decode_zset_key(decoder, key) do
-    if function_exported?(decoder, :decode_zset_key, 1) do
+  defp decode_zset_key(decoder, decoder_funs, key) do
+    if decoder_funs.zset_key do
       decoder.decode_zset_key(key)
     else
       key
     end
   end
 
-  defp decode_zset_entry(decoder, key, entry) do
-    if function_exported?(decoder, :decode_zset_entry, 2) do
+  defp decode_zset_entry(decoder, decoder_funs, key, entry) do
+    if decoder_funs.zset_entry do
       decoder.decode_zset_entry(key, entry)
     else
       entry
