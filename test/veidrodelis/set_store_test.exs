@@ -4,28 +4,22 @@ defmodule Veidrodelis.SetStoreTest do
   alias Veidrodelis.SetStore
 
   setup do
-    # Create a unique table name for each test
-    table_name = :"set_store_#{:erlang.unique_integer([:positive])}"
-
     # Simple decode function that returns the element as-is
     decode_fun = fn _key, element -> element end
 
-    store = SetStore.new(table_name, decode_fun)
+    store = SetStore.new(decode_fun)
 
-    on_exit(fn ->
-      SetStore.destroy(store)
-    end)
-
-    {:ok, store: store, table: table_name}
+    {:ok, store: store}
   end
 
-  describe "new/2" do
+  describe "new/1" do
     test "creates a new ETS table and returns a struct" do
       decode_fun = fn _key, element -> element end
-      store = SetStore.new(:test_set_table, decode_fun)
+      store = SetStore.new(decode_fun)
 
-      assert %SetStore{table: :test_set_table, decode_fun: ^decode_fun} = store
-      assert :ets.info(:test_set_table) != :undefined
+      assert %SetStore{tid: tid, decode_fun: ^decode_fun} = store
+      assert is_reference(tid)
+      assert :ets.info(tid) != :undefined
 
       # Clean up
       SetStore.destroy(store)
@@ -406,7 +400,7 @@ defmodule Veidrodelis.SetStoreTest do
       # Decode function that converts to uppercase for case-insensitive ordering
       decode_fun = fn _key, element -> String.upcase(element) end
 
-      store = SetStore.new(:case_insensitive_set, decode_fun)
+      store = SetStore.new(decode_fun)
 
       :ok = SetStore.sadd(store, 0, "myset", ["apple", "BANANA", "Cherry"])
 
@@ -426,7 +420,7 @@ defmodule Veidrodelis.SetStoreTest do
       # Decode function that includes key prefix
       decode_fun = fn key, element -> {key, element} end
 
-      store = SetStore.new(:key_aware_set, decode_fun)
+      store = SetStore.new(decode_fun)
 
       :ok = SetStore.sadd(store, 0, "set1", ["a", "b"])
       :ok = SetStore.sadd(store, 0, "set2", ["a", "b"])
@@ -451,7 +445,7 @@ defmodule Veidrodelis.SetStoreTest do
         end
       end
 
-      store = SetStore.new(:numeric_set, decode_fun)
+      store = SetStore.new(decode_fun)
 
       :ok = SetStore.sadd(store, 0, "numbers", ["10", "2", "100", "20"])
 

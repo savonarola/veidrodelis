@@ -2,17 +2,17 @@ defmodule Veidrodelis.SetStore do
   @moduledoc """
   An ETS-backed store for Redis set operations.
 
-  Uses a protected named ETS table to store set members with decoded values.
+  Uses a protected ETS table to store set members with decoded values.
   Each entry is stored as `{{db, key, decoded_element}, nil}`.
 
   The decode function is called for each element to compute a decoded representation
   that is stored in the ETS key for efficient matching and ordering.
   """
 
-  defstruct [:table, :decode_fun]
+  defstruct [:tid, :decode_fun]
 
   @type t :: %__MODULE__{
-          table: atom(),
+          tid: :ets.tid(),
           decode_fun: decode_fun()
         }
 
@@ -22,17 +22,17 @@ defmodule Veidrodelis.SetStore do
   @type decode_fun :: (key(), element() -> any())
 
   @doc """
-  Creates a new set store with the given name and decode function.
+  Creates a new set store with the given decode function.
 
   The decode function receives `(key, element)` and returns a decoded value
   that will be used as part of the ETS key for efficient matching and ordering.
 
-  Returns a SetStore struct containing the table name and decode function.
+  Returns a SetStore struct containing the table id and decode function.
   """
-  @spec new(atom(), decode_fun()) :: t()
-  def new(name, decode_fun) when is_atom(name) and is_function(decode_fun, 2) do
-    :ets.new(name, [:ordered_set, :protected, :named_table])
-    %__MODULE__{table: name, decode_fun: decode_fun}
+  @spec new(decode_fun()) :: t()
+  def new(decode_fun) when is_function(decode_fun, 2) do
+    tid = :ets.new(__MODULE__, [:ordered_set, :protected])
+    %__MODULE__{tid: tid, decode_fun: decode_fun}
   end
 
   @doc """
@@ -41,7 +41,7 @@ defmodule Veidrodelis.SetStore do
   SADD key member [member ...]
   """
   @spec sadd(t(), db(), key(), [element()]) :: :ok
-  def sadd(%__MODULE__{table: table, decode_fun: decode_fun}, db, key, members)
+  def sadd(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, members)
       when is_list(members) do
     entries =
       Enum.map(members, fn member ->
@@ -49,7 +49,7 @@ defmodule Veidrodelis.SetStore do
         {{db, key, decoded}, nil}
       end)
 
-    :ets.insert(table, entries)
+    :ets.insert(tid, entries)
     :ok
   end
 
@@ -59,11 +59,11 @@ defmodule Veidrodelis.SetStore do
   SREM key member [member ...]
   """
   @spec srem(t(), db(), key(), [element()]) :: :ok
-  def srem(%__MODULE__{table: table, decode_fun: decode_fun}, db, key, members)
+  def srem(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, members)
       when is_list(members) do
     Enum.each(members, fn member ->
       decoded = decode_fun.(key, member)
-      :ets.delete(table, {db, key, decoded})
+      :ets.delete(tid, {db, key, decoded})
     end)
 
     :ok
@@ -78,21 +78,21 @@ defmodule Veidrodelis.SetStore do
   Returns :ok if the member was moved, :not_found if it didn't exist in source.
   """
   @spec smove(t(), db(), key(), key(), element()) :: :ok | :not_found
-  def smove(%__MODULE__{table: table, decode_fun: decode_fun}, db, source_key, dest_key, member) do
+  def smove(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, source_key, dest_key, member) do
     source_decoded = decode_fun.(source_key, member)
     source_ets_key = {db, source_key, source_decoded}
 
-    case :ets.lookup(table, source_ets_key) do
+    case :ets.lookup(tid, source_ets_key) do
       [] ->
         :not_found
 
       [_] ->
         # Remove from source
-        :ets.delete(table, source_ets_key)
+        :ets.delete(tid, source_ets_key)
 
         # Add to destination
         dest_decoded = decode_fun.(dest_key, member)
-        :ets.insert(table, {{db, dest_key, dest_decoded}, nil})
+        :ets.insert(tid, {{db, dest_key, dest_decoded}, nil})
 
         :ok
     end
@@ -109,18 +109,18 @@ defmodule Veidrodelis.SetStore do
   ## TODO
   ## Do not fetch all elements into memory
   @spec sunionstore(t(), db(), key(), [key()]) :: :ok
-  def sunionstore(%__MODULE__{table: table, decode_fun: _decode_fun}, db, dest_key, source_keys)
+  def sunionstore(%__MODULE__{tid: tid, decode_fun: _decode_fun}, db, dest_key, source_keys)
       when is_list(source_keys) do
     # Collect all unique decoded elements from all source sets
     union_elements =
       source_keys
       |> Enum.flat_map(fn source_key ->
-        fetch_set_elements(table, db, source_key)
+        fetch_set_elements(tid, db, source_key)
       end)
       |> Enum.uniq()
 
     # Clear destination set
-    clear_set(table, db, dest_key)
+    clear_set(tid, db, dest_key)
 
     # Insert union into destination
     entries =
@@ -129,7 +129,7 @@ defmodule Veidrodelis.SetStore do
       end)
 
     if entries != [] do
-      :ets.insert(table, entries)
+      :ets.insert(tid, entries)
     end
 
     :ok
@@ -146,12 +146,12 @@ defmodule Veidrodelis.SetStore do
   ## TODO
   ## Do not fetch all elements into memory
   @spec sinterstore(t(), db(), key(), [key()]) :: :ok
-  def sinterstore(%__MODULE__{table: table}, db, dest_key, source_keys)
+  def sinterstore(%__MODULE__{tid: tid}, db, dest_key, source_keys)
       when is_list(source_keys) do
     # Get elements from all source sets
     sets =
       Enum.map(source_keys, fn source_key ->
-        fetch_set_elements(table, db, source_key)
+        fetch_set_elements(tid, db, source_key)
         |> MapSet.new()
       end)
 
@@ -168,7 +168,7 @@ defmodule Veidrodelis.SetStore do
       end
 
     # Clear destination set
-    clear_set(table, db, dest_key)
+    clear_set(tid, db, dest_key)
 
     # Insert intersection into destination
     entries =
@@ -178,7 +178,7 @@ defmodule Veidrodelis.SetStore do
       end)
 
     if entries != [] do
-      :ets.insert(table, entries)
+      :ets.insert(tid, entries)
     end
 
     :ok
@@ -193,7 +193,7 @@ defmodule Veidrodelis.SetStore do
   but not in any of the subsequent keys.
   """
   @spec sdiffstore(t(), db(), key(), [key()]) :: :ok
-  def sdiffstore(%__MODULE__{table: table}, db, dest_key, source_keys)
+  def sdiffstore(%__MODULE__{tid: tid}, db, dest_key, source_keys)
       when is_list(source_keys) do
     result =
       case source_keys do
@@ -201,17 +201,17 @@ defmodule Veidrodelis.SetStore do
           MapSet.new()
 
         [first_key | rest_keys] ->
-          first_set = fetch_set_elements(table, db, first_key) |> MapSet.new()
+          first_set = fetch_set_elements(tid, db, first_key) |> MapSet.new()
 
           # Subtract all other sets from the first
           Enum.reduce(rest_keys, first_set, fn key, acc ->
-            other_set = fetch_set_elements(table, db, key) |> MapSet.new()
+            other_set = fetch_set_elements(tid, db, key) |> MapSet.new()
             MapSet.difference(acc, other_set)
           end)
       end
 
     # Clear destination set
-    clear_set(table, db, dest_key)
+    clear_set(tid, db, dest_key)
 
     # Insert difference into destination
     entries =
@@ -221,7 +221,7 @@ defmodule Veidrodelis.SetStore do
       end)
 
     if entries != [] do
-      :ets.insert(table, entries)
+      :ets.insert(tid, entries)
     end
 
     :ok
@@ -231,18 +231,18 @@ defmodule Veidrodelis.SetStore do
   Gets all members of a set as decoded values.
   """
   @spec smembers(t(), db(), key()) :: [any()]
-  def smembers(%__MODULE__{table: table}, db, key) do
-    fetch_set_elements(table, db, key)
+  def smembers(%__MODULE__{tid: tid}, db, key) do
+    fetch_set_elements(tid, db, key)
   end
 
   @doc """
   Checks if a member exists in a set.
   """
   @spec sismember(t(), db(), key(), element()) :: boolean()
-  def sismember(%__MODULE__{table: table, decode_fun: decode_fun}, db, key, member) do
+  def sismember(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, member) do
     decoded = decode_fun.(key, member)
 
-    case :ets.lookup(table, {db, key, decoded}) do
+    case :ets.lookup(tid, {db, key, decoded}) do
       [] -> false
       [_] -> true
     end
@@ -252,21 +252,21 @@ defmodule Veidrodelis.SetStore do
   Returns the number of members in a set.
   """
   @spec scard(t(), db(), key()) :: non_neg_integer()
-  def scard(%__MODULE__{table: table}, db, key) do
+  def scard(%__MODULE__{tid: tid}, db, key) do
     # Use matchspec to count efficiently
     match_spec = [
       {{{db, key, :_}, :_}, [], [true]}
     ]
 
-    :ets.select_count(table, match_spec)
+    :ets.select_count(tid, match_spec)
   end
 
   @doc """
   Deletes an entire set.
   """
   @spec del(t(), db(), key()) :: :ok
-  def del(%__MODULE__{table: table}, db, key) do
-    clear_set(table, db, key)
+  def del(%__MODULE__{tid: tid}, db, key) do
+    clear_set(tid, db, key)
     :ok
   end
 
@@ -274,11 +274,8 @@ defmodule Veidrodelis.SetStore do
   Destroys the ETS table and releases resources.
   """
   @spec destroy(t()) :: :ok
-  def destroy(%__MODULE__{table: table}) do
-    if :ets.whereis(table) != :undefined do
-      :ets.delete(table)
-    end
-
+  def destroy(%__MODULE__{tid: tid}) do
+    :ets.delete(tid)
     :ok
   end
 
