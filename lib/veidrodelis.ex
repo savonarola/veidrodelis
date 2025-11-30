@@ -326,12 +326,8 @@ defmodule Veidrodelis do
       ArgumentError -> :ok
     end
 
-    # Deregister from global registry
-    :ets.delete(:veidrodelis_registry, {state.id, :strings})
-    :ets.delete(:veidrodelis_registry, {state.id, :lists})
-    :ets.delete(:veidrodelis_registry, {state.id, :sets})
-    :ets.delete(:veidrodelis_registry, {state.id, :hashes})
-    :ets.delete(:veidrodelis_registry, {state.id, :zsets})
+    # Unregister from Vdr.Registry (this will call the cleanup function)
+    Vdr.Registry.unregister(state.id)
 
     # Delete key registry (may fail if not owned by this process)
     try do
@@ -397,6 +393,18 @@ defmodule Veidrodelis do
     # Ensure registry table exists
     ensure_registry_table()
 
+    # Register with Vdr.Registry for automatic cleanup at the very beginning
+    cleanup_fun = fn ->
+      # Deregister from global ETS registry
+      :ets.delete(:veidrodelis_registry, {id, :strings})
+      :ets.delete(:veidrodelis_registry, {id, :lists})
+      :ets.delete(:veidrodelis_registry, {id, :sets})
+      :ets.delete(:veidrodelis_registry, {id, :hashes})
+      :ets.delete(:veidrodelis_registry, {id, :zsets})
+    end
+
+    :ok = Vdr.Registry.register(id, self(), cleanup_fun)
+
     # Create key registry table
     key_registry = :ets.new(:key_registry, [:set, :private])
 
@@ -452,17 +460,13 @@ defmodule Veidrodelis do
     # Destroy old stores
     destroy_stores(state)
 
-    # Deregister from global registry
-    :ets.delete(:veidrodelis_registry, {id, :strings})
-    :ets.delete(:veidrodelis_registry, {id, :lists})
-    :ets.delete(:veidrodelis_registry, {id, :sets})
-    :ets.delete(:veidrodelis_registry, {id, :hashes})
-    :ets.delete(:veidrodelis_registry, {id, :zsets})
+    # Unregister from Vdr.Registry (this will call the cleanup function)
+    Vdr.Registry.unregister(id)
 
     # Delete key registry
     :ets.delete(state.key_registry)
 
-    # Create new state
+    # Create new state (which will register again)
     initialize_state(id, decoder)
   end
 
