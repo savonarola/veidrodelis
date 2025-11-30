@@ -26,7 +26,7 @@ defmodule Veidrodelis.ReplicaTest do
   end
 
   @redis_host "localhost"
-  @redis_port 16379
+  @redis_port 16378
 
   setup do
     # Ensure Redis is running (docker-compose up in test/assets)

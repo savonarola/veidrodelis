@@ -343,6 +343,12 @@ defmodule Veidrodelis do
     :ok
   end
 
+  # Handle destroy when state hasn't been initialized yet (e.g., connection failed before replication started)
+  def on_destroy(_state) do
+    # Nothing to clean up if state was never initialized
+    :ok
+  end
+
   # Store accessor functions
 
   @doc """

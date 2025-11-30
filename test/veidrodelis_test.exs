@@ -4,7 +4,7 @@ defmodule VeidrodelisTest do
   use CommandMatchers
 
   @redis_host "localhost"
-  @redis_port 16379
+  @redis_port 16378
 
   # Test decoder that transforms data in non-trivial ways
   defmodule TestDecoder do
@@ -422,6 +422,342 @@ defmodule VeidrodelisTest do
 
       Redix.command!(redis, ["SELECT", "1"])
       assert Redix.command!(redis, ["GET", "db1_key"]) == "db1_value"
+
+      Veidrodelis.stop(vdr)
+    end
+
+    test "processes set intersection operations", %{redis: redis} do
+      # Create multiple sets
+      Redix.command!(redis, ["SADD", "set1", "a", "b", "c", "d"])
+      Redix.command!(redis, ["SADD", "set2", "b", "c", "e", "f"])
+      Redix.command!(redis, ["SADD", "set3", "c", "d", "g"])
+
+      # Perform intersection
+      Redix.command!(redis, ["SINTERSTORE", "result_inter", "set1", "set2", "set3"])
+
+      # Start Veidrodelis instance
+      instance_id = :"test_set_inter_#{:erlang.unique_integer([:positive])}"
+
+      {:ok, vdr} =
+        Veidrodelis.start_link(
+          id: instance_id,
+          decoder: TestDecoder,
+          host: @redis_host,
+          port: @redis_port
+        )
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(vdr) == :streaming
+      end
+
+      Process.sleep(100)
+
+      # Get stores
+      set_store = Veidrodelis.sets(instance_id)
+
+      # Verify intersection result (only 'c' is in all three sets)
+      result_members = Vdr.SetStore.smembers(set_store, 0, "set:result_inter")
+      assert length(result_members) == 1
+      assert {:set_entry, "c"} in result_members
+
+      # Verify original sets
+      set1_members = Vdr.SetStore.smembers(set_store, 0, "set:set1")
+      assert length(set1_members) == 4
+
+      Veidrodelis.stop(vdr)
+    end
+
+    test "processes set union operations", %{redis: redis} do
+      # Create multiple sets
+      Redix.command!(redis, ["SADD", "setA", "1", "2", "3"])
+      Redix.command!(redis, ["SADD", "setB", "2", "3", "4"])
+      Redix.command!(redis, ["SADD", "setC", "3", "4", "5"])
+
+      # Perform union
+      Redix.command!(redis, ["SUNIONSTORE", "result_union", "setA", "setB", "setC"])
+
+      # Start Veidrodelis instance
+      instance_id = :"test_set_union_#{:erlang.unique_integer([:positive])}"
+
+      {:ok, vdr} =
+        Veidrodelis.start_link(
+          id: instance_id,
+          decoder: TestDecoder,
+          host: @redis_host,
+          port: @redis_port
+        )
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(vdr) == :streaming
+      end
+
+      Process.sleep(100)
+
+      # Get stores
+      set_store = Veidrodelis.sets(instance_id)
+
+      # Verify union result (should have all unique elements: 1,2,3,4,5)
+      result_members = Vdr.SetStore.smembers(set_store, 0, "set:result_union")
+      assert length(result_members) == 5
+      assert {:set_entry, "1"} in result_members
+      assert {:set_entry, "2"} in result_members
+      assert {:set_entry, "3"} in result_members
+      assert {:set_entry, "4"} in result_members
+      assert {:set_entry, "5"} in result_members
+
+      Veidrodelis.stop(vdr)
+    end
+
+    test "processes set difference operations", %{redis: redis} do
+      # Create sets
+      Redix.command!(redis, ["SADD", "base_set", "a", "b", "c", "d", "e"])
+      Redix.command!(redis, ["SADD", "subtract1", "b", "d"])
+      Redix.command!(redis, ["SADD", "subtract2", "c"])
+
+      # Perform difference (base_set - subtract1 - subtract2)
+      Redix.command!(redis, ["SDIFFSTORE", "result_diff", "base_set", "subtract1", "subtract2"])
+
+      # Start Veidrodelis instance
+      instance_id = :"test_set_diff_#{:erlang.unique_integer([:positive])}"
+
+      {:ok, vdr} =
+        Veidrodelis.start_link(
+          id: instance_id,
+          decoder: TestDecoder,
+          host: @redis_host,
+          port: @redis_port
+        )
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(vdr) == :streaming
+      end
+
+      Process.sleep(100)
+
+      # Get stores
+      set_store = Veidrodelis.sets(instance_id)
+
+      # Verify difference result (should have: a, e)
+      result_members = Vdr.SetStore.smembers(set_store, 0, "set:result_diff")
+      assert length(result_members) == 2
+      assert {:set_entry, "a"} in result_members
+      assert {:set_entry, "e"} in result_members
+
+      Veidrodelis.stop(vdr)
+    end
+
+    test "processes zset union with weights", %{redis: redis} do
+      # Create sorted sets
+      Redix.command!(redis, ["ZADD", "zset1", "1", "member1", "2", "member2", "3", "member3"])
+      Redix.command!(redis, ["ZADD", "zset2", "2", "member1", "3", "member2", "4", "member4"])
+
+      # Union with weights: zset1 * 2 + zset2 * 3
+      Redix.command!(redis, [
+        "ZUNIONSTORE",
+        "result_weighted_union",
+        "2",
+        "zset1",
+        "zset2",
+        "WEIGHTS",
+        "2",
+        "3"
+      ])
+
+      # Start Veidrodelis instance
+      instance_id = :"test_zset_weighted_union_#{:erlang.unique_integer([:positive])}"
+
+      {:ok, vdr} =
+        Veidrodelis.start_link(
+          id: instance_id,
+          decoder: TestDecoder,
+          host: @redis_host,
+          port: @redis_port
+        )
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(vdr) == :streaming
+      end
+
+      Process.sleep(100)
+
+      # Get stores
+      zset_store = Veidrodelis.zsets(instance_id)
+
+      # Verify weighted union results
+      # member1: 1*2 + 2*3 = 8
+      # member2: 2*2 + 3*3 = 13
+      # member3: 3*2 + 0*3 = 6
+      # member4: 0*2 + 4*3 = 12
+      result = Vdr.ZsetStore.zrange(zset_store, 0, "zset:result_weighted_union", 0, -1)
+
+      assert result == [
+               {{:zset_entry, "member3"}, 6.0},
+               {{:zset_entry, "member1"}, 8.0},
+               {{:zset_entry, "member4"}, 12.0},
+               {{:zset_entry, "member2"}, 13.0}
+             ]
+
+      Veidrodelis.stop(vdr)
+    end
+
+    test "processes zset intersection with MIN aggregation", %{redis: redis} do
+      # Create sorted sets
+      Redix.command!(redis, ["ZADD", "scores1", "10", "alice", "20", "bob", "30", "charlie"])
+      Redix.command!(redis, ["ZADD", "scores2", "15", "alice", "25", "bob", "5", "david"])
+
+      # Intersection with MIN aggregation (only members in both sets, take minimum score)
+      Redix.command!(redis, [
+        "ZINTERSTORE",
+        "result_inter_min",
+        "2",
+        "scores1",
+        "scores2",
+        "AGGREGATE",
+        "MIN"
+      ])
+
+      # Start Veidrodelis instance
+      instance_id = :"test_zset_inter_min_#{:erlang.unique_integer([:positive])}"
+
+      {:ok, vdr} =
+        Veidrodelis.start_link(
+          id: instance_id,
+          decoder: TestDecoder,
+          host: @redis_host,
+          port: @redis_port
+        )
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(vdr) == :streaming
+      end
+
+      Process.sleep(100)
+
+      # Get stores
+      zset_store = Veidrodelis.zsets(instance_id)
+
+      # Verify intersection with MIN (only alice and bob exist in both)
+      # alice: min(10, 15) = 10
+      # bob: min(20, 25) = 20
+      result = Vdr.ZsetStore.zrange(zset_store, 0, "zset:result_inter_min", 0, -1)
+
+      assert result == [
+               {{:zset_entry, "alice"}, 10.0},
+               {{:zset_entry, "bob"}, 20.0}
+             ]
+
+      Veidrodelis.stop(vdr)
+    end
+
+    test "processes zset intersection with MAX aggregation", %{redis: redis} do
+      # Create sorted sets
+      Redix.command!(redis, ["ZADD", "priority1", "5", "task1", "8", "task2"])
+      Redix.command!(redis, ["ZADD", "priority2", "7", "task1", "3", "task2"])
+
+      # Intersection with MAX aggregation
+      Redix.command!(redis, [
+        "ZINTERSTORE",
+        "result_inter_max",
+        "2",
+        "priority1",
+        "priority2",
+        "AGGREGATE",
+        "MAX"
+      ])
+
+      # Start Veidrodelis instance
+      instance_id = :"test_zset_inter_max_#{:erlang.unique_integer([:positive])}"
+
+      {:ok, vdr} =
+        Veidrodelis.start_link(
+          id: instance_id,
+          decoder: TestDecoder,
+          host: @redis_host,
+          port: @redis_port
+        )
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(vdr) == :streaming
+      end
+
+      Process.sleep(100)
+
+      # Get stores
+      zset_store = Veidrodelis.zsets(instance_id)
+
+      # Verify intersection with MAX
+      # task1: max(5, 7) = 7
+      # task2: max(8, 3) = 8
+      result = Vdr.ZsetStore.zrange(zset_store, 0, "zset:result_inter_max", 0, -1)
+
+      assert result == [
+               {{:zset_entry, "task1"}, 7.0},
+               {{:zset_entry, "task2"}, 8.0}
+             ]
+
+      Veidrodelis.stop(vdr)
+    end
+
+    test "processes zset union with weights and SUM aggregation", %{redis: redis} do
+      # Create sorted sets with different semantic meanings
+      Redix.command!(redis, ["ZADD", "rating_quality", "8.5", "product1", "9.0", "product2"])
+      Redix.command!(redis, ["ZADD", "rating_price", "7.0", "product1", "6.5", "product2"])
+      Redix.command!(redis, ["ZADD", "rating_delivery", "9.5", "product1", "8.0", "product3"])
+
+      # Union with custom weights (quality=50%, price=30%, delivery=20%)
+      Redix.command!(redis, [
+        "ZUNIONSTORE",
+        "combined_rating",
+        "3",
+        "rating_quality",
+        "rating_price",
+        "rating_delivery",
+        "WEIGHTS",
+        "0.5",
+        "0.3",
+        "0.2",
+        "AGGREGATE",
+        "SUM"
+      ])
+
+      # Start Veidrodelis instance
+      instance_id = :"test_zset_weighted_sum_#{:erlang.unique_integer([:positive])}"
+
+      {:ok, vdr} =
+        Veidrodelis.start_link(
+          id: instance_id,
+          decoder: TestDecoder,
+          host: @redis_host,
+          port: @redis_port
+        )
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(vdr) == :streaming
+      end
+
+      Process.sleep(100)
+
+      # Get stores
+      zset_store = Veidrodelis.zsets(instance_id)
+
+      # Verify weighted sum results
+      # product1: 8.5*0.5 + 7.0*0.3 + 9.5*0.2 = 4.25 + 2.1 + 1.9 = 8.25
+      # product2: 9.0*0.5 + 6.5*0.3 + 0*0.2 = 4.5 + 1.95 + 0 = 6.45
+      # product3: 0*0.5 + 0*0.3 + 8.0*0.2 = 0 + 0 + 1.6 = 1.6
+      result = Vdr.ZsetStore.zrange(zset_store, 0, "zset:combined_rating", 0, -1)
+
+      assert result == [
+               {{:zset_entry, "product3"}, 1.6},
+               {{:zset_entry, "product2"}, 6.45},
+               {{:zset_entry, "product1"}, 8.25}
+             ]
 
       Veidrodelis.stop(vdr)
     end
