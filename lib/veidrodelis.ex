@@ -167,6 +167,102 @@ defmodule Veidrodelis do
                       decode_zset_key: 1,
                       decode_zset_entry: 2
 
+  # Public API
+
+  @doc """
+  Starts a Veidrodelis instance that connects to Redis and processes replication stream.
+
+  ## Options
+
+    * `:id` - Required. Unique identifier for this Veidrodelis instance
+    * `:decoder` - Optional. Module implementing the Veidrodelis decoder behaviour (default: DefaultDecoder)
+    * `:host` - Redis host (default: "localhost")
+    * `:port` - Redis port (default: 6379)
+    * `:username` - Redis username for ACL authentication (default: nil)
+    * `:password` - Redis password (default: nil)
+    * `:ssl` - Use SSL/TLS (default: false)
+    * `:ssl_opts` - SSL options (default: [])
+    * `:reconnect` - Enable automatic reconnection (default: true)
+    * `:reconnect_delay_ms` - Initial delay before reconnection in ms (default: 1000)
+    * `:max_reconnect_delay_ms` - Maximum delay between reconnection attempts in ms (default: 30000)
+
+  ## Returns
+
+    * `{:ok, pid}` - Successfully started
+    * `{:error, reason}` - Failed to start
+
+  ## Example
+
+      opts = [
+        id: :my_instance,
+        decoder: MyDecoder,
+        host: "localhost",
+        port: 6379
+      ]
+
+      {:ok, pid} = Veidrodelis.start_link(opts)
+
+      # Access stores
+      string_store = Veidrodelis.strings(:my_instance)
+      value = Veidrodelis.StringStore.get_decoded(string_store, 0, "mykey")
+
+      # Stop when done
+      Veidrodelis.stop(pid)
+  """
+  @spec start_link(keyword()) :: GenServer.on_start()
+  def start_link(opts) do
+    id = Keyword.fetch!(opts, :id)
+    decoder = Keyword.get(opts, :decoder, DefaultDecoder)
+
+    # Extract redis connection options
+    redis_opts =
+      Keyword.take(opts, [
+        :host,
+        :port,
+        :username,
+        :password,
+        :ssl,
+        :ssl_opts,
+        :reconnect,
+        :reconnect_delay_ms,
+        :max_reconnect_delay_ms
+      ])
+
+    # Build replica options with Veidrodelis as callback
+    replica_opts =
+      [
+        callback_module: __MODULE__,
+        callback_state: {id, decoder}
+      ] ++ redis_opts
+
+    Veidrodelis.RedisStream.Replica.start_link(replica_opts)
+  end
+
+  @doc """
+  Stops a running Veidrodelis instance.
+
+  This will terminate the replication connection and call the `on_destroy` callback
+  to clean up stores and resources.
+
+  ## Parameters
+
+    * `server` - The PID or name of the Veidrodelis instance to stop
+
+  ## Returns
+
+    * `:ok`
+
+  ## Example
+
+      {:ok, pid} = Veidrodelis.start_link(id: :my_instance, host: "localhost")
+      # ... use the instance ...
+      Veidrodelis.stop(pid)
+  """
+  @spec stop(GenServer.server()) :: :ok
+  def stop(server) do
+    Veidrodelis.RedisStream.Replica.stop(server)
+  end
+
   # RedisStream.Callback implementation
 
   @impl Veidrodelis.RedisStream.Callback
@@ -176,8 +272,14 @@ defmodule Veidrodelis do
     {:ok, new_state}
   end
 
+  def on_replication_start({id, decoder}) when is_atom(decoder) do
+    # Initialize new state with custom decoder
+    state = initialize_state(id, decoder)
+    {:ok, state}
+  end
+
   def on_replication_start(id) do
-    # Initialize new state
+    # Initialize new state with default decoder
     state = initialize_state(id, DefaultDecoder)
     {:ok, state}
   end
@@ -192,8 +294,12 @@ defmodule Veidrodelis do
 
   @impl Veidrodelis.RedisStream.Callback
   def on_destroy(%__MODULE__{} = state) do
-    # Destroy stores
-    destroy_stores(state)
+    # Destroy stores (may fail if tables are not owned by this process)
+    try do
+      destroy_stores(state)
+    rescue
+      ArgumentError -> :ok
+    end
 
     # Deregister from global registry
     :ets.delete(:veidrodelis_registry, {state.id, :strings})
@@ -202,8 +308,12 @@ defmodule Veidrodelis do
     :ets.delete(:veidrodelis_registry, {state.id, :hashes})
     :ets.delete(:veidrodelis_registry, {state.id, :zsets})
 
-    # Delete key registry
-    :ets.delete(state.key_registry)
+    # Delete key registry (may fail if not owned by this process)
+    try do
+      :ets.delete(state.key_registry)
+    rescue
+      ArgumentError -> :ok
+    end
 
     :ok
   end
