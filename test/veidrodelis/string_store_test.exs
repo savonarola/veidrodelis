@@ -4,28 +4,22 @@ defmodule Veidrodelis.StringStoreTest do
   alias Veidrodelis.StringStore
 
   setup do
-    # Create a unique table name for each test
-    table_name = :"string_store_#{:erlang.unique_integer([:positive])}"
-
     # Simple decode function that returns the length
     decode_fun = fn _key, value -> byte_size(value) end
 
-    store = StringStore.new(table_name, decode_fun)
+    store = StringStore.new(decode_fun)
 
-    on_exit(fn ->
-      StringStore.destroy(store)
-    end)
-
-    {:ok, store: store, table: table_name}
+    {:ok, store: store}
   end
 
-  describe "new/2" do
+  describe "new/1" do
     test "creates a new ETS table and returns a struct" do
       decode_fun = fn _key, value -> String.upcase(value) end
-      store = StringStore.new(:test_table, decode_fun)
+      store = StringStore.new(decode_fun)
 
-      assert %StringStore{table: :test_table, decode_fun: ^decode_fun} = store
-      assert :ets.info(:test_table) != :undefined
+      assert %StringStore{tid: tid, decode_fun: ^decode_fun} = store
+      assert is_reference(tid)
+      assert :ets.info(tid) != :undefined
 
       # Clean up
       StringStore.destroy(store)
@@ -402,7 +396,7 @@ defmodule Veidrodelis.StringStoreTest do
         |> Enum.count(fn c -> c in ["a", "e", "i", "o", "u"] end)
       end
 
-      store = StringStore.new(:vowel_counter, count_vowels)
+      store = StringStore.new(count_vowels)
 
       :ok = StringStore.set(store, 0, "key1", "hello world")
 
@@ -421,7 +415,7 @@ defmodule Veidrodelis.StringStoreTest do
         |> Enum.count(fn c -> c == String.upcase(c) and c != String.downcase(c) end)
       end
 
-      store = StringStore.new(:upper_counter, count_upper)
+      store = StringStore.new(count_upper)
 
       :ok = StringStore.set(store, 0, "key1", "Hello")
       assert 1 == StringStore.get_decoded(store, 0, "key1")
@@ -444,7 +438,7 @@ defmodule Veidrodelis.StringStoreTest do
         "#{key}: #{value}"
       end
 
-      store = StringStore.new(:key_aware, decode_with_key)
+      store = StringStore.new(decode_with_key)
 
       :ok = StringStore.set(store, 0, "user:1", "Alice")
       :ok = StringStore.set(store, 0, "user:2", "Bob")

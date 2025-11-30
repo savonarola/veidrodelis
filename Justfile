@@ -5,13 +5,16 @@ test:
     mix test --trace
 
 # Start Redis in Docker for testing
-redis-start:
+dc-start:
     cd test/assets && docker compose up -d
 
 # Stop Redis Docker container
-redis-stop:
+dc-stop:
     cd test/assets && docker compose down
 
+dc-restart:
+    cd test/assets && docker compose down -v && docker compose up -d
+
 # Stop Redis and remove volumes
-redis-clean:
+dc-clean:
     cd test/assets && docker compose down -v

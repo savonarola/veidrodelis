@@ -105,6 +105,9 @@ defmodule Veidrodelis.SetStore do
 
   The destination set will contain all unique elements from all source sets.
   """
+
+  ## TODO
+  ## Do not fetch all elements into memory
   @spec sunionstore(t(), db(), key(), [key()]) :: :ok
   def sunionstore(%__MODULE__{table: table, decode_fun: _decode_fun}, db, dest_key, source_keys)
       when is_list(source_keys) do
@@ -140,6 +143,8 @@ defmodule Veidrodelis.SetStore do
   The destination set will contain only elements that exist in all source sets.
   If any source set is empty or doesn't exist, the result will be empty.
   """
+  ## TODO
+  ## Do not fetch all elements into memory
   @spec sinterstore(t(), db(), key(), [key()]) :: :ok
   def sinterstore(%__MODULE__{table: table}, db, dest_key, source_keys)
       when is_list(source_keys) do

@@ -2,7 +2,7 @@ defmodule Veidrodelis.StringStore do
   @moduledoc """
   An ETS-backed store for Redis string operations.
 
-  Uses a protected named ETS table to store key-value pairs with decoded values.
+  Uses a protected ETS table to store key-value pairs with decoded values.
   Each entry is stored as `{{db, key}, original_value, decoded_value}`.
 
   The decode function is called whenever the original value changes to compute
@@ -11,10 +11,10 @@ defmodule Veidrodelis.StringStore do
 
   import Bitwise
 
-  defstruct [:table, :decode_fun]
+  defstruct [:tid, :decode_fun]
 
   @type t :: %__MODULE__{
-          table: atom(),
+          tid: :ets.tid(),
           decode_fun: decode_fun()
         }
 
@@ -26,27 +26,27 @@ defmodule Veidrodelis.StringStore do
           :AND | :OR | :XOR | :NOT | :DIFF | :DIFF1 | :ANDOR | :ONE
 
   @doc """
-  Creates a new string store with the given name and decode function.
+  Creates a new string store with the given decode function.
 
   The decode function receives `(key, value)` and returns a decoded value.
   It is called whenever a value is set or modified.
 
-  Returns a StringStore struct containing the table name and decode function.
+  Returns a StringStore struct containing the table id and decode function.
   """
-  @spec new(atom(), decode_fun()) :: t()
-  def new(name, decode_fun) when is_atom(name) and is_function(decode_fun, 2) do
-    :ets.new(name, [:ordered_set, :protected, :named_table])
-    %__MODULE__{table: name, decode_fun: decode_fun}
+  @spec new(decode_fun()) :: t()
+  def new(decode_fun) when is_function(decode_fun, 2) do
+    tid = :ets.new(__MODULE__, [:ordered_set, :protected])
+    %__MODULE__{tid: tid, decode_fun: decode_fun}
   end
 
   @doc """
   Sets the value for a key in the specified database.
   """
   @spec set(t(), db(), key(), value()) :: :ok
-  def set(%__MODULE__{table: table, decode_fun: decode_fun}, db, key, value)
+  def set(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, value)
       when is_binary(value) do
     decoded = decode_fun.(key, value)
-    :ets.insert(table, {{db, key}, value, decoded})
+    :ets.insert(tid, {{db, key}, value, decoded})
     :ok
   end
 
@@ -54,14 +54,14 @@ defmodule Veidrodelis.StringStore do
   Sets multiple key-value pairs at once.
   """
   @spec mset(t(), db(), [{key(), value()}]) :: :ok
-  def mset(%__MODULE__{table: table, decode_fun: decode_fun}, db, pairs) do
+  def mset(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, pairs) do
     entries =
       Enum.map(pairs, fn {key, value} ->
         decoded = decode_fun.(key, value)
         {{db, key}, value, decoded}
       end)
 
-    :ets.insert(table, entries)
+    :ets.insert(tid, entries)
     :ok
   end
 
@@ -70,16 +70,16 @@ defmodule Veidrodelis.StringStore do
   If the key doesn't exist, it's created with the data as value.
   """
   @spec append(t(), db(), key(), value()) :: :ok
-  def append(%__MODULE__{table: table, decode_fun: decode_fun} = store, db, key, data)
+  def append(%__MODULE__{tid: tid, decode_fun: decode_fun} = store, db, key, data)
       when is_binary(data) do
-    case :ets.lookup(table, {db, key}) do
+    case :ets.lookup(tid, {db, key}) do
       [] ->
         set(store, db, key, data)
 
       [{{^db, ^key}, orig_value, _decoded}] ->
         new_value = orig_value <> data
         new_decoded = decode_fun.(key, new_value)
-        :ets.insert(table, {{db, key}, new_value, new_decoded})
+        :ets.insert(tid, {{db, key}, new_value, new_decoded})
         :ok
     end
   end
@@ -89,10 +89,10 @@ defmodule Veidrodelis.StringStore do
   Pads with zero bytes if needed.
   """
   @spec setrange(t(), db(), key(), non_neg_integer(), value()) :: :ok
-  def setrange(%__MODULE__{table: table, decode_fun: decode_fun}, db, key, offset, value)
+  def setrange(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, offset, value)
       when is_integer(offset) and offset >= 0 and is_binary(value) do
     orig_value =
-      case :ets.lookup(table, {db, key}) do
+      case :ets.lookup(tid, {db, key}) do
         [] -> ""
         [{{^db, ^key}, val, _decoded}] -> val
       end
@@ -120,7 +120,7 @@ defmodule Veidrodelis.StringStore do
     new_value = prefix <> value <> suffix
 
     new_decoded = decode_fun.(key, new_value)
-    :ets.insert(table, {{db, key}, new_value, new_decoded})
+    :ets.insert(tid, {{db, key}, new_value, new_decoded})
     :ok
   end
 
@@ -129,10 +129,10 @@ defmodule Veidrodelis.StringStore do
   Bits are numbered from 0, with bit 0 being the most significant bit of the first byte.
   """
   @spec setbit(t(), db(), key(), non_neg_integer(), 0 | 1) :: :ok
-  def setbit(%__MODULE__{table: table, decode_fun: decode_fun}, db, key, offset, bit)
+  def setbit(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, offset, bit)
       when is_integer(offset) and offset >= 0 and bit in [0, 1] do
     orig_value =
-      case :ets.lookup(table, {db, key}) do
+      case :ets.lookup(tid, {db, key}) do
         [] -> ""
         [{{^db, ^key}, val, _decoded}] -> val
       end
@@ -174,7 +174,7 @@ defmodule Veidrodelis.StringStore do
     new_value = prefix <> <<new_byte>> <> suffix
 
     new_decoded = decode_fun.(key, new_value)
-    :ets.insert(table, {{db, key}, new_value, new_decoded})
+    :ets.insert(tid, {{db, key}, new_value, new_decoded})
     :ok
   end
 
@@ -194,9 +194,9 @@ defmodule Veidrodelis.StringStore do
   @spec bitop(t(), bitop(), db(), key(), [key()]) :: :ok
   def bitop(store, op, db, dest_key, source_keys)
 
-  def bitop(%__MODULE__{table: table} = store, :NOT, db, dest_key, [source_key]) do
+  def bitop(%__MODULE__{tid: tid} = store, :NOT, db, dest_key, [source_key]) do
     value =
-      case :ets.lookup(table, {db, source_key}) do
+      case :ets.lookup(tid, {db, source_key}) do
         [] -> ""
         [{{^db, ^source_key}, val, _decoded}] -> val
       end
@@ -205,12 +205,12 @@ defmodule Veidrodelis.StringStore do
     store_result(store, db, dest_key, result)
   end
 
-  def bitop(%__MODULE__{table: table} = store, op, db, dest_key, source_keys)
+  def bitop(%__MODULE__{tid: tid} = store, op, db, dest_key, source_keys)
       when is_list(source_keys) do
     # Get all source values
     values =
       Enum.map(source_keys, fn key ->
-        case :ets.lookup(table, {db, key}) do
+        case :ets.lookup(tid, {db, key}) do
           [] -> ""
           [{{^db, ^key}, val, _decoded}] -> val
         end
@@ -245,8 +245,8 @@ defmodule Veidrodelis.StringStore do
   Deletes a key from the store.
   """
   @spec del(t(), db(), key()) :: :ok
-  def del(%__MODULE__{table: table}, db, key) do
-    :ets.delete(table, {db, key})
+  def del(%__MODULE__{tid: tid}, db, key) do
+    :ets.delete(tid, {db, key})
     :ok
   end
 
@@ -254,11 +254,8 @@ defmodule Veidrodelis.StringStore do
   Destroys the ETS table and releases resources.
   """
   @spec destroy(t()) :: :ok
-  def destroy(%__MODULE__{table: table}) do
-    if :ets.whereis(table) != :undefined do
-      :ets.delete(table)
-    end
-
+  def destroy(%__MODULE__{tid: tid}) do
+    :ets.delete(tid)
     :ok
   end
 
@@ -267,8 +264,8 @@ defmodule Veidrodelis.StringStore do
   Returns nil if the key doesn't exist.
   """
   @spec get(t(), db(), key()) :: value() | nil
-  def get(%__MODULE__{table: table}, db, key) do
-    case :ets.lookup(table, {db, key}) do
+  def get(%__MODULE__{tid: tid}, db, key) do
+    case :ets.lookup(tid, {db, key}) do
       [] -> nil
       [{{^db, ^key}, value, _decoded}] -> value
     end
@@ -279,8 +276,8 @@ defmodule Veidrodelis.StringStore do
   Returns nil if the key doesn't exist.
   """
   @spec get_decoded(t(), db(), key()) :: any()
-  def get_decoded(%__MODULE__{table: table}, db, key) do
-    case :ets.lookup(table, {db, key}) do
+  def get_decoded(%__MODULE__{tid: tid}, db, key) do
+    case :ets.lookup(tid, {db, key}) do
       [] -> nil
       [{{^db, ^key}, _value, decoded}] -> decoded
     end
@@ -289,9 +286,9 @@ defmodule Veidrodelis.StringStore do
   # Private helpers
 
   @spec store_result(t(), db(), key(), binary()) :: :ok
-  defp store_result(%__MODULE__{table: table, decode_fun: decode_fun}, db, dest_key, result) do
+  defp store_result(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, dest_key, result) do
     decoded = decode_fun.(dest_key, result)
-    :ets.insert(table, {{db, dest_key}, result, decoded})
+    :ets.insert(tid, {{db, dest_key}, result, decoded})
     :ok
   end
 
