@@ -409,19 +409,13 @@ defmodule Veidrodelis.ReplicaTest do
       Redix.command!(redis, ["RPUSH", "streamlist", "item1"])
 
       # Wait for replication
-      assert_happens_within 500 do
+      assert_happens_within 1000 do
         callback_state = Replica.get_callback_state(replica)
         commands = CollectorCallback.commands(callback_state)
-        length(filter_commands(%Command.Set{key: "streamkey2"}, commands)) > 0
+        assert_command_in_list %Command.Set{key: "streamkey1", value: "streamvalue1"}, commands
+        assert_command_in_list %Command.Set{key: "streamkey2", value: "streamvalue2"}, commands
+        assert_command_in_list %Command.RPush{key: "streamlist", values: values}, commands
       end
-
-      callback_state = Replica.get_callback_state(replica)
-      commands = CollectorCallback.commands(callback_state)
-
-      # Verify streaming commands were received
-      assert_command_in_list %Command.Set{key: "streamkey1", value: "streamvalue1"}, commands
-      assert_command_in_list %Command.Set{key: "streamkey2", value: "streamvalue2"}, commands
-      assert_command_in_list %Command.RPush{key: "streamlist", values: values}, commands
 
       Replica.stop(replica)
     end

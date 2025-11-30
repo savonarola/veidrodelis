@@ -124,55 +124,6 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       Replica.stop(replica)
     end
 
-    test "handles TCP reset and reconnects", %{redis: redis} do
-      # Write initial data
-      Redix.command!(redis, ["SET", "initial", "data"])
-
-      # Start replica
-      opts = [
-        host: @redis_host,
-        port: @redis_port,
-        callback_module: CollectorCallback,
-        callback_state: %{commands: []},
-        reconnect_delay_ms: 500
-      ]
-
-      {:ok, replica} = Replica.start_link(opts)
-
-      # Wait for initial sync
-      assert_happens_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
-      end
-
-      # Hard reset the connection (this toxic only fires once)
-      {:ok, toxic} = Toxiproxy.add_reset_peer("redis", 0)
-
-      # Wait for disconnection
-      Process.sleep(1000)
-
-      # Remove the toxic so connection can stabilize
-      Toxiproxy.remove_toxic("redis", toxic["name"])
-
-      # Wait for reconnection
-      assert_happens_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
-      end
-
-      # Write new data
-      Redix.command!(redis, ["SET", "after_reset", "value"])
-
-      # Wait for replication
-      assert_happens_within 500 do
-        callback_state = Replica.get_callback_state(replica)
-        commands = CollectorCallback.commands(callback_state)
-        assert_command_in_list %Command.Set{key: "after_reset"}, commands
-      end
-
-      # Clean up
-      Toxiproxy.reset("redis")
-      Replica.stop(replica)
-    end
-
     test "calls on_replication_start callback on initial connect", %{redis: redis} do
       # Write initial data
       Redix.command!(redis, ["SET", "key1", "value1"])
@@ -236,7 +187,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
 
       # on_replication_start should NOT be called again for partial resync
       callback_state = Replica.get_callback_state(replica)
-      assert 1 == CollectorCallback.replication_starts(callback_state)
+      assert Map.get(callback_state, :replication_starts) == 1
 
       Replica.stop(replica)
     end

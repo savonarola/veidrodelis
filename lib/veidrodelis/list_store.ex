@@ -14,6 +14,10 @@ defmodule Veidrodelis.ListStore do
   - DEL - delete a list
 
   Empty lists are automatically deleted.
+
+  TODO
+
+  Use pool and dispatch by db
   """
 
   use GenServer
