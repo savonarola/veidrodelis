@@ -13,9 +13,7 @@ defmodule Veidrodelis.StringStoreTest do
     store = StringStore.new(table_name, decode_fun)
 
     on_exit(fn ->
-      if :ets.whereis(table_name) != :undefined do
-        :ets.delete(table_name)
-      end
+      StringStore.destroy(store)
     end)
 
     {:ok, store: store, table: table_name}
@@ -30,7 +28,7 @@ defmodule Veidrodelis.StringStoreTest do
       assert :ets.info(:test_table) != :undefined
 
       # Clean up
-      :ets.delete(:test_table)
+      StringStore.destroy(store)
     end
   end
 
@@ -412,7 +410,7 @@ defmodule Veidrodelis.StringStoreTest do
       assert 3 == StringStore.get_decoded(store, 0, "key1")  # e, o, o
 
       # Clean up
-      :ets.delete(:vowel_counter)
+      StringStore.destroy(store)
     end
 
     test "recalculates decoded value on update" do
@@ -435,7 +433,7 @@ defmodule Veidrodelis.StringStoreTest do
       assert 5 == StringStore.get_decoded(store, 0, "key1")
 
       # Clean up
-      :ets.delete(:upper_counter)
+      StringStore.destroy(store)
     end
   end
 
@@ -455,7 +453,7 @@ defmodule Veidrodelis.StringStoreTest do
       assert "user:2: Bob" == StringStore.get_decoded(store, 0, "user:2")
 
       # Clean up
-      :ets.delete(:key_aware)
+      StringStore.destroy(store)
     end
   end
 end

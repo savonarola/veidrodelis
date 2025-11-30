@@ -35,7 +35,7 @@ defmodule Veidrodelis.StringStore do
   """
   @spec new(atom(), decode_fun()) :: t()
   def new(name, decode_fun) when is_atom(name) and is_function(decode_fun, 2) do
-    :ets.new(name, [:set, :protected, :named_table])
+    :ets.new(name, [:ordered_set, :protected, :named_table])
     %__MODULE__{table: name, decode_fun: decode_fun}
   end
 
@@ -247,6 +247,18 @@ defmodule Veidrodelis.StringStore do
   @spec del(t(), db(), key()) :: :ok
   def del(%__MODULE__{table: table}, db, key) do
     :ets.delete(table, {db, key})
+    :ok
+  end
+
+  @doc """
+  Destroys the ETS table and releases resources.
+  """
+  @spec destroy(t()) :: :ok
+  def destroy(%__MODULE__{table: table}) do
+    if :ets.whereis(table) != :undefined do
+      :ets.delete(table)
+    end
+
     :ok
   end
 

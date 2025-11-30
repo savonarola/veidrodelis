@@ -23,6 +23,7 @@ defmodule Veidrodelis.ListStore do
   use GenServer
 
   @type server :: GenServer.server()
+  @type db :: non_neg_integer()
   @type key :: any()
   @type value :: any()
   @type position :: :before | :after
@@ -42,50 +43,50 @@ defmodule Veidrodelis.ListStore do
   Elements are inserted one after the other, so LPUSH key "a" "b" "c"
   results in ["c", "b", "a"] being prepended.
   """
-  @spec lpush(server(), key(), [value()]) :: :ok
-  def lpush(server, key, values) when is_list(values) do
-    GenServer.cast(server, {:lpush, key, values})
+  @spec lpush(server(), db(), key(), [value()]) :: :ok
+  def lpush(server, db, key, values) when is_list(values) do
+    GenServer.cast(server, {:lpush, db, key, values})
   end
 
   @doc """
   Insert all values at the tail of the list.
   Elements are inserted in order.
   """
-  @spec rpush(server(), key(), [value()]) :: :ok
-  def rpush(server, key, values) when is_list(values) do
-    GenServer.cast(server, {:rpush, key, values})
+  @spec rpush(server(), db(), key(), [value()]) :: :ok
+  def rpush(server, db, key, values) when is_list(values) do
+    GenServer.cast(server, {:rpush, db, key, values})
   end
 
   @doc """
   Insert values at the head, only if the key exists.
   """
-  @spec lpushx(server(), key(), [value()]) :: :ok
-  def lpushx(server, key, values) when is_list(values) do
-    GenServer.cast(server, {:lpushx, key, values})
+  @spec lpushx(server(), db(), key(), [value()]) :: :ok
+  def lpushx(server, db, key, values) when is_list(values) do
+    GenServer.cast(server, {:lpushx, db, key, values})
   end
 
   @doc """
   Insert values at the tail, only if the key exists.
   """
-  @spec rpushx(server(), key(), [value()]) :: :ok
-  def rpushx(server, key, values) when is_list(values) do
-    GenServer.cast(server, {:rpushx, key, values})
+  @spec rpushx(server(), db(), key(), [value()]) :: :ok
+  def rpushx(server, db, key, values) when is_list(values) do
+    GenServer.cast(server, {:rpushx, db, key, values})
   end
 
   @doc """
   Remove and return the first element of the list.
   """
-  @spec lpop(server(), key()) :: :ok
-  def lpop(server, key) do
-    GenServer.cast(server, {:lpop, key})
+  @spec lpop(server(), db(), key()) :: :ok
+  def lpop(server, db, key) do
+    GenServer.cast(server, {:lpop, db, key})
   end
 
   @doc """
   Remove and return the last element of the list.
   """
-  @spec rpop(server(), key()) :: :ok
-  def rpop(server, key) do
-    GenServer.cast(server, {:rpop, key})
+  @spec rpop(server(), db(), key()) :: :ok
+  def rpop(server, db, key) do
+    GenServer.cast(server, {:rpop, db, key})
   end
 
   @doc """
@@ -94,61 +95,61 @@ defmodule Veidrodelis.ListStore do
   - count < 0: Remove elements from tail to head
   - count = 0: Remove all occurrences
   """
-  @spec lrem(server(), key(), integer(), value()) :: :ok
-  def lrem(server, key, count, element) do
-    GenServer.cast(server, {:lrem, key, count, element})
+  @spec lrem(server(), db(), key(), integer(), value()) :: :ok
+  def lrem(server, db, key, count, element) do
+    GenServer.cast(server, {:lrem, db, key, count, element})
   end
 
   @doc """
   Trim the list to the specified range.
   Both start and stop are inclusive and support negative indices.
   """
-  @spec ltrim(server(), key(), integer(), integer()) :: :ok
-  def ltrim(server, key, start_idx, stop_idx) do
-    GenServer.cast(server, {:ltrim, key, start_idx, stop_idx})
+  @spec ltrim(server(), db(), key(), integer(), integer()) :: :ok
+  def ltrim(server, db, key, start_idx, stop_idx) do
+    GenServer.cast(server, {:ltrim, db, key, start_idx, stop_idx})
   end
 
   @doc """
   Set the list element at index to value.
   Supports negative indices.
   """
-  @spec lset(server(), key(), integer(), value()) :: :ok
-  def lset(server, key, index, value) do
-    GenServer.cast(server, {:lset, key, index, value})
+  @spec lset(server(), db(), key(), integer(), value()) :: :ok
+  def lset(server, db, key, index, value) do
+    GenServer.cast(server, {:lset, db, key, index, value})
   end
 
   @doc """
   Insert value before or after the pivot element.
   Position must be :before or :after.
   """
-  @spec linsert(server(), key(), position(), value(), value()) :: :ok
-  def linsert(server, key, position, pivot, value) when position in [:before, :after] do
-    GenServer.cast(server, {:linsert, key, position, pivot, value})
+  @spec linsert(server(), db(), key(), position(), value(), value()) :: :ok
+  def linsert(server, db, key, position, pivot, value) when position in [:before, :after] do
+    GenServer.cast(server, {:linsert, db, key, position, pivot, value})
   end
 
   @doc """
   Atomically pop the last element from source and push it to the head of dest.
   """
-  @spec rpoplpush(server(), key(), key()) :: :ok
-  def rpoplpush(server, source, dest) do
-    GenServer.cast(server, {:rpoplpush, source, dest})
+  @spec rpoplpush(server(), db(), key(), key()) :: :ok
+  def rpoplpush(server, db, source, dest) do
+    GenServer.cast(server, {:rpoplpush, db, source, dest})
   end
 
   @doc """
   Delete the list at the specified key.
   """
-  @spec del(server(), key()) :: :ok
-  def del(server, key) do
-    GenServer.cast(server, {:del, key})
+  @spec del(server(), db(), key()) :: :ok
+  def del(server, db, key) do
+    GenServer.cast(server, {:del, db, key})
   end
 
   @doc """
   Get a range of elements from the list.
   Both start and stop are inclusive and support negative indices.
   """
-  @spec get_range(server(), key(), integer(), integer()) :: [value()]
-  def get_range(server, key, start_idx, stop_idx) do
-    GenServer.call(server, {:get_range, key, start_idx, stop_idx})
+  @spec get_range(server(), db(), key(), integer(), integer()) :: [value()]
+  def get_range(server, db, key, start_idx, stop_idx) do
+    GenServer.call(server, {:get_range, db, key, start_idx, stop_idx})
   end
 
   # Server callbacks
@@ -159,127 +160,139 @@ defmodule Veidrodelis.ListStore do
   end
 
   @impl true
-  def handle_cast({:lpush, key, values}, state) do
-    list = Map.get(state, key, [])
+  def handle_cast({:lpush, db, key, values}, state) do
+    db_key = {db, key}
+    list = Map.get(state, db_key, [])
     # Insert elements one by one at head, so reverse first
     new_list = Enum.reverse(values) ++ list
-    {:noreply, Map.put(state, key, new_list)}
+    {:noreply, Map.put(state, db_key, new_list)}
   end
 
-  def handle_cast({:rpush, key, values}, state) do
-    list = Map.get(state, key, [])
+  def handle_cast({:rpush, db, key, values}, state) do
+    db_key = {db, key}
+    list = Map.get(state, db_key, [])
     new_list = list ++ values
-    {:noreply, Map.put(state, key, new_list)}
+    {:noreply, Map.put(state, db_key, new_list)}
   end
 
-  def handle_cast({:lpushx, key, values}, state) do
-    case Map.get(state, key) do
+  def handle_cast({:lpushx, db, key, values}, state) do
+    db_key = {db, key}
+    case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
         new_list = Enum.reverse(values) ++ list
-        {:noreply, Map.put(state, key, new_list)}
+        {:noreply, Map.put(state, db_key, new_list)}
     end
   end
 
-  def handle_cast({:rpushx, key, values}, state) do
-    case Map.get(state, key) do
+  def handle_cast({:rpushx, db, key, values}, state) do
+    db_key = {db, key}
+    case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
         new_list = list ++ values
-        {:noreply, Map.put(state, key, new_list)}
+        {:noreply, Map.put(state, db_key, new_list)}
     end
   end
 
-  def handle_cast({:lpop, key}, state) do
-    case Map.get(state, key) do
+  def handle_cast({:lpop, db, key}, state) do
+    db_key = {db, key}
+    case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
 
       [] ->
-        {:noreply, Map.delete(state, key)}
+        {:noreply, Map.delete(state, db_key)}
 
       [_head | tail] ->
-        new_state = if tail == [], do: Map.delete(state, key), else: Map.put(state, key, tail)
+        new_state = if tail == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, tail)
         {:noreply, new_state}
     end
   end
 
-  def handle_cast({:rpop, key}, state) do
-    case Map.get(state, key) do
+  def handle_cast({:rpop, db, key}, state) do
+    db_key = {db, key}
+    case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
 
       [] ->
-        {:noreply, Map.delete(state, key)}
+        {:noreply, Map.delete(state, db_key)}
 
       list ->
         new_list = Enum.drop(list, -1)
-        new_state = if new_list == [], do: Map.delete(state, key), else: Map.put(state, key, new_list)
+        new_state = if new_list == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, new_list)
         {:noreply, new_state}
     end
   end
 
-  def handle_cast({:lrem, key, count, element}, state) do
-    case Map.get(state, key) do
+  def handle_cast({:lrem, db, key, count, element}, state) do
+    db_key = {db, key}
+    case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
         new_list = remove_elements(list, count, element)
-        new_state = if new_list == [], do: Map.delete(state, key), else: Map.put(state, key, new_list)
+        new_state = if new_list == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, new_list)
         {:noreply, new_state}
     end
   end
 
-  def handle_cast({:ltrim, key, start_idx, stop_idx}, state) do
-    case Map.get(state, key) do
+  def handle_cast({:ltrim, db, key, start_idx, stop_idx}, state) do
+    db_key = {db, key}
+    case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
         new_list = slice_list(list, start_idx, stop_idx)
-        new_state = if new_list == [], do: Map.delete(state, key), else: Map.put(state, key, new_list)
+        new_state = if new_list == [], do: Map.delete(state, db_key), else: Map.put(state, db_key, new_list)
         {:noreply, new_state}
     end
   end
 
-  def handle_cast({:lset, key, index, value}, state) do
-    case Map.get(state, key) do
+  def handle_cast({:lset, db, key, index, value}, state) do
+    db_key = {db, key}
+    case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
         case set_at_index(list, index, value) do
-          {:ok, new_list} -> {:noreply, Map.put(state, key, new_list)}
+          {:ok, new_list} -> {:noreply, Map.put(state, db_key, new_list)}
           :error -> {:noreply, state}
         end
     end
   end
 
-  def handle_cast({:linsert, key, position, pivot, value}, state) do
-    case Map.get(state, key) do
+  def handle_cast({:linsert, db, key, position, pivot, value}, state) do
+    db_key = {db, key}
+    case Map.get(state, db_key) do
       nil ->
         {:noreply, state}
 
       list ->
         case insert_at_pivot(list, position, pivot, value) do
-          {:ok, new_list} -> {:noreply, Map.put(state, key, new_list)}
+          {:ok, new_list} -> {:noreply, Map.put(state, db_key, new_list)}
           :error -> {:noreply, state}
         end
     end
   end
 
-  def handle_cast({:rpoplpush, source, dest}, state) do
-    case Map.get(state, source) do
+  def handle_cast({:rpoplpush, db, source, dest}, state) do
+    source_key = {db, source}
+    dest_key = {db, dest}
+    case Map.get(state, source_key) do
       nil ->
         {:noreply, state}
 
       [] ->
-        {:noreply, Map.delete(state, source)}
+        {:noreply, Map.delete(state, source_key)}
 
       source_list ->
         popped = List.last(source_list)
@@ -288,28 +301,30 @@ defmodule Veidrodelis.ListStore do
         if source == dest do
           # Same key: just rotate the list
           new_list = [popped | new_source]
-          {:noreply, Map.put(state, dest, new_list)}
+          {:noreply, Map.put(state, dest_key, new_list)}
         else
           # Different keys: update both
-          dest_list = Map.get(state, dest, [])
+          dest_list = Map.get(state, dest_key, [])
           new_dest = [popped | dest_list]
 
           state =
-            if new_source == [], do: Map.delete(state, source), else: Map.put(state, source, new_source)
+            if new_source == [], do: Map.delete(state, source_key), else: Map.put(state, source_key, new_source)
 
-          state = Map.put(state, dest, new_dest)
+          state = Map.put(state, dest_key, new_dest)
           {:noreply, state}
         end
     end
   end
 
-  def handle_cast({:del, key}, state) do
-    {:noreply, Map.delete(state, key)}
+  def handle_cast({:del, db, key}, state) do
+    db_key = {db, key}
+    {:noreply, Map.delete(state, db_key)}
   end
 
   @impl true
-  def handle_call({:get_range, key, start_idx, stop_idx}, _from, state) do
-    list = Map.get(state, key, [])
+  def handle_call({:get_range, db, key, start_idx, stop_idx}, _from, state) do
+    db_key = {db, key}
+    list = Map.get(state, db_key, [])
     result = slice_list(list, start_idx, stop_idx)
     {:reply, result, state}
   end
