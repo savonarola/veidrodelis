@@ -953,7 +953,6 @@ defmodule Vdr.RedisStream.Replica do
     else
       case peek_bytes(state, min(state.buffer_size, 64)) do
         {:ok, peek} ->
-          dbg(peek)
           case peek do
             <<"$"::binary, _::binary>> ->
               binary = buffer_to_binary(state)

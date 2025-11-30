@@ -83,22 +83,15 @@ defmodule Veidrodelis.ReplicaTest do
         commands = CollectorCallback.commands(callback_state)
 
         # Verify we received commands from RDB
-        assert_command_in_list(%Command.Set{key: "key1", value: "value1"}, commands)
-        assert_command_in_list(%Command.Set{key: "key2", value: "value2"}, commands)
-
-        # Verify list items
-        assert_command_in_list(%Command.RPush{key: "mylist", values: values}, commands)
-
-        # Verify set member
-        assert_command_in_list(%Command.SAdd{key: "myset", members: members}, commands)
-        assert_command_in_list(%Command.ZAdd{key: "myzset", members: members}, commands)
-
-        # Verify hash field
-        assert_command_in_list(%Command.HSet{key: "myhash", fields: fields}, commands)
-        # Verify streaming commands
-        assert_command_in_list(%Command.Set{key: "key3", value: "value3"}, commands)
-        assert_command_in_list(%Command.RPush{key: "mylist", values: values}, commands)
-        assert_command_in_list(%Command.SAdd{key: "myset", members: members}, commands)
+        command_in_list(%Command.Set{key: "key1", value: "value1"}, commands) &&
+          command_in_list(%Command.Set{key: "key2", value: "value2"}, commands) &&
+          command_in_list(%Command.RPush{key: "mylist", values: values}, commands) &&
+          command_in_list(%Command.SAdd{key: "myset", members: members}, commands) &&
+          command_in_list(%Command.ZAdd{key: "myzset", members: members}, commands) &&
+          command_in_list(%Command.HSet{key: "myhash", fields: fields}, commands) &&
+          command_in_list(%Command.Set{key: "key3", value: "value3"}, commands) &&
+          command_in_list(%Command.RPush{key: "mylist", values: values}, commands) &&
+          command_in_list(%Command.SAdd{key: "myset", members: members}, commands)
       end
 
       Replica.stop(replica)
@@ -184,7 +177,7 @@ defmodule Veidrodelis.ReplicaTest do
       commands = filter_commands(%Command.Set{}, CollectorCallback.commands(callback_state))
 
       assert length(commands) >= 1
-      assert_command_in_list(%Command.Set{key: "testkey", value: "testvalue"}, commands)
+      assert command_in_list(%Command.Set{key: "testkey", value: "testvalue"}, commands)
 
       Replica.stop(replica)
     end
@@ -214,7 +207,7 @@ defmodule Veidrodelis.ReplicaTest do
       assert length(rpush_commands) >= 1
 
       # Verify all items are present in the command
-      assert_command_in_list(%Command.RPush{key: "testlist", values: values}, commands)
+      assert command_in_list(%Command.RPush{key: "testlist", values: values}, commands)
       [%Command.RPush{values: values}] = rpush_commands
       assert "item1" in values and "item2" in values and "item3" in values
 
@@ -246,7 +239,7 @@ defmodule Veidrodelis.ReplicaTest do
       assert length(sadd_commands) >= 1
 
       # Verify both members are present in the command
-      assert_command_in_list(%Command.SAdd{key: "testset", members: members}, commands)
+      assert command_in_list(%Command.SAdd{key: "testset", members: members}, commands)
       [%Command.SAdd{members: members}] = sadd_commands
       assert "member1" in members and "member2" in members
 
@@ -278,7 +271,7 @@ defmodule Veidrodelis.ReplicaTest do
       assert length(zadd_commands) >= 1
 
       # Verify both members with correct scores are present in the command
-      assert_command_in_list(%Command.ZAdd{key: "testzset", members: members}, commands)
+      assert command_in_list(%Command.ZAdd{key: "testzset", members: members}, commands)
       [%Command.ZAdd{members: members}] = zadd_commands
       assert {1.0, "member1"} in members
       assert {2.5, "member2"} in members
@@ -311,7 +304,7 @@ defmodule Veidrodelis.ReplicaTest do
       assert length(hset_commands) >= 1
 
       # Verify both fields are present in the command
-      assert_command_in_list(%Command.HSet{key: "testhash", fields: fields}, commands)
+      assert command_in_list(%Command.HSet{key: "testhash", fields: fields}, commands)
       [%Command.HSet{fields: fields}] = hset_commands
       assert {"field1", "value1"} in fields and {"field2", "value2"} in fields
 
@@ -418,9 +411,10 @@ defmodule Veidrodelis.ReplicaTest do
       assert_happens_within 1000 do
         callback_state = Replica.get_callback_state(replica)
         commands = CollectorCallback.commands(callback_state)
-        assert_command_in_list(%Command.Set{key: "streamkey1", value: "streamvalue1"}, commands)
-        assert_command_in_list(%Command.Set{key: "streamkey2", value: "streamvalue2"}, commands)
-        assert_command_in_list(%Command.RPush{key: "streamlist", values: values}, commands)
+
+        command_in_list(%Command.Set{key: "streamkey1", value: "streamvalue1"}, commands) &&
+          command_in_list(%Command.Set{key: "streamkey2", value: "streamvalue2"}, commands) &&
+          command_in_list(%Command.RPush{key: "streamlist", values: values}, commands)
       end
 
       Replica.stop(replica)
@@ -460,7 +454,7 @@ defmodule Veidrodelis.ReplicaTest do
       commands = CollectorCallback.commands(callback_state)
 
       # Verify we received the SET command
-      assert_command_in_list(%Command.Set{key: "authkey", value: "authvalue"}, commands)
+      assert command_in_list(%Command.Set{key: "authkey", value: "authvalue"}, commands)
 
       Replica.stop(replica)
 
@@ -507,7 +501,7 @@ defmodule Veidrodelis.ReplicaTest do
       commands = CollectorCallback.commands(callback_state)
 
       # Verify we received the SET command
-      assert_command_in_list(%Command.Set{key: "aclkey", value: "aclvalue"}, commands)
+      assert command_in_list(%Command.Set{key: "aclkey", value: "aclvalue"}, commands)
 
       Replica.stop(replica)
 
@@ -519,6 +513,12 @@ defmodule Veidrodelis.ReplicaTest do
 
   describe "error handling" do
     test "handles connection to non-existent Redis" do
+      original_level = Logger.level()
+      Logger.configure(level: :critical)
+      on_exit(fn ->
+        Logger.configure(level: original_level)
+      end)
+
       # Trap exits so the test doesn't crash when the replica process crashes
       Process.flag(:trap_exit, true)
 

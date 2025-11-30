@@ -232,7 +232,16 @@ defmodule VeidrodelisTest do
 
     test "processes zset commands with decoder", %{redis: redis} do
       # Write data to Redis
-      Redix.command!(redis, ["ZADD", "myzset", "1.0", "member1", "2.5", "member2", "3.0", "member3"])
+      Redix.command!(redis, [
+        "ZADD",
+        "myzset",
+        "1.0",
+        "member1",
+        "2.5",
+        "member2",
+        "3.0",
+        "member3"
+      ])
 
       # Start Veidrodelis instance with custom decoder
       instance_id = :"test_zsets_#{:erlang.unique_integer([:positive])}"
