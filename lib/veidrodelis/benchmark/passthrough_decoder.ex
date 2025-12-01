@@ -7,34 +7,19 @@ defmodule Vdr.Benchmark.PassthroughDecoder do
 
   # All decoder callbacks just pass through the raw binary values
   @impl true
-  def decode_string_key(key), do: key
+  def decode_key(key), do: key
 
   @impl true
   def decode_string_value(_key, value), do: value
 
   @impl true
-  def decode_set_key(key), do: key
-
-  @impl true
   def decode_set_entry(_key, entry), do: entry
-
-  @impl true
-  def decode_list_key(key), do: key
-
-  @impl true
-  def decode_list_entry(_key, entry), do: entry
-
-  @impl true
-  def decode_hash_key(key), do: key
 
   @impl true
   def decode_hash_hkey(_key, hkey), do: hkey
 
   @impl true
   def decode_hash_entry(_key, _hkey, value), do: value
-
-  @impl true
-  def decode_zset_key(key), do: key
 
   @impl true
   def decode_zset_entry(_key, entry), do: entry

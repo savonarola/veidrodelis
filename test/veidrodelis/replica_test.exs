@@ -4,6 +4,7 @@ defmodule Veidrodelis.ReplicaTest do
   alias Vdr.RedisStream.Replica
   alias Vdr.Command
   use CommandMatchers
+  require Logger
 
   # Callback module that collects all commands
   defmodule CollectorCallback do
@@ -75,12 +76,14 @@ defmodule Veidrodelis.ReplicaTest do
       Redix.command!(redis, ["SET", "key3", "value3"])
       Redix.command!(redis, ["RPUSH", "mylist", "item3"])
       Redix.command!(redis, ["SADD", "myset", "member2"])
+      Redix.command!(redis, ["DEL", "key3"])
 
       # Wait for commands to replicate
-      assert_happens_within 500 do
+      assert_happens_within 1000 do
         # Step 4: Get callback state and verify
         callback_state = Replica.get_callback_state(replica)
         commands = CollectorCallback.commands(callback_state)
+        Logger.debug("Commands: #{inspect(commands)}")
 
         # Verify we received commands from RDB
         command_in_list(%Command.Set{key: "key1", value: "value1"}, commands) &&
@@ -91,7 +94,8 @@ defmodule Veidrodelis.ReplicaTest do
           command_in_list(%Command.HSet{key: "myhash"}, commands) &&
           command_in_list(%Command.Set{key: "key3", value: "value3"}, commands) &&
           command_in_list(%Command.RPush{key: "mylist"}, commands) &&
-          command_in_list(%Command.SAdd{key: "myset"}, commands)
+          command_in_list(%Command.SAdd{key: "myset"}, commands) &&
+          command_in_list(%Command.Del{keys: ["key3"]}, commands)
       end
 
       Replica.stop(replica)

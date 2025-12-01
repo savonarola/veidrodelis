@@ -7,22 +7,34 @@ defmodule Vdr.SetStoreTest do
     # Simple decode function that returns the element as-is
     decode_fun = fn _key, element -> element end
 
-    store = SetStore.new(decode_fun)
+    # Create shared ETS table
+    tid = :ets.new(:test_store, [:set, :public])
 
-    {:ok, store: store}
+    store = SetStore.new(tid, decode_fun)
+
+    on_exit(fn ->
+      try do
+        :ets.delete(tid)
+      rescue
+        ArgumentError -> :ok
+      end
+    end)
+
+    {:ok, store: store, tid: tid}
   end
 
-  describe "new/1" do
-    test "creates a new ETS table and returns a struct" do
+  describe "new/2" do
+    test "creates a SetStore with the given ETS table" do
       decode_fun = fn _key, element -> element end
-      store = SetStore.new(decode_fun)
+      tid = :ets.new(:test_store, [:set, :public])
+      store = SetStore.new(tid, decode_fun)
 
-      assert %SetStore{tid: tid, decode_fun: ^decode_fun} = store
+      assert %SetStore{tid: ^tid, decode_fun: ^decode_fun} = store
       assert is_reference(tid)
       assert :ets.info(tid) != :undefined
 
       # Clean up
-      SetStore.destroy(store)
+      :ets.delete(tid)
     end
   end
 
@@ -401,7 +413,8 @@ defmodule Vdr.SetStoreTest do
       # Decode function that converts to uppercase for case-insensitive ordering
       decode_fun = fn _key, element -> String.upcase(element) end
 
-      store = SetStore.new(decode_fun)
+      tid = :ets.new(:test_store, [:set, :public])
+      store = SetStore.new(tid, decode_fun)
 
       :ok = SetStore.sadd(store, 0, "myset", ["apple", "BANANA", "Cherry"])
 
@@ -414,14 +427,15 @@ defmodule Vdr.SetStoreTest do
       assert SetStore.scard(store, 0, "myset") == 3
 
       # Clean up
-      SetStore.destroy(store)
+      :ets.delete(tid)
     end
 
     test "decode function receives key for context" do
       # Decode function that includes key prefix
       decode_fun = fn key, element -> {key, element} end
 
-      store = SetStore.new(decode_fun)
+      tid = :ets.new(:test_store, [:set, :public])
+      store = SetStore.new(tid, decode_fun)
 
       :ok = SetStore.sadd(store, 0, "set1", ["a", "b"])
       :ok = SetStore.sadd(store, 0, "set2", ["a", "b"])
@@ -434,7 +448,7 @@ defmodule Vdr.SetStoreTest do
       assert Enum.sort(members_set2) == [{"set2", "a"}, {"set2", "b"}]
 
       # Clean up
-      SetStore.destroy(store)
+      :ets.delete(tid)
     end
 
     test "numeric decode function for integer-like strings" do
@@ -446,16 +460,17 @@ defmodule Vdr.SetStoreTest do
         end
       end
 
-      store = SetStore.new(decode_fun)
+      tid = :ets.new(:test_store, [:set, :public])
+      store = SetStore.new(tid, decode_fun)
 
       :ok = SetStore.sadd(store, 0, "numbers", ["10", "2", "100", "20"])
 
       members = SetStore.smembers(store, 0, "numbers")
-      # Should be ordered numerically: 2, 10, 20, 100
-      assert members == [2, 10, 20, 100]
+      # With :set table type, order is not guaranteed, so we check contents
+      assert Enum.sort(members) == [2, 10, 20, 100]
 
       # Clean up
-      SetStore.destroy(store)
+      :ets.delete(tid)
     end
   end
 

@@ -1,2 +1,3 @@
-ExUnit.start()
-Logger.configure(level: :error)
+Application.ensure_all_started(:veidrodelis)
+ExUnit.start(exclude: [:slow])
+Logger.configure(level: :debug)

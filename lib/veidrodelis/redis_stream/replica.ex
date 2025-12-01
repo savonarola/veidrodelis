@@ -77,6 +77,20 @@ defmodule Vdr.RedisStream.Replica do
   # Client API
 
   @doc """
+  Creates a child specification for the replica.
+  """
+  @spec child_spec(keyword()) :: Supervisor.Spec.spec()
+  def child_spec(opts) do
+    %{
+      id: __MODULE__,
+      start: {__MODULE__, :start_link, [opts]},
+      type: :worker,
+      restart: :permanent,
+      shutdown: 5000
+    }
+  end
+
+  @doc """
   Start a Redis replica client.
 
   ## Options
@@ -167,6 +181,7 @@ defmodule Vdr.RedisStream.Replica do
 
   @impl true
   def init(opts) do
+    Logger.debug("Initializing replica with opts: #{inspect(opts)}")
     Process.flag(:trap_exit, true)
 
     state = %{
@@ -876,6 +891,7 @@ defmodule Vdr.RedisStream.Replica do
   defp process_command(raw_command, state) do
     # Parse the command using CommandParser
     {:ok, command} = CommandParser.parse(raw_command)
+    Logger.debug("Processing command: #{inspect(command)}")
 
     # Invoke callback with the parsed command
     case state.callback_module.on_command(state.callback_state, state.current_db, command) do
@@ -1098,8 +1114,15 @@ defmodule Vdr.RedisStream.Replica do
           <<"\n"::binary, _::binary>> ->
             binary = buffer_to_binary(state)
             <<"\n"::binary, rest::binary>> = binary
-            new_state = %{state | buffer: if(byte_size(rest) > 0, do: [rest], else: []), buffer_size: byte_size(rest)}
+
+            new_state = %{
+              state
+              | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
+                buffer_size: byte_size(rest)
+            }
+
             parse_command(new_state)
+
           _ ->
             :incomplete
         end

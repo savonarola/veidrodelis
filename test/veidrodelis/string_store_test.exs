@@ -1,28 +1,40 @@
 defmodule Vdr.StringStoreTest do
   use ExUnit.Case, async: true
 
-  alias Vdr.StringStore
+  alias Vdr.{StringStore, CommonStore}
 
   setup do
     # Simple decode function that returns the length
     decode_fun = fn _key, value -> byte_size(value) end
 
-    store = StringStore.new(decode_fun)
+    # Create shared ETS table
+    tid = :ets.new(:test_store, [:set, :public])
 
-    {:ok, store: store}
+    store = StringStore.new(tid, decode_fun)
+
+    on_exit(fn ->
+      try do
+        :ets.delete(tid)
+      rescue
+        ArgumentError -> :ok
+      end
+    end)
+
+    {:ok, store: store, tid: tid}
   end
 
-  describe "new/1" do
-    test "creates a new ETS table and returns a struct" do
+  describe "new/2" do
+    test "creates a StringStore with the given ETS table" do
       decode_fun = fn _key, value -> String.upcase(value) end
-      store = StringStore.new(decode_fun)
+      tid = :ets.new(:test_store, [:set, :public])
+      store = StringStore.new(tid, decode_fun)
 
-      assert %StringStore{tid: tid, decode_fun: ^decode_fun} = store
+      assert %StringStore{tid: ^tid, decode_fun: ^decode_fun} = store
       assert is_reference(tid)
       assert :ets.info(tid) != :undefined
 
       # Clean up
-      StringStore.destroy(store)
+      :ets.delete(tid)
     end
   end
 
@@ -349,18 +361,18 @@ defmodule Vdr.StringStoreTest do
   end
 
   describe "del/3" do
-    test "deletes a key", %{store: store} do
+    test "deletes a key", %{store: store, tid: tid} do
       :ok = StringStore.set(store, 0, "key1", "value")
       assert "value" == StringStore.get(store, 0, "key1")
 
-      :ok = StringStore.del(store, 0, "key1")
+      :ok = CommonStore.del(tid, 0, "key1")
 
       assert nil == StringStore.get(store, 0, "key1")
       assert nil == StringStore.get_decoded(store, 0, "key1")
     end
 
-    test "handles deleting non-existent key", %{store: store} do
-      :ok = StringStore.del(store, 0, "nonexistent")
+    test "handles deleting non-existent key", %{tid: tid} do
+      :ok = CommonStore.del(tid, 0, "nonexistent")
     end
   end
 
@@ -396,7 +408,8 @@ defmodule Vdr.StringStoreTest do
         |> Enum.count(fn c -> c in ["a", "e", "i", "o", "u"] end)
       end
 
-      store = StringStore.new(count_vowels)
+      tid = :ets.new(:test_store, [:set, :public])
+      store = StringStore.new(tid, count_vowels)
 
       :ok = StringStore.set(store, 0, "key1", "hello world")
 
@@ -405,7 +418,7 @@ defmodule Vdr.StringStoreTest do
       assert 3 == StringStore.get_decoded(store, 0, "key1")
 
       # Clean up
-      StringStore.destroy(store)
+      :ets.delete(tid)
     end
 
     test "recalculates decoded value on update" do
@@ -416,7 +429,8 @@ defmodule Vdr.StringStoreTest do
         |> Enum.count(fn c -> c == String.upcase(c) and c != String.downcase(c) end)
       end
 
-      store = StringStore.new(count_upper)
+      tid = :ets.new(:test_store, [:set, :public])
+      store = StringStore.new(tid, count_upper)
 
       :ok = StringStore.set(store, 0, "key1", "Hello")
       assert 1 == StringStore.get_decoded(store, 0, "key1")
@@ -428,7 +442,7 @@ defmodule Vdr.StringStoreTest do
       assert 5 == StringStore.get_decoded(store, 0, "key1")
 
       # Clean up
-      StringStore.destroy(store)
+      :ets.delete(tid)
     end
   end
 
@@ -439,7 +453,8 @@ defmodule Vdr.StringStoreTest do
         "#{key}: #{value}"
       end
 
-      store = StringStore.new(decode_with_key)
+      tid = :ets.new(:test_store, [:set, :public])
+      store = StringStore.new(tid, decode_with_key)
 
       :ok = StringStore.set(store, 0, "user:1", "Alice")
       :ok = StringStore.set(store, 0, "user:2", "Bob")
@@ -448,7 +463,7 @@ defmodule Vdr.StringStoreTest do
       assert "user:2: Bob" == StringStore.get_decoded(store, 0, "user:2")
 
       # Clean up
-      StringStore.destroy(store)
+      :ets.delete(tid)
     end
   end
 end

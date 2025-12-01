@@ -2,9 +2,9 @@ defmodule Vdr.ZsetStore do
   @moduledoc """
   An ETS-backed store for Redis sorted set (zset) operations.
 
-  Uses a protected ETS ordered_set table with a dual-entry layout for each member:
-  - `{{db, key, score, decoded_value}, nil}` - for score-range operations
-  - `{{db, key, decoded_value}, score}` - for member lookups and deletions
+  Uses a shared ETS table with a dual-entry layout for each member:
+  - `{{db, key, :zset, decoded_set_entry}, weight}` - for member lookups and deletions
+  - `{{db, key, :zset_index, {weight, decoded_set_entry}}, nil}` - for score-range operations
 
   The decode function is called for each member to compute a decoded representation
   that is stored in the ETS keys.
@@ -26,16 +26,15 @@ defmodule Vdr.ZsetStore do
   @type aggregate :: :sum | :min | :max
 
   @doc """
-  Creates a new zset store with the given decode function.
+  Creates a new zset store with the given ETS table and decode function.
 
   The decode function receives `(key, member)` and returns a decoded entry
   that will be used in the ETS keys for efficient matching and ordering.
 
   Returns a ZsetStore struct containing the table id and decode function.
   """
-  @spec new(decode_fun()) :: t()
-  def new(decode_fun) when is_function(decode_fun, 2) do
-    tid = :ets.new(__MODULE__, [:ordered_set, :protected])
+  @spec new(:ets.tid(), decode_fun()) :: t()
+  def new(tid, decode_fun) when is_function(decode_fun, 2) do
     %__MODULE__{tid: tid, decode_fun: decode_fun}
   end
 
@@ -54,17 +53,17 @@ defmodule Vdr.ZsetStore do
       decoded_value = decode_fun.(key, member)
 
       # Remove old entries if they exist
-      case :ets.lookup(tid, {db, key, decoded_value}) do
+      case :ets.lookup(tid, {db, key, :zset, decoded_value}) do
         [{_, old_score}] ->
-          :ets.delete(tid, {db, key, old_score, decoded_value})
+          :ets.delete(tid, {db, key, :zset_index, {old_score, decoded_value}})
 
         [] ->
           :ok
       end
 
       # Insert both entries
-      :ets.insert(tid, {{db, key, score, decoded_value}, nil})
-      :ets.insert(tid, {{db, key, decoded_value}, score})
+      :ets.insert(tid, {{db, key, :zset, decoded_value}, score})
+      :ets.insert(tid, {{db, key, :zset_index, {score, decoded_value}}, nil})
     end)
 
     :ok
@@ -95,11 +94,11 @@ defmodule Vdr.ZsetStore do
       decoded_value = decode_fun.(key, member)
 
       # Lookup the score from the member-lookup entry
-      case :ets.lookup(tid, {db, key, decoded_value}) do
+      case :ets.lookup(tid, {db, key, :zset, decoded_value}) do
         [{_, score}] ->
           # Delete both entries
-          :ets.delete(tid, {db, key, decoded_value})
-          :ets.delete(tid, {db, key, score, decoded_value})
+          :ets.delete(tid, {db, key, :zset, decoded_value})
+          :ets.delete(tid, {db, key, :zset_index, {score, decoded_value}})
 
         [] ->
           :ok
@@ -134,8 +133,8 @@ defmodule Vdr.ZsetStore do
 
     # Remove each member
     Enum.each(members_to_remove, fn {decoded_value, score} ->
-      :ets.delete(tid, {db, key, decoded_value})
-      :ets.delete(tid, {db, key, score, decoded_value})
+      :ets.delete(tid, {db, key, :zset, decoded_value})
+      :ets.delete(tid, {db, key, :zset_index, {score, decoded_value}})
     end)
 
     :ok
@@ -156,8 +155,8 @@ defmodule Vdr.ZsetStore do
           score() | :neg_inf | :pos_inf
         ) :: :ok
   def zremrangebyscore(%__MODULE__{tid: tid}, db, key, min, max) do
-    # Get all members and filter by score
-    match_head = {{db, key, :"$1", :"$2"}, :_}
+    # Get all members from the index and filter by score
+    match_head = {{db, key, :zset_index, {:"$1", :"$2"}}, :_}
     match_spec = [{match_head, [], [{{:"$1", :"$2"}}]}]
 
     all_members = :ets.select(tid, match_spec)
@@ -170,8 +169,8 @@ defmodule Vdr.ZsetStore do
 
     # Remove both entries for each member
     Enum.each(members_to_remove, fn {score, decoded_value} ->
-      :ets.delete(tid, {db, key, score, decoded_value})
-      :ets.delete(tid, {db, key, decoded_value})
+      :ets.delete(tid, {db, key, :zset_index, {score, decoded_value}})
+      :ets.delete(tid, {db, key, :zset, decoded_value})
     end)
 
     :ok
@@ -189,7 +188,7 @@ defmodule Vdr.ZsetStore do
   @spec zremrangebylex(t(), db(), key(), any(), any()) :: :ok
   def zremrangebylex(%__MODULE__{tid: tid}, db, key, min, max) do
     # Get all members and filter by lex order
-    match_head = {{db, key, :"$1"}, :_}
+    match_head = {{db, key, :zset, :"$1"}, :_}
     match_spec = [{match_head, [], [:"$1"]}]
 
     all_decoded_values = :ets.select(tid, match_spec)
@@ -202,10 +201,10 @@ defmodule Vdr.ZsetStore do
 
     # For each decoded value, get its score and delete both entries
     Enum.each(decoded_values_to_remove, fn decoded_value ->
-      case :ets.lookup(tid, {db, key, decoded_value}) do
+      case :ets.lookup(tid, {db, key, :zset, decoded_value}) do
         [{_, score}] ->
-          :ets.delete(tid, {db, key, decoded_value})
-          :ets.delete(tid, {db, key, score, decoded_value})
+          :ets.delete(tid, {db, key, :zset, decoded_value})
+          :ets.delete(tid, {db, key, :zset_index, {score, decoded_value}})
 
         [] ->
           :ok
@@ -224,17 +223,19 @@ defmodule Vdr.ZsetStore do
   """
   @spec zpopmin(t(), db(), key(), pos_integer()) :: [{entry(), score()}]
   def zpopmin(%__MODULE__{tid: tid}, db, key, count \\ 1) do
-    # Use select to get the first count members by score
-    match_head = {{db, key, :"$1", :"$2"}, :_}
+    # Get members from the index (already sorted by score due to ordered_set)
+    match_head = {{db, key, :zset_index, {:"$1", :"$2"}}, :_}
     match_spec = [{match_head, [], [{{:"$2", :"$1"}}]}]
 
-    all_members = :ets.select(tid, match_spec)
-    members_to_pop = Enum.take(all_members, count)
+    # Take the first count elements (lowest scores)
+    members_to_pop =
+      :ets.select(tid, match_spec)
+      |> Enum.take(count)
 
     # Remove both entries for each member
     Enum.each(members_to_pop, fn {decoded_value, score} ->
-      :ets.delete(tid, {db, key, score, decoded_value})
-      :ets.delete(tid, {db, key, decoded_value})
+      :ets.delete(tid, {db, key, :zset_index, {score, decoded_value}})
+      :ets.delete(tid, {db, key, :zset, decoded_value})
     end)
 
     members_to_pop
@@ -249,21 +250,22 @@ defmodule Vdr.ZsetStore do
   """
   @spec zpopmax(t(), db(), key(), pos_integer()) :: [{entry(), score()}]
   def zpopmax(%__MODULE__{tid: tid}, db, key, count \\ 1) do
-    # Get all members and take the last count
-    match_head = {{db, key, :"$1", :"$2"}, :_}
+    # Get members from the index (already sorted by score due to ordered_set)
+    match_head = {{db, key, :zset_index, {:"$1", :"$2"}}, :_}
     match_spec = [{match_head, [], [{{:"$2", :"$1"}}]}]
 
+    # Get all members and take the last count (highest scores), then reverse to get descending order
     all_members = :ets.select(tid, match_spec)
 
     members_to_pop =
       all_members
+      |> Enum.take(-count)
       |> Enum.reverse()
-      |> Enum.take(count)
 
     # Remove both entries for each member
     Enum.each(members_to_pop, fn {decoded_value, score} ->
-      :ets.delete(tid, {db, key, score, decoded_value})
-      :ets.delete(tid, {db, key, decoded_value})
+      :ets.delete(tid, {db, key, :zset_index, {score, decoded_value}})
+      :ets.delete(tid, {db, key, :zset, decoded_value})
     end)
 
     members_to_pop
@@ -294,7 +296,7 @@ defmodule Vdr.ZsetStore do
       keys
       |> Enum.zip(weights)
       |> Enum.flat_map(fn {source_key, weight} ->
-        match_head = {{db, source_key, :"$1"}, :"$2"}
+        match_head = {{db, source_key, :zset, :"$1"}, :"$2"}
         match_spec = [{match_head, [], [{{:"$1", :"$2"}}]}]
 
         :ets.select(tid, match_spec)
@@ -310,12 +312,12 @@ defmodule Vdr.ZsetStore do
         {final_score, decoded_value}
       end)
 
-    # Clear destination and insert aggregated results
-    clear_zset(tid, db, destination)
+    # Clear destination using CommonStore
+    Vdr.CommonStore.del(tid, db, destination)
 
     Enum.each(aggregated, fn {score, decoded_value} ->
-      :ets.insert(tid, {{db, destination, score, decoded_value}, nil})
-      :ets.insert(tid, {{db, destination, decoded_value}, score})
+      :ets.insert(tid, {{db, destination, :zset, decoded_value}, score})
+      :ets.insert(tid, {{db, destination, :zset_index, {score, decoded_value}}, nil})
     end)
 
     :ok
@@ -347,7 +349,7 @@ defmodule Vdr.ZsetStore do
       keys
       |> Enum.zip(weights)
       |> Enum.map(fn {source_key, weight} ->
-        match_head = {{db, source_key, :"$1"}, :"$2"}
+        match_head = {{db, source_key, :zset, :"$1"}, :"$2"}
         match_spec = [{match_head, [], [{{:"$1", :"$2"}}]}]
 
         :ets.select(tid, match_spec)
@@ -357,7 +359,7 @@ defmodule Vdr.ZsetStore do
 
     # Find members present in all keys
     if key_members == [] do
-      clear_zset(tid, db, destination)
+      Vdr.CommonStore.del(tid, db, destination)
       :ok
     else
       [first_map | rest_maps] = key_members
@@ -374,12 +376,12 @@ defmodule Vdr.ZsetStore do
           {final_score, decoded_value}
         end)
 
-      # Clear destination and insert intersection results
-      clear_zset(tid, db, destination)
+      # Clear destination using CommonStore and insert intersection results
+      Vdr.CommonStore.del(tid, db, destination)
 
       Enum.each(common_members, fn {score, decoded_value} ->
-        :ets.insert(tid, {{db, destination, score, decoded_value}, nil})
-        :ets.insert(tid, {{db, destination, decoded_value}, score})
+        :ets.insert(tid, {{db, destination, :zset, decoded_value}, score})
+        :ets.insert(tid, {{db, destination, :zset_index, {score, decoded_value}}, nil})
       end)
 
       :ok
@@ -397,7 +399,7 @@ defmodule Vdr.ZsetStore do
   def zscore(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, member) do
     decoded_value = decode_fun.(key, member)
 
-    case :ets.lookup(tid, {db, key, decoded_value}) do
+    case :ets.lookup(tid, {db, key, :zset, decoded_value}) do
       [] -> nil
       [{_, score}] -> score
     end
@@ -412,7 +414,7 @@ defmodule Vdr.ZsetStore do
   def zcard(%__MODULE__{tid: tid}, db, key) do
     # Count member-lookup entries
     match_spec = [
-      {{{db, key, :_}, :_}, [], [true]}
+      {{{db, key, :zset, :_}, :_}, [], [true]}
     ]
 
     :ets.select_count(tid, match_spec)
@@ -447,9 +449,11 @@ defmodule Vdr.ZsetStore do
           score() | :neg_inf | :pos_inf
         ) :: [{entry(), score()}]
   def zrangebyscore(%__MODULE__{tid: tid}, db, key, min, max) do
-    match_head = {{db, key, :"$1", :"$2"}, :_}
+    # Match spec returns {decoded_value, score} tuples
+    match_head = {{db, key, :zset_index, {:"$1", :"$2"}}, :_}
     match_spec = [{match_head, [], [{{:"$2", :"$1"}}]}]
 
+    # Results are already sorted by score due to ordered_set
     :ets.select(tid, match_spec)
     |> Enum.filter(fn {_decoded_value, score} ->
       score_in_range?(score, min, max)
@@ -463,46 +467,17 @@ defmodule Vdr.ZsetStore do
   """
   @spec del(t(), db(), key()) :: :ok
   def del(%__MODULE__{tid: tid}, db, key) do
-    clear_zset(tid, db, key)
-    :ok
-  end
-
-  @doc """
-  Destroys the ETS table and releases resources.
-  """
-  @spec destroy(t()) :: :ok
-  def destroy(%__MODULE__{tid: tid}) do
-    :ets.delete(tid)
+    Vdr.CommonStore.del(tid, db, key)
     :ok
   end
 
   # Private helpers
 
-  # Clears all entries from a sorted set (both types of entries)
-  @spec clear_zset(:ets.tid(), db(), key()) :: :ok
-  defp clear_zset(tid, db, key) do
-    # Delete score-indexed entries
-    score_match_spec = [
-      {{{db, key, :_, :_}, :_}, [], [true]}
-    ]
-
-    :ets.select_delete(tid, score_match_spec)
-
-    # Delete member-lookup entries
-    member_match_spec = [
-      {{{db, key, :_}, :_}, [], [true]}
-    ]
-
-    :ets.select_delete(tid, member_match_spec)
-
-    :ok
-  end
-
   # Gets members with scores in rank range
   @spec zrange_with_scores(:ets.tid(), db(), key(), integer(), integer()) :: [{entry(), score()}]
   defp zrange_with_scores(tid, db, key, start, stop) do
-    # Get all members sorted by score using score-indexed entries
-    match_head = {{db, key, :"$1", :"$2"}, :_}
+    # Get all members from the index (already sorted by score due to ordered_set)
+    match_head = {{db, key, :zset_index, {:"$1", :"$2"}}, :_}
     match_spec = [{match_head, [], [{{:"$2", :"$1"}}]}]
 
     all_members = :ets.select(tid, match_spec)

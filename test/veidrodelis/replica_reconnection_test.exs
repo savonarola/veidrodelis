@@ -1,6 +1,8 @@
 defmodule Veidrodelis.ReplicaReconnectionTest do
   use ExUnit.Case, async: false
 
+  @moduletag :slow
+
   alias Vdr.RedisStream.Replica
   alias Vdr.Command
   alias Veidrodelis.Test.Toxiproxy

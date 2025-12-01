@@ -141,7 +141,12 @@ defmodule Vdr.Benchmark.LagTracker do
     try do
       # Inject timestamp marker: DEL _ts; LPUSH _ts <timestamp>
       Redix.command!(state.redis_conn, ["DEL", state.tracker_key])
-      Redix.command!(state.redis_conn, ["LPUSH", state.tracker_key, Integer.to_string(timestamp_ms)])
+
+      Redix.command!(state.redis_conn, [
+        "LPUSH",
+        state.tracker_key,
+        Integer.to_string(timestamp_ms)
+      ])
     rescue
       e ->
         IO.puts("Warning: Failed to inject timestamp: #{inspect(e)}")
@@ -149,52 +154,56 @@ defmodule Vdr.Benchmark.LagTracker do
   end
 
   defp check_lag(state) do
-    try do
-      # Get the list store and check for the tracker key
-      list_store = Veidrodelis.lists(state.vdr_id)
+    # NOTE: List support has been removed, so lag tracking is currently disabled
+    # TODO: Implement lag tracking using string keys instead of lists
+    state
 
-      # Check if the key exists and get its value (index 0)
-      result = Vdr.ListStore.get_range(list_store, 0, state.tracker_key, 0, 0)
-
-      case result do
-        [] ->
-          # Key doesn't exist yet or list is empty
-          state
-
-        [timestamp_value] ->
-          # Convert to string if it's not already
-          timestamp_str = to_string(timestamp_value)
-
-          # Parse timestamp from string
-          case Integer.parse(timestamp_str) do
-            {sent_time_ms, _} ->
-              # Only record if this is a new timestamp
-              if sent_time_ms != state.last_timestamp do
-                current_time_ms = System.system_time(:millisecond)
-                lag_ms = current_time_ms - sent_time_ms
-                relative_time_ms = System.monotonic_time(:millisecond) - state.start_time
-
-                # Add sample (store most recent first)
-                new_samples = [{relative_time_ms, lag_ms} | state.lag_samples]
-                %{state | lag_samples: new_samples, last_timestamp: sent_time_ms}
-              else
-                # Same timestamp, don't record duplicate
-                state
-              end
-
-            :error ->
-              # Failed to parse timestamp
-              state
-          end
-
-        _other ->
-          # Unexpected result (list with more than one element)
-          state
-      end
-    rescue
-      _e ->
-        # Silently handle errors (e.g., store not yet initialized)
-        state
-    end
+    # try do
+    #   # Get the list store and check for the tracker key
+    #   list_store = Veidrodelis.lists(state.vdr_id)
+    #
+    #   # Check if the key exists and get its value (index 0)
+    #   result = Vdr.ListStore.get_range(list_store, 0, state.tracker_key, 0, 0)
+    #
+    #   case result do
+    #     [] ->
+    #       # Key doesn't exist yet or list is empty
+    #       state
+    #
+    #     [timestamp_value] ->
+    #       # Convert to string if it's not already
+    #       timestamp_str = to_string(timestamp_value)
+    #
+    #       # Parse timestamp from string
+    #       case Integer.parse(timestamp_str) do
+    #         {sent_time_ms, _} ->
+    #           # Only record if this is a new timestamp
+    #           if sent_time_ms != state.last_timestamp do
+    #             current_time_ms = System.system_time(:millisecond)
+    #             lag_ms = current_time_ms - sent_time_ms
+    #             relative_time_ms = System.monotonic_time(:millisecond) - state.start_time
+    #
+    #             # Add sample (store most recent first)
+    #             new_samples = [{relative_time_ms, lag_ms} | state.lag_samples]
+    #             %{state | lag_samples: new_samples, last_timestamp: sent_time_ms}
+    #           else
+    #             # Same timestamp, don't record duplicate
+    #             state
+    #           end
+    #
+    #         :error ->
+    #           # Failed to parse timestamp
+    #           state
+    #       end
+    #
+    #     _other ->
+    #       # Unexpected result (list with more than one element)
+    #       state
+    #   end
+    # rescue
+    #   _e ->
+    #     # Silently handle errors (e.g., store not yet initialized)
+    #     state
+    # end
   end
 end

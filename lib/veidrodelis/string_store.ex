@@ -2,8 +2,8 @@ defmodule Vdr.StringStore do
   @moduledoc """
   An ETS-backed store for Redis string operations.
 
-  Uses a protected ETS table to store key-value pairs with decoded values.
-  Each entry is stored as `{{db, key}, original_value, decoded_value}`.
+  Uses a shared ETS table to store key-value pairs with decoded values.
+  Each entry is stored as `{{db, decoded_key, :string, nil}, {original_value, decoded_value}}`.
 
   The decode function is called whenever the original value changes to compute
   a decoded representation.
@@ -26,16 +26,15 @@ defmodule Vdr.StringStore do
           :AND | :OR | :XOR | :NOT | :DIFF | :DIFF1 | :ANDOR | :ONE
 
   @doc """
-  Creates a new string store with the given decode function.
+  Creates a new string store with the given ETS table and decode function.
 
   The decode function receives `(key, value)` and returns a decoded value.
   It is called whenever a value is set or modified.
 
   Returns a StringStore struct containing the table id and decode function.
   """
-  @spec new(decode_fun()) :: t()
-  def new(decode_fun) when is_function(decode_fun, 2) do
-    tid = :ets.new(__MODULE__, [:ordered_set, :protected])
+  @spec new(:ets.tid(), decode_fun()) :: t()
+  def new(tid, decode_fun) when is_function(decode_fun, 2) do
     %__MODULE__{tid: tid, decode_fun: decode_fun}
   end
 
@@ -46,7 +45,7 @@ defmodule Vdr.StringStore do
   def set(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, value)
       when is_binary(value) do
     decoded = decode_fun.(key, value)
-    :ets.insert(tid, {{db, key}, value, decoded})
+    :ets.insert(tid, {{db, key, :string, nil}, {value, decoded}})
     :ok
   end
 
@@ -58,7 +57,7 @@ defmodule Vdr.StringStore do
     entries =
       Enum.map(pairs, fn {key, value} ->
         decoded = decode_fun.(key, value)
-        {{db, key}, value, decoded}
+        {{db, key, :string, nil}, {value, decoded}}
       end)
 
     :ets.insert(tid, entries)
@@ -72,14 +71,14 @@ defmodule Vdr.StringStore do
   @spec append(t(), db(), key(), value()) :: :ok
   def append(%__MODULE__{tid: tid, decode_fun: decode_fun} = store, db, key, data)
       when is_binary(data) do
-    case :ets.lookup(tid, {db, key}) do
+    case :ets.lookup(tid, {db, key, :string, nil}) do
       [] ->
         set(store, db, key, data)
 
-      [{{^db, ^key}, orig_value, _decoded}] ->
+      [{{^db, ^key, :string, nil}, {orig_value, _decoded}}] ->
         new_value = orig_value <> data
         new_decoded = decode_fun.(key, new_value)
-        :ets.insert(tid, {{db, key}, new_value, new_decoded})
+        :ets.insert(tid, {{db, key, :string, nil}, {new_value, new_decoded}})
         :ok
     end
   end
@@ -92,9 +91,9 @@ defmodule Vdr.StringStore do
   def setrange(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, offset, value)
       when is_integer(offset) and offset >= 0 and is_binary(value) do
     orig_value =
-      case :ets.lookup(tid, {db, key}) do
+      case :ets.lookup(tid, {db, key, :string, nil}) do
         [] -> ""
-        [{{^db, ^key}, val, _decoded}] -> val
+        [{{^db, ^key, :string, nil}, {val, _decoded}}] -> val
       end
 
     # Pad with zero bytes if offset is beyond current length
@@ -120,7 +119,7 @@ defmodule Vdr.StringStore do
     new_value = prefix <> value <> suffix
 
     new_decoded = decode_fun.(key, new_value)
-    :ets.insert(tid, {{db, key}, new_value, new_decoded})
+    :ets.insert(tid, {{db, key, :string, nil}, {new_value, new_decoded}})
     :ok
   end
 
@@ -132,9 +131,9 @@ defmodule Vdr.StringStore do
   def setbit(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, offset, bit)
       when is_integer(offset) and offset >= 0 and bit in [0, 1] do
     orig_value =
-      case :ets.lookup(tid, {db, key}) do
+      case :ets.lookup(tid, {db, key, :string, nil}) do
         [] -> ""
-        [{{^db, ^key}, val, _decoded}] -> val
+        [{{^db, ^key, :string, nil}, {val, _decoded}}] -> val
       end
 
     byte_offset = div(offset, 8)
@@ -174,7 +173,7 @@ defmodule Vdr.StringStore do
     new_value = prefix <> <<new_byte>> <> suffix
 
     new_decoded = decode_fun.(key, new_value)
-    :ets.insert(tid, {{db, key}, new_value, new_decoded})
+    :ets.insert(tid, {{db, key, :string, nil}, {new_value, new_decoded}})
     :ok
   end
 
@@ -196,9 +195,9 @@ defmodule Vdr.StringStore do
 
   def bitop(%__MODULE__{tid: tid} = store, :NOT, db, dest_key, [source_key]) do
     value =
-      case :ets.lookup(tid, {db, source_key}) do
+      case :ets.lookup(tid, {db, source_key, :string, nil}) do
         [] -> ""
-        [{{^db, ^source_key}, val, _decoded}] -> val
+        [{{^db, ^source_key, :string, nil}, {val, _decoded}}] -> val
       end
 
     result = invert_binary(value)
@@ -210,9 +209,9 @@ defmodule Vdr.StringStore do
     # Get all source values
     values =
       Enum.map(source_keys, fn key ->
-        case :ets.lookup(tid, {db, key}) do
+        case :ets.lookup(tid, {db, key, :string, nil}) do
           [] -> ""
-          [{{^db, ^key}, val, _decoded}] -> val
+          [{{^db, ^key, :string, nil}, {val, _decoded}}] -> val
         end
       end)
 
@@ -242,32 +241,14 @@ defmodule Vdr.StringStore do
   end
 
   @doc """
-  Deletes a key from the store.
-  """
-  @spec del(t(), db(), key()) :: :ok
-  def del(%__MODULE__{tid: tid}, db, key) do
-    :ets.delete(tid, {db, key})
-    :ok
-  end
-
-  @doc """
-  Destroys the ETS table and releases resources.
-  """
-  @spec destroy(t()) :: :ok
-  def destroy(%__MODULE__{tid: tid}) do
-    :ets.delete(tid)
-    :ok
-  end
-
-  @doc """
   Gets the original (binary) value for a key.
   Returns nil if the key doesn't exist.
   """
   @spec get(t(), db(), key()) :: value() | nil
   def get(%__MODULE__{tid: tid}, db, key) do
-    case :ets.lookup(tid, {db, key}) do
+    case :ets.lookup(tid, {db, key, :string, nil}) do
       [] -> nil
-      [{{^db, ^key}, value, _decoded}] -> value
+      [{{^db, ^key, :string, nil}, {value, _decoded}}] -> value
     end
   end
 
@@ -277,9 +258,9 @@ defmodule Vdr.StringStore do
   """
   @spec get_decoded(t(), db(), key()) :: any()
   def get_decoded(%__MODULE__{tid: tid}, db, key) do
-    case :ets.lookup(tid, {db, key}) do
+    case :ets.lookup(tid, {db, key, :string, nil}) do
       [] -> nil
-      [{{^db, ^key}, _value, decoded}] -> decoded
+      [{{^db, ^key, :string, nil}, {_value, decoded}}] -> decoded
     end
   end
 
@@ -288,7 +269,7 @@ defmodule Vdr.StringStore do
   @spec store_result(t(), db(), key(), binary()) :: :ok
   defp store_result(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, dest_key, result) do
     decoded = decode_fun.(dest_key, result)
-    :ets.insert(tid, {{db, dest_key}, result, decoded})
+    :ets.insert(tid, {{db, dest_key, :string, nil}, {result, decoded}})
     :ok
   end
 

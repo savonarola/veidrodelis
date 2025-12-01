@@ -32,6 +32,15 @@ defmodule CommandMatchers do
     end
   end
 
+  defmacro wait_happens_within(timeout, do: block) do
+    quote do
+      deadline = System.monotonic_time(:millisecond) + unquote(timeout)
+      check_fn = fn -> unquote(block) end
+
+      CommandMatchers.poll_until(check_fn, deadline)
+    end
+  end
+
   def poll_until(check_fn, deadline) do
     if System.monotonic_time(:millisecond) < deadline do
       if check_fn.() do

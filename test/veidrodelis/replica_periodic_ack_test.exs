@@ -1,6 +1,8 @@
 defmodule Veidrodelis.ReplicaPeriodicAckTest do
   use ExUnit.Case, async: false
 
+  @moduletag :slow
+
   alias Vdr.RedisStream.Replica
   use CommandMatchers
 

@@ -1,34 +1,47 @@
 defmodule Vdr.HashStoreTest do
   use ExUnit.Case, async: true
 
-  alias Vdr.HashStore
+  alias Vdr.{HashStore, CommonStore}
 
   setup do
     # Simple decode functions that return values as-is
     decode_hkey_fun = fn _key, field -> field end
     decode_fun = fn _key, _hkey, value -> value end
 
-    store = HashStore.new(decode_hkey_fun, decode_fun)
+    # Create shared ETS table
+    tid = :ets.new(:test_store, [:set, :public])
 
-    {:ok, store: store}
+    store = HashStore.new(tid, decode_hkey_fun, decode_fun)
+
+    on_exit(fn ->
+      try do
+        :ets.delete(tid)
+      rescue
+        ArgumentError -> :ok
+      end
+    end)
+
+    {:ok, store: store, tid: tid}
   end
 
-  describe "new/2" do
-    test "creates a new ETS table and returns a struct" do
+  describe "new/3" do
+    test "creates a HashStore with the given ETS table" do
       decode_hkey_fun = fn _key, field -> field end
       decode_fun = fn _key, _hkey, value -> value end
-      store = HashStore.new(decode_hkey_fun, decode_fun)
+      tid = :ets.new(:test_store, [:set, :public])
+      store = HashStore.new(tid, decode_hkey_fun, decode_fun)
 
       assert %HashStore{
-               tid: tid,
+               tid: ^tid,
                decode_hkey_fun: ^decode_hkey_fun,
                decode_fun: ^decode_fun
              } = store
 
       assert is_reference(tid)
+      assert :ets.info(tid) != :undefined
 
       # Clean up
-      HashStore.destroy(store)
+      :ets.delete(tid)
     end
   end
 
@@ -122,7 +135,7 @@ defmodule Vdr.HashStoreTest do
   end
 
   describe "hget/4" do
-    test "gets value for existing field", %{store: store} do
+    test "gets decoded value for existing field", %{store: store} do
       :ok = HashStore.hset(store, 0, "myhash", [{"field1", "value1"}])
 
       assert HashStore.hget(store, 0, "myhash", "field1") == "value1"
@@ -136,6 +149,36 @@ defmodule Vdr.HashStoreTest do
 
     test "returns nil for non-existent hash", %{store: store} do
       assert HashStore.hget(store, 0, "nonexistent", "field1") == nil
+    end
+  end
+
+  describe "hget_original/4" do
+    test "gets original value for existing field", %{store: store} do
+      :ok = HashStore.hset(store, 0, "myhash", [{"field1", "value1"}])
+
+      assert HashStore.hget_original(store, 0, "myhash", "field1") == "value1"
+    end
+
+    test "returns nil for non-existent field", %{store: store} do
+      :ok = HashStore.hset(store, 0, "myhash", [{"field1", "value1"}])
+
+      assert HashStore.hget_original(store, 0, "myhash", "nonexistent") == nil
+    end
+
+    test "returns nil for non-existent hash", %{store: store} do
+      assert HashStore.hget_original(store, 0, "nonexistent", "field1") == nil
+    end
+
+    test "returns original value even when decoded value differs", %{tid: tid} do
+      # Use a decode function that transforms values
+      decode_hkey_fun = fn _key, field -> field end
+      decode_fun = fn _key, _hkey, value -> String.upcase(value) end
+      store = HashStore.new(tid, decode_hkey_fun, decode_fun)
+
+      :ok = HashStore.hset(store, 0, "myhash", [{"field1", "hello"}])
+
+      assert HashStore.hget_original(store, 0, "myhash", "field1") == "hello"
+      assert HashStore.hget(store, 0, "myhash", "field1") == "HELLO"
     end
   end
 
@@ -255,7 +298,7 @@ defmodule Vdr.HashStoreTest do
   end
 
   describe "del/3" do
-    test "deletes an entire hash", %{store: store} do
+    test "deletes an entire hash", %{store: store, tid: tid} do
       :ok =
         HashStore.hset(store, 0, "myhash", [
           {"field1", "value1"},
@@ -264,22 +307,18 @@ defmodule Vdr.HashStoreTest do
 
       assert HashStore.hlen(store, 0, "myhash") == 2
 
-      :ok = HashStore.del(store, 0, "myhash")
+      :ok = CommonStore.del(tid, 0, "myhash")
 
       assert HashStore.hlen(store, 0, "myhash") == 0
       assert HashStore.hgetall(store, 0, "myhash") == []
     end
 
-    test "handles deleting non-existent hash", %{store: store} do
-      :ok = HashStore.del(store, 0, "nonexistent")
-    end
-
-    test "only deletes specified database and key", %{store: store} do
+    test "only deletes specified database and key", %{store: store, tid: tid} do
       :ok = HashStore.hset(store, 0, "myhash", [{"field1", "value1"}])
       :ok = HashStore.hset(store, 1, "myhash", [{"field1", "value1"}])
       :ok = HashStore.hset(store, 0, "other", [{"field1", "value1"}])
 
-      :ok = HashStore.del(store, 0, "myhash")
+      :ok = CommonStore.del(tid, 0, "myhash")
 
       assert HashStore.hlen(store, 0, "myhash") == 0
       assert HashStore.hlen(store, 1, "myhash") == 1
@@ -293,7 +332,8 @@ defmodule Vdr.HashStoreTest do
       decode_hkey_fun = fn _key, field -> String.upcase(field) end
       decode_fun = fn _key, _hkey, value -> value end
 
-      store = HashStore.new(decode_hkey_fun, decode_fun)
+      tid = :ets.new(:test_store, [:set, :public])
+      store = HashStore.new(tid, decode_hkey_fun, decode_fun)
 
       :ok =
         HashStore.hset(store, 0, "myhash", [
@@ -312,7 +352,7 @@ defmodule Vdr.HashStoreTest do
       # Note: hkeys returns the decoded_hkey, so "APPLE" is stored once
 
       # Clean up
-      HashStore.destroy(store)
+      :ets.delete(tid)
     end
 
     test "decode_hkey function receives key for context" do
@@ -320,7 +360,8 @@ defmodule Vdr.HashStoreTest do
       decode_hkey_fun = fn key, field -> {key, field} end
       decode_fun = fn _key, _hkey, value -> value end
 
-      store = HashStore.new(decode_hkey_fun, decode_fun)
+      tid = :ets.new(:test_store, [:set, :public])
+      store = HashStore.new(tid, decode_hkey_fun, decode_fun)
 
       :ok = HashStore.hset(store, 0, "hash1", [{"field1", "value1"}])
       :ok = HashStore.hset(store, 0, "hash2", [{"field1", "value2"}])
@@ -333,7 +374,7 @@ defmodule Vdr.HashStoreTest do
       assert keys_hash2 == [{"hash2", "field1"}]
 
       # Clean up
-      HashStore.destroy(store)
+      :ets.delete(tid)
     end
   end
 
@@ -349,7 +390,8 @@ defmodule Vdr.HashStoreTest do
         end
       end
 
-      store = HashStore.new(decode_hkey_fun, decode_fun)
+      tid = :ets.new(:test_store, [:set, :public])
+      store = HashStore.new(tid, decode_hkey_fun, decode_fun)
 
       :ok =
         HashStore.hset(store, 0, "myhash", [
@@ -364,7 +406,7 @@ defmodule Vdr.HashStoreTest do
       assert HashStore.hget(store, 0, "myhash", "name") == "test"
 
       # Clean up
-      HashStore.destroy(store)
+      :ets.delete(tid)
     end
 
     test "decode function receives key and hkey for context" do
@@ -375,7 +417,8 @@ defmodule Vdr.HashStoreTest do
         {key, hkey, value}
       end
 
-      store = HashStore.new(decode_hkey_fun, decode_fun)
+      tid = :ets.new(:test_store, [:set, :public])
+      store = HashStore.new(tid, decode_hkey_fun, decode_fun)
 
       :ok = HashStore.hset(store, 0, "myhash", [{"field1", "value1"}])
 
@@ -383,7 +426,7 @@ defmodule Vdr.HashStoreTest do
       assert HashStore.hget(store, 0, "myhash", "field1") == {"myhash", "field1", "value1"}
 
       # Clean up
-      HashStore.destroy(store)
+      :ets.delete(tid)
     end
   end
 

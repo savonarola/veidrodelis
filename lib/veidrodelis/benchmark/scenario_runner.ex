@@ -31,13 +31,14 @@ defmodule Vdr.Benchmark.ScenarioRunner do
     end_time = System.monotonic_time(:millisecond) + duration_seconds * 1000
 
     # Start command loop - send commands in batches per second
-    command_count = execute_command_loop(
-      redis_conn,
-      command_fn,
-      intensity,
-      end_time,
-      0
-    )
+    command_count =
+      execute_command_loop(
+        redis_conn,
+        command_fn,
+        intensity,
+        end_time,
+        0
+      )
 
     # Wait a bit for final replication
     Process.sleep(1000)

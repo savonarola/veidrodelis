@@ -7,25 +7,28 @@ defmodule Vdr.ZsetStoreTest do
     # Simple decode function that returns members as-is
     decode_fun = fn _key, member -> member end
 
-    store = ZsetStore.new(decode_fun)
+    # Create shared ETS table
+    tid = :ets.new(:test_zset_store, [:ordered_set, :protected])
+    store = ZsetStore.new(tid, decode_fun)
 
-    {:ok, store: store}
+    {:ok, store: store, tid: tid}
   end
 
-  describe "new/1" do
-    test "creates a new ETS table and returns a struct" do
+  describe "new/2" do
+    test "accepts a shared ETS table and returns a struct" do
       decode_fun = fn _key, member -> member end
-      store = ZsetStore.new(decode_fun)
+      tid = :ets.new(:test_zset_store, [:ordered_set, :protected])
+      store = ZsetStore.new(tid, decode_fun)
 
       assert %ZsetStore{
-               tid: tid,
+               tid: ^tid,
                decode_fun: ^decode_fun
              } = store
 
       assert is_reference(tid)
 
       # Clean up
-      ZsetStore.destroy(store)
+      :ets.delete(tid)
     end
   end
 
@@ -570,7 +573,8 @@ defmodule Vdr.ZsetStoreTest do
       # Decode function that converts to uppercase for case-insensitive storage
       decode_fun = fn _key, member -> String.upcase(member) end
 
-      store = ZsetStore.new(decode_fun)
+      tid = :ets.new(:test_zset_store, [:ordered_set, :protected])
+      store = ZsetStore.new(tid, decode_fun)
 
       :ok = ZsetStore.zadd(store, 0, "myzset", [{1.0, "apple"}, {2.0, "BANANA"}])
 
@@ -586,14 +590,15 @@ defmodule Vdr.ZsetStoreTest do
       assert ZsetStore.zscore(store, 0, "myzset", "apple") == 5.0
 
       # Clean up
-      ZsetStore.destroy(store)
+      :ets.delete(tid)
     end
 
     test "decode function receives key for context" do
       # Decode function that includes key prefix
       decode_fun = fn key, member -> {key, member} end
 
-      store = ZsetStore.new(decode_fun)
+      tid = :ets.new(:test_zset_store, [:ordered_set, :protected])
+      store = ZsetStore.new(tid, decode_fun)
 
       :ok = ZsetStore.zadd(store, 0, "zset1", [{1.0, "member"}])
       :ok = ZsetStore.zadd(store, 0, "zset2", [{2.0, "member"}])
@@ -606,7 +611,7 @@ defmodule Vdr.ZsetStoreTest do
       assert score2 == 2.0
 
       # Clean up
-      ZsetStore.destroy(store)
+      :ets.delete(tid)
     end
   end
 

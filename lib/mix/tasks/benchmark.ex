@@ -129,7 +129,7 @@ defmodule Mix.Tasks.Benchmark do
 
     # Setup
     {:ok, redis_conn} = setup_redis()
-    {:ok, vdr_pid} = setup_veidrodelis()
+    :ok = setup_veidrodelis()
     {:ok, _tracker_pid} = setup_lag_tracker(redis_conn)
 
     # Run scenarios
@@ -139,7 +139,7 @@ defmodule Mix.Tasks.Benchmark do
       end)
 
     # Cleanup
-    cleanup(redis_conn, vdr_pid)
+    cleanup(redis_conn)
 
     # Report
     Mix.shell().info("")
@@ -190,11 +190,11 @@ defmodule Mix.Tasks.Benchmark do
            host: @redis_host,
            port: @redis_port
          ) do
-      {:ok, pid} ->
+      {:ok, _pid} ->
         # Wait for replication to start
-        wait_for_replication(pid)
+        wait_for_replication(@vdr_id)
         Mix.shell().info("Veidrodelis replica started")
-        {:ok, pid}
+        :ok
 
       {:error, reason} ->
         Mix.shell().error("Error: Failed to start Veidrodelis: #{inspect(reason)}")
@@ -202,20 +202,20 @@ defmodule Mix.Tasks.Benchmark do
     end
   end
 
-  defp wait_for_replication(pid, attempts \\ 0) do
+  defp wait_for_replication(id, attempts \\ 0) do
     if attempts > 50 do
       Mix.shell().error("Error: Veidrodelis did not enter streaming state")
       exit({:shutdown, 1})
     end
 
-    case Veidrodelis.get_replication_state(pid) do
+    case Veidrodelis.get_replication_state(id) do
       :streaming ->
         :ok
 
       state ->
         Mix.shell().info("  Replication state: #{state}")
         Process.sleep(100)
-        wait_for_replication(pid, attempts + 1)
+        wait_for_replication(id, attempts + 1)
     end
   end
 
@@ -257,8 +257,7 @@ defmodule Mix.Tasks.Benchmark do
     result
   end
 
-  defp cleanup(redis_conn, vdr_pid) do
-
+  defp cleanup(redis_conn) do
     hash_store = Veidrodelis.hashes(@vdr_id)
     ets = hash_store.tid
     Mix.shell().info("ETS: #{inspect(:ets.info(ets))}")
@@ -266,7 +265,7 @@ defmodule Mix.Tasks.Benchmark do
     Mix.shell().info("")
     Mix.shell().info("Cleaning up...")
     Redix.stop(redis_conn)
-    Veidrodelis.stop(vdr_pid)
+    Veidrodelis.stop(@vdr_id)
     Mix.shell().info("Cleanup complete")
   end
 end

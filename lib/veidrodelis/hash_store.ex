@@ -2,13 +2,13 @@ defmodule Vdr.HashStore do
   @moduledoc """
   An ETS-backed store for Redis hash operations.
 
-  Uses a protected ETS table to store hash fields with decoded keys and values.
-  Each entry is stored as `{{db, key, decoded_hkey}, decoded_value}`.
+  Uses a shared ETS table to store hash fields with decoded keys and values.
+  Each entry is stored as `{{db, decoded_key, :hset, decoded_hkey}, {original_hvalue, decoded_hvalue}}`.
 
   The decode_hkey function is called for each field to compute a decoded representation
   that is stored in the ETS key for efficient matching and ordering.
   The decode function is called for each value to compute a decoded representation
-  that is stored as the ETS value.
+  that is stored alongside the original value.
   """
 
   defstruct [:tid, :decode_hkey_fun, :decode_fun]
@@ -29,20 +29,19 @@ defmodule Vdr.HashStore do
   @type decode_fun :: (key(), hkey(), value() -> entry())
 
   @doc """
-  Creates a new hash store with the given decode functions.
+  Creates a new hash store with the given ETS table and decode functions.
 
   The decode_hkey function receives `(key, field)` and returns a decoded hkey
   that will be used as part of the ETS key for efficient matching and ordering.
 
   The decode function receives `(key, hkey, value)` and returns a decoded entry
-  that will be stored as the ETS value.
+  that will be stored alongside the original value.
 
   Returns a HashStore struct containing the table id and decode functions.
   """
-  @spec new(decode_hkey_fun(), decode_fun()) :: t()
-  def new(decode_hkey_fun, decode_fun)
+  @spec new(:ets.tid(), decode_hkey_fun(), decode_fun()) :: t()
+  def new(tid, decode_hkey_fun, decode_fun)
       when is_function(decode_hkey_fun, 2) and is_function(decode_fun, 3) do
-    tid = :ets.new(__MODULE__, [:ordered_set, :protected])
     %__MODULE__{tid: tid, decode_hkey_fun: decode_hkey_fun, decode_fun: decode_fun}
   end
 
@@ -63,7 +62,7 @@ defmodule Vdr.HashStore do
       Enum.map(field_values, fn {field, value} ->
         decoded_hkey = decode_hkey_fun.(key, field)
         decoded_value = decode_fun.(key, decoded_hkey, value)
-        {{db, key, decoded_hkey}, decoded_value}
+        {{db, key, :hset, decoded_hkey}, {value, decoded_value}}
       end)
 
     :ets.insert(tid, entries)
@@ -80,7 +79,7 @@ defmodule Vdr.HashStore do
       when is_list(fields) do
     Enum.each(fields, fn field ->
       decoded_hkey = decode_hkey_fun.(key, field)
-      :ets.delete(tid, {db, key, decoded_hkey})
+      :ets.delete(tid, {db, key, :hset, decoded_hkey})
     end)
 
     :ok
@@ -97,9 +96,24 @@ defmodule Vdr.HashStore do
   def hget(%__MODULE__{tid: tid, decode_hkey_fun: decode_hkey_fun}, db, key, field) do
     decoded_hkey = decode_hkey_fun.(key, field)
 
-    case :ets.lookup(tid, {db, key, decoded_hkey}) do
+    case :ets.lookup(tid, {db, key, :hset, decoded_hkey}) do
       [] -> nil
-      [{_, decoded_value}] -> decoded_value
+      [{_, {_orig_value, decoded_value}}] -> decoded_value
+    end
+  end
+
+  @doc """
+  Gets the original (binary) value associated with a field in a hash.
+
+  Returns the original value if the field exists, or nil if it doesn't.
+  """
+  @spec hget_original(t(), db(), key(), field()) :: value() | nil
+  def hget_original(%__MODULE__{tid: tid, decode_hkey_fun: decode_hkey_fun}, db, key, field) do
+    decoded_hkey = decode_hkey_fun.(key, field)
+
+    case :ets.lookup(tid, {db, key, :hset, decoded_hkey}) do
+      [] -> nil
+      [{_, {orig_value, _decoded_value}}] -> orig_value
     end
   end
 
@@ -112,7 +126,7 @@ defmodule Vdr.HashStore do
   def hexists(%__MODULE__{tid: tid, decode_hkey_fun: decode_hkey_fun}, db, key, field) do
     decoded_hkey = decode_hkey_fun.(key, field)
 
-    case :ets.lookup(tid, {db, key, decoded_hkey}) do
+    case :ets.lookup(tid, {db, key, :hset, decoded_hkey}) do
       [] -> false
       [_] -> true
     end
@@ -127,9 +141,9 @@ defmodule Vdr.HashStore do
   """
   @spec hgetall(t(), db(), key()) :: [{hkey(), entry()}]
   def hgetall(%__MODULE__{tid: tid}, db, key) do
-    # Use matchspec to fetch all fields and values
+    # Use matchspec to fetch all fields and decoded values
     match_spec = [
-      {{{db, key, :"$1"}, :"$2"}, [], [{{:"$1", :"$2"}}]}
+      {{{db, key, :hset, :"$1"}, {:"$2", :"$3"}}, [], [{{:"$1", :"$3"}}]}
     ]
 
     :ets.select(tid, match_spec)
@@ -146,7 +160,7 @@ defmodule Vdr.HashStore do
   def hkeys(%__MODULE__{tid: tid}, db, key) do
     # Use matchspec to fetch only fields
     match_spec = [
-      {{{db, key, :"$1"}, :_}, [], [:"$1"]}
+      {{{db, key, :hset, :"$1"}, :_}, [], [:"$1"]}
     ]
 
     :ets.select(tid, match_spec)
@@ -161,9 +175,9 @@ defmodule Vdr.HashStore do
   """
   @spec hvals(t(), db(), key()) :: [entry()]
   def hvals(%__MODULE__{tid: tid}, db, key) do
-    # Use matchspec to fetch only values
+    # Use matchspec to fetch only decoded values
     match_spec = [
-      {{{db, key, :_}, :"$1"}, [], [:"$1"]}
+      {{{db, key, :hset, :_}, {:"$1", :"$2"}}, [], [:"$2"]}
     ]
 
     :ets.select(tid, match_spec)
@@ -178,43 +192,10 @@ defmodule Vdr.HashStore do
   def hlen(%__MODULE__{tid: tid}, db, key) do
     # Use matchspec to count efficiently
     match_spec = [
-      {{{db, key, :_}, :_}, [], [true]}
+      {{{db, key, :hset, :_}, :_}, [], [true]}
     ]
 
     :ets.select_count(tid, match_spec)
   end
 
-  @doc """
-  Deletes an entire hash.
-
-  DEL key
-  """
-  @spec del(t(), db(), key()) :: :ok
-  def del(%__MODULE__{tid: tid}, db, key) do
-    clear_hash(tid, db, key)
-    :ok
-  end
-
-  @doc """
-  Destroys the ETS table and releases resources.
-  """
-  @spec destroy(t()) :: :ok
-  def destroy(%__MODULE__{tid: tid}) do
-    :ets.delete(tid)
-    :ok
-  end
-
-  # Private helpers
-
-  # Clears all fields from a hash
-  @spec clear_hash(:ets.tid(), db(), key()) :: :ok
-  defp clear_hash(tid, db, key) do
-    # Use matchspec to efficiently delete all entries with bounded {db, key, ...}
-    match_spec = [
-      {{{db, key, :_}, :_}, [], [true]}
-    ]
-
-    :ets.select_delete(tid, match_spec)
-    :ok
-  end
 end
