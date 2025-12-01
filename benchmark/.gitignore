@@ -1,0 +1,7 @@
+# Ignore benchmark output files
+results/*.csv
+plots/*.png
+
+# Keep the directories
+!results/.gitkeep
+!plots/.gitkeep

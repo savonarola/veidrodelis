@@ -93,6 +93,7 @@ defmodule Vdr.RedisStream.Replica do
     * `:reconnect` - Enable automatic reconnection (default: true)
     * `:reconnect_delay_ms` - Initial delay before reconnection in ms (default: 1000)
     * `:max_reconnect_delay_ms` - Maximum delay between reconnection attempts in ms (default: 30000)
+    * `:ack_interval_ms` - Interval for sending periodic REPLCONF ACK to master in ms (default: 1000). Set to nil to disable periodic ACKs.
 
   ## Authentication
 
@@ -182,6 +183,9 @@ defmodule Vdr.RedisStream.Replica do
       reconnect_delay_ms: Keyword.get(opts, :reconnect_delay_ms, 1000),
       max_reconnect_delay_ms: Keyword.get(opts, :max_reconnect_delay_ms, 30_000),
       current_reconnect_delay_ms: Keyword.get(opts, :reconnect_delay_ms, 1000),
+      # ACK options
+      ack_interval_ms: Keyword.get(opts, :ack_interval_ms, 1000),
+      ack_timer_ref: nil,
       # Connection state
       socket: nil,
       transport: nil,
@@ -290,8 +294,25 @@ defmodule Vdr.RedisStream.Replica do
     {:noreply, state, {:continue, :reconnect}}
   end
 
+  def handle_info(:send_periodic_ack, state) do
+    # Send REPLCONF ACK with current offset
+    send_replconf_ack(state)
+
+    # Schedule next ACK if still in streaming mode
+    new_state = schedule_periodic_ack(state)
+    {:noreply, new_state}
+  end
+
+  def handle_info(message, state) do
+    Logger.warning("Unhandled message: #{inspect(message)}")
+    {:noreply, state}
+  end
+
   @impl true
   def terminate(_reason, state) do
+    # Cancel ACK timer
+    cancel_ack_timer(state)
+
     # Call on_destroy callback if implemented
     if function_exported?(state.callback_module, :on_destroy, 1) do
       case state.callback_module.on_destroy(state.callback_state) do
@@ -317,6 +338,9 @@ defmodule Vdr.RedisStream.Replica do
     if state.socket do
       transport_close(state.transport, state.socket)
     end
+
+    # Cancel ACK timer
+    state = cancel_ack_timer(state)
 
     # Save replication state for potential partial resync
     new_state = %{
@@ -477,6 +501,50 @@ defmodule Vdr.RedisStream.Replica do
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp send_replconf_ack(state) do
+    if state.socket && state.transport do
+      offset = state.replication_offset
+      offset_str = Integer.to_string(offset)
+      offset_len = byte_size(offset_str)
+
+      cmd = "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$#{offset_len}\r\n#{offset_str}\r\n"
+
+      case transport_send(state.transport, state.socket, cmd) do
+        :ok ->
+          Logger.debug("Sent periodic REPLCONF ACK #{offset}")
+          :ok
+
+        {:error, reason} ->
+          Logger.warning("Failed to send REPLCONF ACK: #{inspect(reason)}")
+          :error
+      end
+    else
+      :ok
+    end
+  end
+
+  defp schedule_periodic_ack(state) do
+    # Cancel existing timer if any
+    state = cancel_ack_timer(state)
+
+    # Schedule next ACK if interval is configured and we're in streaming mode
+    if state.ack_interval_ms && state.state == :streaming do
+      timer_ref = Process.send_after(self(), :send_periodic_ack, state.ack_interval_ms)
+      %{state | ack_timer_ref: timer_ref}
+    else
+      state
+    end
+  end
+
+  defp cancel_ack_timer(state) do
+    if state.ack_timer_ref do
+      Process.cancel_timer(state.ack_timer_ref)
+      %{state | ack_timer_ref: nil}
+    else
+      state
     end
   end
 
@@ -641,6 +709,9 @@ defmodule Vdr.RedisStream.Replica do
             state: :streaming
         }
 
+        # Start periodic ACK timer
+        new_state = schedule_periodic_ack(new_state)
+
         # Process any buffered command data
         if new_state.buffer_size > 0 do
           handle_command_stream(new_state)
@@ -721,6 +792,9 @@ defmodule Vdr.RedisStream.Replica do
                       state: :streaming
                   }
 
+                  # Start periodic ACK timer
+                  new_state = schedule_periodic_ack(new_state)
+
                   # Process any command stream data that's already in the buffer
                   if new_state.buffer_size > 0 do
                     handle_command_stream(new_state)
@@ -788,25 +862,14 @@ defmodule Vdr.RedisStream.Replica do
   defp process_command(["PING"], state) do
     # PING in replication stream - send REPLCONF ACK with current offset
     Logger.debug("Received PING, sending REPLCONF ACK #{state.replication_offset}")
-
-    offset = state.replication_offset
-
-    cmd =
-      "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$#{byte_size(Integer.to_string(offset))}\r\n#{offset}\r\n"
-
-    transport_send(state.transport, state.socket, cmd)
+    send_replconf_ack(state)
     state
   end
 
   defp process_command(["REPLCONF", "GETACK", "*"], state) do
     # Master is requesting ACK with current offset
-    # Send REPLCONF ACK <offset>
-    offset = state.replication_offset
-
-    cmd =
-      "*3\r\n$8\r\nREPLCONF\r\n$3\r\nACK\r\n$#{byte_size(Integer.to_string(offset))}\r\n#{offset}\r\n"
-
-    transport_send(state.transport, state.socket, cmd)
+    Logger.debug("Received REPLCONF GETACK, sending REPLCONF ACK #{state.replication_offset}")
+    send_replconf_ack(state)
     state
   end
 
