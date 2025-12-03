@@ -1,5 +1,7 @@
-defmodule Vdr.CommonStore do
-  @moduledoc false
+defmodule Vdr.ETSProj.Write.Common do
+  @moduledoc """
+  Common write operations for ETS-backed stores.
+  """
 
   @type db :: non_neg_integer()
   @type key :: any()
@@ -14,4 +16,3 @@ defmodule Vdr.CommonStore do
     :ok
   end
 end
-

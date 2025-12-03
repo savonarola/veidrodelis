@@ -272,7 +272,6 @@ defmodule Mix.Tasks.Benchmark do
   end
 
   defp cleanup(redis_conn) do
-    hash_store = Veidrodelis.hashes(@vdr_id)
     Mix.shell().info("")
     Mix.shell().info("Cleaning up...")
     Redix.stop(redis_conn)

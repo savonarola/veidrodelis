@@ -89,9 +89,9 @@ defmodule VeidrodelisTest do
 
       # Verify decoded data in store
       wait_happens_within 100 do
-        Vdr.StringStore.get_decoded(string_store, 0, "key:key1") ==
+        Vdr.ETSProj.Read.Strings.get_decoded(string_store, 0, "key:key1") ==
           {:string_value, "key:key1", "value1"} &&
-          Vdr.StringStore.get_decoded(string_store, 0, "key:key2") ==
+          Vdr.ETSProj.Read.Strings.get_decoded(string_store, 0, "key:key2") ==
           {:string_value, "key:key2", "value2"} &&
           Redix.command!(redis, ["GET", "key1"]) == "value1" &&
           Redix.command!(redis, ["GET", "key2"]) == "value2"
@@ -119,7 +119,7 @@ defmodule VeidrodelisTest do
 
       # Verify decoded data in store
       wait_happens_within 100 do
-        members = Vdr.SetStore.smembers(set_store, 0, "key:myset")
+        members = Vdr.ETSProj.Read.Sets.smembers(set_store, 0, "key:myset")
         redis_members = Redix.command!(redis, ["SMEMBERS", "myset"])
         length(members) == 3 &&
           {:set_entry, "member1"} in members &&
@@ -153,7 +153,7 @@ defmodule VeidrodelisTest do
 
       # Verify decoded data in store
       wait_happens_within 100 do
-        elements = Vdr.ListStore.lrange(list_store, 0, "key:mylist", 0, -1)
+        elements = Vdr.ETSProj.Read.Lists.lrange(list_store, 0, "key:mylist", 0, -1)
         redis_elements = Redix.command!(redis, ["LRANGE", "mylist", "0", "-1"])
         length(elements) == 3 &&
           elements == [
@@ -184,10 +184,10 @@ defmodule VeidrodelisTest do
       # Get stores
       hash_store = Veidrodelis.hashes(instance_id)
 
-      # Verify decoded data in store (pass raw field, it will be decoded)
+      # Verify decoded data in store (pass decoded field key)
       wait_happens_within 100 do
-        value1 = Vdr.HashStore.hget(hash_store, 0, "key:myhash", "field1")
-        value2 = Vdr.HashStore.hget(hash_store, 0, "key:myhash", "field2")
+        value1 = Vdr.ETSProj.Read.Hashes.hget(hash_store, 0, "key:myhash", {:hash_field, "field1"})
+        value2 = Vdr.ETSProj.Read.Hashes.hget(hash_store, 0, "key:myhash", {:hash_field, "field2"})
         value1 == {:hash_value, {:hash_field, "field1"}, "value1"} &&
           value2 == {:hash_value, {:hash_field, "field2"}, "value2"} &&
           Redix.command!(redis, ["HGET", "myhash", "field1"]) == "value1" &&
@@ -226,7 +226,7 @@ defmodule VeidrodelisTest do
       # Verify decoded data in store (zrange returns tuples with scores)
       assert_happens_within 1000 do
         Logger.debug("zset store: #{inspect(:ets.tab2list(zset_store.tid))}")
-        members_with_scores = Vdr.ZsetStore.zrange(zset_store, 0, "key:myzset", 0, -1)
+        members_with_scores = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:myzset", 0, -1)
 
         members_with_scores == [
           {{:zset_entry, "member1"}, 1.0},
@@ -262,18 +262,18 @@ defmodule VeidrodelisTest do
         string_store = Veidrodelis.strings(instance_id)
         set_store = Veidrodelis.sets(instance_id)
 
-        Vdr.StringStore.get_decoded(string_store, 0, "key:stream_key") != nil &&
-          Vdr.SetStore.scard(set_store, 0, "key:stream_set") == 2
+        Vdr.ETSProj.Read.Strings.get_decoded(string_store, 0, "key:stream_key") != nil &&
+          Vdr.ETSProj.Read.Sets.scard(set_store, 0, "key:stream_set") == 2
       end
 
       # Verify the data
       string_store = Veidrodelis.strings(instance_id)
       set_store = Veidrodelis.sets(instance_id)
 
-      assert Vdr.StringStore.get_decoded(string_store, 0, "key:stream_key") ==
+      assert Vdr.ETSProj.Read.Strings.get_decoded(string_store, 0, "key:stream_key") ==
                {:string_value, "key:stream_key", "stream_value"}
 
-      members = Vdr.SetStore.smembers(set_store, 0, "key:stream_set")
+      members = Vdr.ETSProj.Read.Sets.smembers(set_store, 0, "key:stream_set")
       assert {:set_entry, "s1"} in members
       assert {:set_entry, "s2"} in members
 
@@ -296,7 +296,7 @@ defmodule VeidrodelisTest do
       # Wait for it to replicate
       string_store = Veidrodelis.strings(instance_id)
       wait_happens_within 500 do
-        Vdr.StringStore.get_decoded(string_store, 0, "key:typekey") ==
+        Vdr.ETSProj.Read.Strings.get_decoded(string_store, 0, "key:typekey") ==
           {:string_value, "key:typekey", "string_value"}
       end
 
@@ -307,8 +307,8 @@ defmodule VeidrodelisTest do
       # Wait for it to replicate
       list_store = Veidrodelis.lists(instance_id)
       wait_happens_within 500 do
-        Vdr.StringStore.get_decoded(string_store, 0, "key:typekey") == nil &&
-          Vdr.ListStore.lrange(list_store, 0, "key:typekey", 0, -1) == [
+        Vdr.ETSProj.Read.Strings.get_decoded(string_store, 0, "key:typekey") == nil &&
+          Vdr.ETSProj.Read.Lists.lrange(list_store, 0, "key:typekey", 0, -1) == [
             {:list_entry, "list_item1"},
             {:list_entry, "list_item2"}
           ]
@@ -321,8 +321,8 @@ defmodule VeidrodelisTest do
       # Wait for it to replicate
       set_store = Veidrodelis.sets(instance_id)
       wait_happens_within 500 do
-        Vdr.ListStore.llen(list_store, 0, "key:typekey") == 0 &&
-          Vdr.SetStore.scard(set_store, 0, "key:typekey") == 2
+        Vdr.ETSProj.Read.Lists.llen(list_store, 0, "key:typekey") == 0 &&
+          Vdr.ETSProj.Read.Sets.scard(set_store, 0, "key:typekey") == 2
       end
 
       # Verify Redis has the current data
@@ -358,9 +358,9 @@ defmodule VeidrodelisTest do
       string_store = Veidrodelis.strings(instance_id)
 
       wait_happens_within 100 do
-        Vdr.StringStore.get_decoded(string_store, 0, "key:db0_key") ==
+        Vdr.ETSProj.Read.Strings.get_decoded(string_store, 0, "key:db0_key") ==
           {:string_value, "key:db0_key", "db0_value"} &&
-          Vdr.StringStore.get_decoded(string_store, 1, "key:db1_key") ==
+          Vdr.ETSProj.Read.Strings.get_decoded(string_store, 1, "key:db1_key") ==
           {:string_value, "key:db1_key", "db1_value"}
       end
 
@@ -398,8 +398,8 @@ defmodule VeidrodelisTest do
 
       # Verify intersection result (only 'c' is in all three sets)
       wait_happens_within 100 do
-        result_members = Vdr.SetStore.smembers(set_store, 0, "key:result_inter")
-        set1_members = Vdr.SetStore.smembers(set_store, 0, "key:set1")
+        result_members = Vdr.ETSProj.Read.Sets.smembers(set_store, 0, "key:result_inter")
+        set1_members = Vdr.ETSProj.Read.Sets.smembers(set_store, 0, "key:set1")
         length(result_members) == 1 &&
           {:set_entry, "c"} in result_members &&
           length(set1_members) == 4
@@ -432,7 +432,7 @@ defmodule VeidrodelisTest do
 
       # Verify union result (should have all unique elements: 1,2,3,4,5)
       wait_happens_within 100 do
-        result_members = Vdr.SetStore.smembers(set_store, 0, "key:result_union")
+        result_members = Vdr.ETSProj.Read.Sets.smembers(set_store, 0, "key:result_union")
         length(result_members) == 5 &&
           {:set_entry, "1"} in result_members &&
           {:set_entry, "2"} in result_members &&
@@ -468,7 +468,7 @@ defmodule VeidrodelisTest do
 
       # Verify difference result (should have: a, e)
       wait_happens_within 100 do
-        result_members = Vdr.SetStore.smembers(set_store, 0, "key:result_diff")
+        result_members = Vdr.ETSProj.Read.Sets.smembers(set_store, 0, "key:result_diff")
         length(result_members) == 2 &&
           {:set_entry, "a"} in result_members &&
           {:set_entry, "e"} in result_members
@@ -513,7 +513,7 @@ defmodule VeidrodelisTest do
       # member3: 3*2 + 0*3 = 6
       # member4: 0*2 + 4*3 = 12
       assert_happens_within 1000 do
-        result = Vdr.ZsetStore.zrange(zset_store, 0, "key:result_weighted_union", 0, -1)
+        result = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:result_weighted_union", 0, -1)
         result == [
           {{:zset_entry, "member3"}, 6.0},
           {{:zset_entry, "member1"}, 8.0},
@@ -558,7 +558,7 @@ defmodule VeidrodelisTest do
       # alice: min(10, 15) = 10
       # bob: min(20, 25) = 20
       wait_happens_within 100 do
-        result = Vdr.ZsetStore.zrange(zset_store, 0, "key:result_inter_min", 0, -1)
+        result = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:result_inter_min", 0, -1)
         result == [
           {{:zset_entry, "alice"}, 10.0},
           {{:zset_entry, "bob"}, 20.0}
@@ -601,7 +601,7 @@ defmodule VeidrodelisTest do
       # task1: max(5, 7) = 7
       # task2: max(8, 3) = 8
       wait_happens_within 100 do
-        result = Vdr.ZsetStore.zrange(zset_store, 0, "key:result_inter_max", 0, -1)
+        result = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:result_inter_max", 0, -1)
         result == [
           {{:zset_entry, "task1"}, 7.0},
           {{:zset_entry, "task2"}, 8.0}
@@ -651,7 +651,7 @@ defmodule VeidrodelisTest do
       # product2: 9.0*0.5 + 6.5*0.3 + 0*0.2 = 4.5 + 1.95 + 0 = 6.45
       # product3: 0*0.5 + 0*0.3 + 8.0*0.2 = 0 + 0 + 1.6 = 1.6
       wait_happens_within 100 do
-        result = Vdr.ZsetStore.zrange(zset_store, 0, "key:combined_rating", 0, -1)
+        result = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:combined_rating", 0, -1)
         result == [
           {{:zset_entry, "product3"}, 1.6},
           {{:zset_entry, "product2"}, 6.45},

@@ -1,24 +1,12 @@
-defmodule Vdr.ListStore do
+defmodule Vdr.ETSProj.Write.Lists do
   @moduledoc """
-  An ETS-backed store for Redis list operations.
+  Write operations for Redis list store.
 
   Uses a shared ETS table to store list elements with integer indices.
   Each entry is stored as `{{db, key, :list, idx}, decoded_entry}`.
-
-  The list maintains a consecutive integer index invariant, though indices
-  are not necessarily positive. Elements can be pushed/popped from both ends,
-  and the indices adjust accordingly:
-  - LPUSH decrements the minimum index
-  - RPUSH increments the maximum index
-  - LPOP removes the minimum index
-  - RPOP removes the maximum index
-
-  The decode function is called for each element to compute a decoded representation.
   """
 
   require Logger
-
-  alias Vdr.CommonStore
 
   defstruct [:tid, :decode_fun]
 
@@ -35,11 +23,6 @@ defmodule Vdr.ListStore do
 
   @doc """
   Creates a new list store with the given ETS table and decode function.
-
-  The decode function receives `(key, element)` and returns a decoded value
-  that will be stored in the ETS value.
-
-  Returns a ListStore struct containing the table id and decode function.
   """
   @spec new(:ets.tid(), decode_fun()) :: t()
   def new(tid, decode_fun) when is_function(decode_fun, 2) do
@@ -48,18 +31,14 @@ defmodule Vdr.ListStore do
 
   @doc """
   Insert all values at the head of the list (left side).
-  Elements are inserted one after the other, so LPUSH key "a" "b" "c"
-  results in ["c", "b", "a"] being prepended.
   """
   @spec lpush(t(), db(), key(), [element()]) :: :ok
   def lpush(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, values)
       when is_list(values) do
-    # Find the current minimum index
     min_idx = find_min_index(tid, db, key)
 
     Logger.debug("lpush: #{inspect(values)} #{inspect(min_idx)}")
 
-    # Insert elements with decreasing indices
     values
     |> Enum.reverse()
     |> Enum.with_index(min_idx - length(values))
@@ -74,15 +53,12 @@ defmodule Vdr.ListStore do
 
   @doc """
   Insert all values at the tail of the list (right side).
-  Elements are inserted in order.
   """
   @spec rpush(t(), db(), key(), [element()]) :: :ok
   def rpush(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, values)
       when is_list(values) do
-    # Find the current maximum index
     max_idx = find_max_index(tid, db, key)
 
-    # Insert elements with increasing indices
     values
     |> Enum.with_index(max_idx + 1)
     |> Enum.each(fn {value, idx} ->
@@ -98,7 +74,6 @@ defmodule Vdr.ListStore do
   """
   @spec lpushx(t(), db(), key(), [element()]) :: :ok
   def lpushx(%__MODULE__{tid: tid} = store, db, key, values) when is_list(values) do
-    # Check if key exists by checking if there's at least one element
     case list_exists?(tid, db, key) do
       true -> lpush(store, db, key, values)
       false -> :ok
@@ -148,9 +123,6 @@ defmodule Vdr.ListStore do
 
   @doc """
   Remove the first count occurrences of element from the list.
-  - count > 0: Remove elements from head to tail
-  - count < 0: Remove elements from tail to head
-  - count = 0: Remove all occurrences
   """
   @spec lrem(t(), db(), key(), integer(), element()) :: :ok
   def lrem(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, count, element) do
@@ -160,25 +132,21 @@ defmodule Vdr.ListStore do
     entries_to_remove =
       cond do
         count > 0 ->
-          # From head to tail
           entries
           |> Enum.filter(fn {_idx, decoded} -> decoded == decoded_element end)
           |> Enum.take(count)
 
         count < 0 ->
-          # From tail to head
           entries
           |> Enum.reverse()
           |> Enum.filter(fn {_idx, decoded} -> decoded == decoded_element end)
           |> Enum.take(abs(count))
 
         count == 0 ->
-          # All occurrences
           entries
           |> Enum.filter(fn {_idx, decoded} -> decoded == decoded_element end)
       end
 
-    # Delete the selected entries
     Enum.each(entries_to_remove, fn {idx, _decoded} ->
       :ets.delete(tid, {db, key, :list, idx})
     end)
@@ -188,18 +156,15 @@ defmodule Vdr.ListStore do
 
   @doc """
   Trim the list to the specified range.
-  Both start and stop are inclusive and support negative indices.
   """
   @spec ltrim(t(), db(), key(), integer(), integer()) :: :ok
   def ltrim(%__MODULE__{tid: tid}, db, key, start_idx, stop_idx) do
     entries = fetch_all_entries_sorted(tid, db, key)
     len = length(entries)
 
-    # Normalize indices
     start_pos = normalize_index(start_idx, len)
     stop_pos = normalize_index(stop_idx, len)
 
-    # Determine which entries to keep
     entries_to_keep =
       if start_pos > stop_pos or start_pos >= len do
         []
@@ -209,7 +174,6 @@ defmodule Vdr.ListStore do
 
     kept_indices = MapSet.new(entries_to_keep, fn {idx, _decoded} -> idx end)
 
-    # Delete entries not in the keep list
     Enum.each(entries, fn {idx, _decoded} ->
       if not MapSet.member?(kept_indices, idx) do
         :ets.delete(tid, {db, key, :list, idx})
@@ -221,7 +185,6 @@ defmodule Vdr.ListStore do
 
   @doc """
   Set the list element at index to value.
-  Supports negative indices.
   """
   @spec lset(t(), db(), key(), integer(), element()) :: :ok
   def lset(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, index, value) do
@@ -241,7 +204,6 @@ defmodule Vdr.ListStore do
 
   @doc """
   Insert value before or after the pivot element.
-  Position must be :before or :after.
   """
   @spec linsert(t(), db(), key(), position(), element(), element()) :: :ok
   def linsert(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, position, pivot, value)
@@ -249,7 +211,6 @@ defmodule Vdr.ListStore do
     decoded_pivot = decode_fun.(key, pivot)
     entries = fetch_all_entries_sorted(tid, db, key)
 
-    # Find the pivot
     case Enum.find_index(entries, fn {_idx, decoded} -> decoded == decoded_pivot end) do
       nil ->
         :ok
@@ -257,16 +218,12 @@ defmodule Vdr.ListStore do
       pivot_pos ->
         decoded_value = decode_fun.(key, value)
 
-        # We need to insert at a specific position while maintaining consecutive indices
-        # Strategy: renumber all indices starting from 0 and insert the new element
         new_insert_pos = if position == :before, do: pivot_pos, else: pivot_pos + 1
 
-        # Delete all existing entries
         Enum.each(entries, fn {idx, _decoded} ->
           :ets.delete(tid, {db, key, :list, idx})
         end)
 
-        # Re-insert with new indices
         entries
         |> Enum.with_index()
         |> Enum.each(fn {{_old_idx, decoded}, new_pos} ->
@@ -274,7 +231,6 @@ defmodule Vdr.ListStore do
           :ets.insert(tid, {{db, key, :list, final_pos}, decoded})
         end)
 
-        # Insert the new value
         :ets.insert(tid, {{db, key, :list, new_insert_pos}, decoded_value})
 
         :ok
@@ -291,58 +247,13 @@ defmodule Vdr.ListStore do
         :ok
 
       {source_idx, popped_value} ->
-        # Remove from source
         :ets.delete(tid, {db, source, :list, source_idx})
 
-        # Add to destination head
         dest_min_idx = find_min_index(tid, db, dest)
         :ets.insert(tid, {{db, dest, :list, dest_min_idx - 1}, popped_value})
 
         :ok
     end
-  end
-
-  @doc """
-  Get a range of elements from the list.
-  Both start and stop are inclusive and support negative indices.
-  Returns decoded values.
-  """
-  @spec lrange(t(), db(), key(), integer(), integer()) :: [any()]
-  def lrange(%__MODULE__{tid: tid}, db, key, start_idx, stop_idx) do
-    entries = fetch_all_entries_sorted(tid, db, key)
-    len = length(entries)
-
-    start_pos = normalize_index(start_idx, len)
-    stop_pos = normalize_index(stop_idx, len)
-    Logger.debug("lrange: #{inspect(entries)}, start_pos: #{inspect(start_pos)}, stop_pos: #{inspect(stop_pos)}")
-
-    if start_pos > stop_pos or start_pos >= len do
-      []
-    else
-      entries
-      |> Enum.slice(start_pos..min(stop_pos, len - 1))
-      |> Enum.map(fn {_idx, decoded} -> decoded end)
-    end
-  end
-
-  @doc """
-  Returns the length of the list.
-  """
-  @spec llen(t(), db(), key()) :: non_neg_integer()
-  def llen(%__MODULE__{tid: tid}, db, key) do
-    match_spec = [
-      {{{db, key, :list, :_}, :_}, [], [true]}
-    ]
-
-    :ets.select_count(tid, match_spec)
-  end
-
-  @doc """
-  Deletes an entire list.
-  """
-  @spec del(t(), db(), key()) :: :ok
-  def del(%__MODULE__{tid: tid}, db, key) do
-    CommonStore.del(tid, db, key)
   end
 
   # Private helpers

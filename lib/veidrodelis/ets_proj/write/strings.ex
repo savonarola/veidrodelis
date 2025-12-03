@@ -1,12 +1,9 @@
-defmodule Vdr.StringStore do
+defmodule Vdr.ETSProj.Write.Strings do
   @moduledoc """
-  An ETS-backed store for Redis string operations.
+  Write operations for Redis string store.
 
   Uses a shared ETS table to store key-value pairs with decoded values.
   Each entry is stored as `{{db, decoded_key, :string, nil}, {original_value, decoded_value}}`.
-
-  The decode function is called whenever the original value changes to compute
-  a decoded representation.
   """
 
   import Bitwise
@@ -27,11 +24,6 @@ defmodule Vdr.StringStore do
 
   @doc """
   Creates a new string store with the given ETS table and decode function.
-
-  The decode function receives `(key, value)` and returns a decoded value.
-  It is called whenever a value is set or modified.
-
-  Returns a StringStore struct containing the table id and decode function.
   """
   @spec new(:ets.tid(), decode_fun()) :: t()
   def new(tid, decode_fun) when is_function(decode_fun, 2) do
@@ -238,30 +230,6 @@ defmodule Vdr.StringStore do
       end
 
     store_result(store, db, dest_key, result)
-  end
-
-  @doc """
-  Gets the original (binary) value for a key.
-  Returns nil if the key doesn't exist.
-  """
-  @spec get(t(), db(), key()) :: value() | nil
-  def get(%__MODULE__{tid: tid}, db, key) do
-    case :ets.lookup(tid, {db, key, :string, nil}) do
-      [] -> nil
-      [{{^db, ^key, :string, nil}, {value, _decoded}}] -> value
-    end
-  end
-
-  @doc """
-  Gets the decoded value for a key.
-  Returns nil if the key doesn't exist.
-  """
-  @spec get_decoded(t(), db(), key()) :: any()
-  def get_decoded(%__MODULE__{tid: tid}, db, key) do
-    case :ets.lookup(tid, {db, key, :string, nil}) do
-      [] -> nil
-      [{{^db, ^key, :string, nil}, {_value, decoded}}] -> decoded
-    end
   end
 
   # Private helpers
