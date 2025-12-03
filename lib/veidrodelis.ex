@@ -337,18 +337,21 @@ defmodule Veidrodelis do
     lookup_store(id, :lists)
   end
 
+  @doc """
+  Gets the replica PID for the given instance ID.
+  """
+  @spec replica_pid(id()) :: pid()
+  def replica_pid(id) do
+    lookup_store(id, :replica)
+  end
+
   # Private functions
 
   defp initialize_state(%{id: id, decoder: decoder}) do
     # Register with Vdr.Registry for automatic cleanup
     cleanup_fun = fn ->
       # Deregister from global ETS registry
-      :ets.delete(:veidrodelis_registry, {id, :strings})
-      :ets.delete(:veidrodelis_registry, {id, :sets})
-      :ets.delete(:veidrodelis_registry, {id, :hashes})
-      :ets.delete(:veidrodelis_registry, {id, :zsets})
-      :ets.delete(:veidrodelis_registry, {id, :lists})
-      :ets.delete(:veidrodelis_registry, {id, :replica})
+      :ets.delete(:veidrodelis_registry, id)
     end
 
     case Vdr.Registry.register(id, self(), cleanup_fun) do
@@ -374,13 +377,16 @@ defmodule Veidrodelis do
         zsets = ZsetStore.new(shared_table, decode_zset_entry_fun(decoder))
         lists = ListStore.new(shared_table, decode_list_entry_fun(decoder))
 
-        # Register stores in global registry
-        :ets.insert(:veidrodelis_registry, {{id, :strings}, strings})
-        :ets.insert(:veidrodelis_registry, {{id, :sets}, sets})
-        :ets.insert(:veidrodelis_registry, {{id, :hashes}, hashes})
-        :ets.insert(:veidrodelis_registry, {{id, :zsets}, zsets})
-        :ets.insert(:veidrodelis_registry, {{id, :lists}, lists})
-        :ets.insert(:veidrodelis_registry, {{id, :replica}, self()})
+        # Register stores in global registry as a single record
+        stores = %{
+          strings: strings,
+          sets: sets,
+          hashes: hashes,
+          zsets: zsets,
+          lists: lists,
+          replica: self()
+        }
+        :ets.insert(:veidrodelis_registry, {id, stores})
 
         state = %__MODULE__{
           id: id,
@@ -419,9 +425,13 @@ defmodule Veidrodelis do
   end
 
   defp lookup_store(id, type) do
-    case :ets.lookup(:veidrodelis_registry, {id, type}) do
-      [{{^id, ^type}, store}] -> store
-      [] -> raise ArgumentError, "No store registered for #{inspect(id)} / #{inspect(type)}"
+    case :ets.lookup(:veidrodelis_registry, id) do
+      [{^id, stores}] ->
+        Map.get(stores, type) ||
+          raise ArgumentError, "No store registered for #{inspect(id)} / #{inspect(type)}"
+
+      [] ->
+        raise ArgumentError, "No store registered for #{inspect(id)}"
     end
   end
 
@@ -682,7 +692,7 @@ defmodule Veidrodelis do
   # Decoder wrapper functions that handle optional callbacks
 
   defp get_decode_key_fun(decoder) do
-    if function_exported?(decoder, :decode_key, 1) do
+    if eager_function_exported?(decoder, :decode_key, 1) do
       &decoder.decode_key/1
     else
       &identity/1
@@ -690,7 +700,7 @@ defmodule Veidrodelis do
   end
 
   defp decode_string_value_fun(decoder) do
-    if function_exported?(decoder, :decode_string_value, 2) do
+    if eager_function_exported?(decoder, :decode_string_value, 2) do
       &decoder.decode_string_value/2
     else
       &identity2/2
@@ -698,7 +708,7 @@ defmodule Veidrodelis do
   end
 
   defp decode_set_entry_fun(decoder) do
-    if function_exported?(decoder, :decode_set_entry, 2) do
+    if eager_function_exported?(decoder, :decode_set_entry, 2) do
       &decoder.decode_set_entry/2
     else
       &identity2/2
@@ -706,7 +716,7 @@ defmodule Veidrodelis do
   end
 
   defp decode_hash_hkey_fun(decoder) do
-    if function_exported?(decoder, :decode_hash_hkey, 2) do
+    if eager_function_exported?(decoder, :decode_hash_hkey, 2) do
       &decoder.decode_hash_hkey/2
     else
       &identity2/2
@@ -714,7 +724,7 @@ defmodule Veidrodelis do
   end
 
   defp decode_hash_entry_fun(decoder) do
-    if function_exported?(decoder, :decode_hash_entry, 3) do
+    if eager_function_exported?(decoder, :decode_hash_entry, 3) do
       &decoder.decode_hash_entry/3
     else
       &identity3/3
@@ -722,7 +732,7 @@ defmodule Veidrodelis do
   end
 
   defp decode_zset_entry_fun(decoder) do
-    if function_exported?(decoder, :decode_zset_entry, 2) do
+    if eager_function_exported?(decoder, :decode_zset_entry, 2) do
       &decoder.decode_zset_entry/2
     else
       &identity2/2
@@ -730,9 +740,12 @@ defmodule Veidrodelis do
   end
 
   defp decode_list_entry_fun(decoder) do
-    if function_exported?(decoder, :decode_list_entry, 2) do
+    if eager_function_exported?(decoder, :decode_list_entry, 2) do
+      Logger.debug("decode_list_entry_fun is exported from #{inspect(decoder)}")
       &decoder.decode_list_entry/2
     else
+      Logger.debug("decode_list_entry_fun is not exported from #{inspect(decoder)}, using identity2")
+      Logger.debug("decoder: #{inspect(decoder.module_info(:exports))}")
       &identity2/2
     end
   end
@@ -742,4 +755,9 @@ defmodule Veidrodelis do
   defp identity2(_a, b), do: b
 
   defp identity3(_a, _b, c), do: c
+
+  defp eager_function_exported?(module, function, arity) do
+    Code.ensure_loaded!(module)
+    function_exported?(module, function, arity)
+  end
 end

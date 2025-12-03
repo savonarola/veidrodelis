@@ -46,7 +46,6 @@ defmodule Mix.Tasks.Benchmark do
   @redis_host "localhost"
   @redis_port 6379
   @vdr_id :benchmark_vdr
-  @tracker_key "_ts"
 
   @shortdoc "Run Veidrodelis replication lag benchmarks"
 
@@ -87,6 +86,7 @@ defmodule Mix.Tasks.Benchmark do
   end
 
   defp run_benchmarks(scenario_filter) do
+    Logger.configure(level: :warning)
     Mix.shell().info("=== Veidrodelis Replication Lag Benchmark ===")
     Mix.shell().info("")
 
@@ -137,6 +137,9 @@ defmodule Mix.Tasks.Benchmark do
       Enum.map(scenarios, fn scenario ->
         run_scenario(redis_conn, scenario)
       end)
+
+    # Dump lag statistics
+    Mix.shell().info("")
 
     # Cleanup
     cleanup(redis_conn)
@@ -208,12 +211,23 @@ defmodule Mix.Tasks.Benchmark do
       exit({:shutdown, 1})
     end
 
-    case Veidrodelis.get_replication_state(id) do
-      :streaming ->
-        :ok
+    try do
+      # Get the replica PID from the registry
+      replica_pid = Veidrodelis.replica_pid(id)
 
-      state ->
-        Mix.shell().info("  Replication state: #{state}")
+      case Veidrodelis.get_replication_state(replica_pid) do
+        :streaming ->
+          :ok
+
+        state ->
+          Mix.shell().info("  Replication state: #{state}")
+          Process.sleep(100)
+          wait_for_replication(id, attempts + 1)
+      end
+    rescue
+      ArgumentError ->
+        # Registry not yet initialized, wait and retry
+        Mix.shell().info("  Waiting for replica to initialize...")
         Process.sleep(100)
         wait_for_replication(id, attempts + 1)
     end
@@ -224,12 +238,12 @@ defmodule Mix.Tasks.Benchmark do
 
     case LagTracker.start_link(
            vdr_id: @vdr_id,
-           tracker_key: @tracker_key,
+           tracker_key: "lagmon",
            redis_conn: redis_conn,
-           timestamp_interval_ms: 500
+           timestamp_interval_ms: 1000
          ) do
       {:ok, pid} ->
-        Mix.shell().info("Lag tracker started (injecting timestamps every 500ms)")
+        Mix.shell().info("Lag tracker started (injecting timestamps every 1000ms)")
         {:ok, pid}
 
       {:error, reason} ->
@@ -259,13 +273,11 @@ defmodule Mix.Tasks.Benchmark do
 
   defp cleanup(redis_conn) do
     hash_store = Veidrodelis.hashes(@vdr_id)
-    ets = hash_store.tid
-    Mix.shell().info("ETS: #{inspect(:ets.info(ets))}")
-
     Mix.shell().info("")
     Mix.shell().info("Cleaning up...")
     Redix.stop(redis_conn)
-    Veidrodelis.stop(@vdr_id)
+    replica_pid = Veidrodelis.replica_pid(@vdr_id)
+    Veidrodelis.stop(replica_pid)
     Mix.shell().info("Cleanup complete")
   end
 end

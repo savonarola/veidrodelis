@@ -357,9 +357,10 @@ defmodule Vdr.ZsetStore do
         |> Map.new()
       end)
 
+    Vdr.CommonStore.del(tid, db, destination)
+
     # Find members present in all keys
     if key_members == [] do
-      Vdr.CommonStore.del(tid, db, destination)
       :ok
     else
       [first_map | rest_maps] = key_members
@@ -375,9 +376,6 @@ defmodule Vdr.ZsetStore do
           final_score = aggregate_scores(scores, aggregate)
           {final_score, decoded_value}
         end)
-
-      # Clear destination using CommonStore and insert intersection results
-      Vdr.CommonStore.del(tid, db, destination)
 
       Enum.each(common_members, fn {score, decoded_value} ->
         :ets.insert(tid, {{db, destination, :zset, decoded_value}, score})
@@ -458,17 +456,6 @@ defmodule Vdr.ZsetStore do
     |> Enum.filter(fn {_decoded_value, score} ->
       score_in_range?(score, min, max)
     end)
-  end
-
-  @doc """
-  Deletes an entire sorted set.
-
-  DEL key
-  """
-  @spec del(t(), db(), key()) :: :ok
-  def del(%__MODULE__{tid: tid}, db, key) do
-    Vdr.CommonStore.del(tid, db, key)
-    :ok
   end
 
   # Private helpers

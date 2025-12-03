@@ -15,7 +15,7 @@ defmodule Vdr.Benchmark.Scenarios.StringCommands do
   defp extreme_intensity do
     %{
       name: "strings_20k",
-      duration_seconds: 30,
+      duration_seconds: 5,
       intensity: 20_000,
       command_fn: &generate_command/0
     }

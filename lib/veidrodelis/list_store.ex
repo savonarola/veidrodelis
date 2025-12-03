@@ -16,6 +16,8 @@ defmodule Vdr.ListStore do
   The decode function is called for each element to compute a decoded representation.
   """
 
+  require Logger
+
   alias Vdr.CommonStore
 
   defstruct [:tid, :decode_fun]
@@ -55,12 +57,15 @@ defmodule Vdr.ListStore do
     # Find the current minimum index
     min_idx = find_min_index(tid, db, key)
 
+    Logger.debug("lpush: #{inspect(values)} #{inspect(min_idx)}")
+
     # Insert elements with decreasing indices
     values
     |> Enum.reverse()
     |> Enum.with_index(min_idx - length(values))
     |> Enum.each(fn {value, idx} ->
       decoded = decode_fun.(key, value)
+      Logger.debug("insert: #{inspect({db, key, :list, idx})}: #{inspect(decoded)}")
       :ets.insert(tid, {{db, key, :list, idx}, decoded})
     end)
 
@@ -309,6 +314,7 @@ defmodule Vdr.ListStore do
 
     start_pos = normalize_index(start_idx, len)
     stop_pos = normalize_index(stop_idx, len)
+    Logger.debug("lrange: #{inspect(entries)}, start_pos: #{inspect(start_pos)}, stop_pos: #{inspect(stop_pos)}")
 
     if start_pos > stop_pos or start_pos >= len do
       []
