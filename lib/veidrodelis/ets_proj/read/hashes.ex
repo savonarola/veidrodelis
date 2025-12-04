@@ -5,6 +5,8 @@ defmodule Vdr.ETSProj.Read.Hashes do
   Reads already-decoded data from ETS.
   """
 
+  alias VDR.ETSRead
+
   defstruct [:tid]
 
   @type t :: %__MODULE__{
@@ -15,6 +17,7 @@ defmodule Vdr.ETSProj.Read.Hashes do
   @type key :: any()
   @type hkey :: any()
   @type value :: binary()
+  @type hash_match_pattern :: {{hkey_pattern :: term(), value_pattern :: term()}, guards :: list()}
 
   @doc """
   Creates a new hash read store with the given ETS table.
@@ -109,5 +112,40 @@ defmodule Vdr.ETSProj.Read.Hashes do
     ]
 
     :ets.select_count(tid, match_spec)
+  end
+
+  @doc """
+  Creates a stream of hash entries matching the hkey and value pattern.
+
+  The pattern is a simplified match spec tuple: `{{hkey_pattern, value_pattern}, guards}` that matches against
+  both the hash key and value.
+
+  Returns the entire matched ETS object.
+
+  Example: `{{:"$1", :"$2"}, [{:==, :"$1", "field"}]}` matches entries where hkey equals "field"
+  """
+  @spec select_stream(t(), db(), key(), hash_match_pattern()) :: Enumerable.t()
+  def select_stream(%__MODULE__{tid: tid}, db, key, {{hkey_head, value_head}, conds}) do
+    # Build full match spec that wraps the head pattern
+    # Pattern: {{{db, key, :hset, hkey_head}, value_head}, conds, ['$_']}
+    full_match_spec = [{{{db, key, :hset, hkey_head}, value_head}, conds, [:"$_"]}]
+
+    ETSRead.select_stream(tid, full_match_spec, 100)
+  end
+
+  @doc """
+  Creates a reverse stream of hash entries matching the hkey and value pattern.
+
+  The pattern is a simplified match spec tuple: `{{hkey_pattern, value_pattern}, guards}` that matches against
+  both the hash key and value.
+
+  Returns the entire matched ETS object in reverse order.
+  """
+  @spec select_rev_stream(t(), db(), key(), hash_match_pattern()) :: Enumerable.t()
+  def select_rev_stream(%__MODULE__{tid: tid}, db, key, {{hkey_head, value_head}, conds}) do
+    # Build full match spec that wraps the head pattern
+    full_match_spec = [{{{db, key, :hset, hkey_head}, value_head}, conds, [:"$_"]}]
+
+    ETSRead.select_rev_stream(tid, full_match_spec, 100)
   end
 end

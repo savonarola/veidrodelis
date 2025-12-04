@@ -471,6 +471,285 @@ defmodule Vdr.HashStoreTest do
     end
   end
 
+  describe "select_stream/4" do
+    test "streams hash entries matching a simple hkey equality pattern", %{write_store: write_store, read_store: read_store} do
+      :ok =
+        Hashes.hset(write_store, 0, "myhash", [
+          {"field1", "value1"},
+          {"field2", "value2"},
+          {"field3", "value3"}
+        ])
+
+      # Match pattern that matches hkey equal to "field2"
+      match_pattern = {{:"$1", :"$2"}, [{:==, :"$1", "field2"}]}
+
+      result =
+        read_store
+        |> Read.Hashes.select_stream(0, "myhash", match_pattern)
+        |> Enum.to_list()
+
+      # Should return the entire ETS object
+      assert [{{0, "myhash", :hset, "field2"}, {"value2", "value2"}}] = result
+    end
+
+    test "streams hash entries matching value pattern", %{write_store: write_store, read_store: read_store} do
+      :ok =
+        Hashes.hset(write_store, 0, "myhash", [
+          {"field1", "value1"},
+          {"field2", "value2"},
+          {"field3", "value1"}
+        ])
+
+      # Match pattern that matches value equal to "value1"
+      match_pattern = {{:"$1", {:"$2", :"$3"}}, [{:==, :"$3", "value1"}]}
+
+      result =
+        read_store
+        |> Read.Hashes.select_stream(0, "myhash", match_pattern)
+        |> Enum.sort()
+
+      # Should return entries with value1
+      assert length(result) == 2
+      assert Enum.all?(result, fn {_key, {_orig, decoded}} -> decoded == "value1" end)
+    end
+
+    test "streams hash entries with numeric pattern", %{} do
+      # Use numeric decode function
+      decode_hkey_fun = fn _key, field -> field end
+
+      decode_fun = fn _key, _hkey, value ->
+        case Integer.parse(value) do
+          {num, ""} -> num
+          _ -> value
+        end
+      end
+
+      tid = :ets.new(:test_store, [:set, :public])
+      write_store = Hashes.new(tid, decode_hkey_fun, decode_fun)
+      read_store = Read.Hashes.new(tid)
+
+      :ok =
+        Hashes.hset(write_store, 0, "myhash", [
+          {"count1", "10"},
+          {"count2", "5"},
+          {"count3", "20"},
+          {"name", "test"}
+        ])
+
+      # Match pattern that matches decoded values > 10
+      match_pattern = {{:"$1", {:"$2", :"$3"}}, [{:is_integer, :"$3"}, {:>, :"$3", 10}]}
+
+      result =
+        read_store
+        |> Read.Hashes.select_stream(0, "myhash", match_pattern)
+        |> Enum.to_list()
+
+      # Should match count3 only
+      assert [{{0, "myhash", :hset, "count3"}, {"20", 20}}] = result
+
+      :ets.delete(tid)
+    end
+
+    test "returns empty stream when no matches", %{write_store: write_store, read_store: read_store} do
+      :ok = Hashes.hset(write_store, 0, "myhash", [{"field1", "value1"}])
+
+      # Match pattern that matches hkey equal to "nonexistent"
+      match_pattern = {{:"$1", :"$2"}, [{:==, :"$1", "nonexistent"}]}
+
+      result =
+        read_store
+        |> Read.Hashes.select_stream(0, "myhash", match_pattern)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+
+    test "returns empty stream for non-existent hash", %{read_store: read_store} do
+      match_pattern = {{:"$1", :"$2"}, [{:==, :"$1", "field1"}]}
+
+      result =
+        read_store
+        |> Read.Hashes.select_stream(0, "nonexistent", match_pattern)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+
+    test "works with match all pattern", %{write_store: write_store, read_store: read_store} do
+      :ok =
+        Hashes.hset(write_store, 0, "myhash", [
+          {"field1", "value1"},
+          {"field2", "value2"},
+          {"field3", "value3"}
+        ])
+
+      # Match pattern that matches all entries
+      match_pattern = {{:"$1", :"$2"}, []}
+
+      result =
+        read_store
+        |> Read.Hashes.select_stream(0, "myhash", match_pattern)
+        |> Enum.to_list()
+
+      assert length(result) == 3
+    end
+
+    test "streams lazily", %{write_store: write_store, read_store: read_store} do
+      entries = for i <- 1..100, do: {"field_#{i}", "value_#{i}"}
+      :ok = Hashes.hset(write_store, 0, "myhash", entries)
+
+      # Match all and take only first 5
+      match_pattern = {{:"$1", :"$2"}, []}
+
+      result =
+        read_store
+        |> Read.Hashes.select_stream(0, "myhash", match_pattern)
+        |> Stream.take(5)
+        |> Enum.to_list()
+
+      assert length(result) == 5
+    end
+
+    test "matches with complex guard conditions", %{write_store: write_store, read_store: read_store} do
+      :ok =
+        Hashes.hset(write_store, 0, "myhash", [
+          {"apple", "fruit"},
+          {"banana", "fruit"},
+          {"carrot", "vegetable"}
+        ])
+
+      # Match pattern that matches hkeys starting with "a" or "b" and value "fruit"
+      match_pattern = {
+        {:"$1", {:"$2", :"$3"}},
+        [
+          {:orelse, {:==, :"$1", "apple"}, {:==, :"$1", "banana"}},
+          {:==, :"$3", "fruit"}
+        ]
+      }
+
+      result =
+        read_store
+        |> Read.Hashes.select_stream(0, "myhash", match_pattern)
+        |> Enum.sort()
+
+      assert length(result) == 2
+    end
+  end
+
+  describe "select_rev_stream/4" do
+    test "streams hash entries in reverse order" do
+      tid = :ets.new(:test_store, [:ordered_set, :public])
+      decode_hkey_fun = fn _key, field -> field end
+      decode_fun = fn _key, _hkey, value -> value end
+      write_store = Hashes.new(tid, decode_hkey_fun, decode_fun)
+      read_store = Read.Hashes.new(tid)
+
+      :ok =
+        Hashes.hset(write_store, 0, "myhash", [
+          {"field1", "value1"},
+          {"field2", "value2"},
+          {"field3", "value3"}
+        ])
+
+      # Match pattern that matches all entries
+      match_pattern = {{:"$1", :"$2"}, []}
+
+      result =
+        read_store
+        |> Read.Hashes.select_rev_stream(0, "myhash", match_pattern)
+        |> Enum.to_list()
+
+      forward_result =
+        read_store
+        |> Read.Hashes.select_stream(0, "myhash", match_pattern)
+        |> Enum.to_list()
+
+      # Reverse stream should be reverse of forward stream with ordered_set
+      assert result == Enum.reverse(forward_result)
+
+      :ets.delete(tid)
+    end
+
+    test "streams numeric hash entries in reverse order", %{} do
+      # Use numeric decode function for hkeys
+      decode_hkey_fun = fn _key, field ->
+        case Integer.parse(field) do
+          {num, ""} -> num
+          _ -> field
+        end
+      end
+
+      decode_fun = fn _key, _hkey, value -> value end
+
+      tid = :ets.new(:test_store, [:ordered_set, :public])
+      write_store = Hashes.new(tid, decode_hkey_fun, decode_fun)
+      read_store = Read.Hashes.new(tid)
+
+      :ok =
+        Hashes.hset(write_store, 0, "myhash", [
+          {"1", "value1"},
+          {"5", "value5"},
+          {"10", "value10"},
+          {"15", "value15"},
+          {"20", "value20"}
+        ])
+
+      # Match pattern that matches hkeys > 5
+      match_pattern = {{:"$1", :"$2"}, [{:>, :"$1", 5}]}
+
+      result =
+        read_store
+        |> Read.Hashes.select_rev_stream(0, "myhash", match_pattern)
+        |> Enum.map(fn {{_, _, _, hkey}, _} -> hkey end)
+
+      # Should be in descending order with ordered_set
+      assert [20, 15, 10] = result
+
+      :ets.delete(tid)
+    end
+
+    test "returns empty stream when no matches", %{write_store: write_store, read_store: read_store} do
+      :ok = Hashes.hset(write_store, 0, "myhash", [{"field1", "value1"}])
+
+      # Match pattern that matches hkey equal to "nonexistent"
+      match_pattern = {{:"$1", :"$2"}, [{:==, :"$1", "nonexistent"}]}
+
+      result =
+        read_store
+        |> Read.Hashes.select_rev_stream(0, "myhash", match_pattern)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+
+    test "returns empty stream for non-existent hash", %{read_store: read_store} do
+      match_pattern = {{:"$1", :"$2"}, [{:==, :"$1", "field1"}]}
+
+      result =
+        read_store
+        |> Read.Hashes.select_rev_stream(0, "nonexistent", match_pattern)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+
+    test "streams lazily in reverse", %{write_store: write_store, read_store: read_store} do
+      entries = for i <- 1..100, do: {"field_#{String.pad_leading("#{i}", 3, "0")}", "value_#{i}"}
+      :ok = Hashes.hset(write_store, 0, "myhash", entries)
+
+      # Match all and take only first 5 in reverse order
+      match_pattern = {{:"$1", :"$2"}, []}
+
+      result =
+        read_store
+        |> Read.Hashes.select_rev_stream(0, "myhash", match_pattern)
+        |> Stream.take(5)
+        |> Enum.to_list()
+
+      assert length(result) == 5
+    end
+  end
+
   describe "edge cases" do
     test "handles empty field names", %{write_store: write_store, read_store: read_store} do
       :ok = Hashes.hset(write_store, 0, "myhash", [{"", "empty_field_value"}])
