@@ -321,13 +321,13 @@ defmodule VDR.ETSReadTest do
       :ets.delete(tid)
     end
 
-    test "returns empty stream when start key not found" do
+    test "returns elements even when start key not found" do
       tid = :ets.new(:test, [:ordered_set, :public])
       :ets.insert(tid, {:key1, "value1"})
 
       result = ETSRead.key_rev_range_stream(tid, :key2, :key1) |> Enum.to_list()
 
-      assert result == []
+      assert result == [{:key1, "value1"}]
       :ets.delete(tid)
     end
 

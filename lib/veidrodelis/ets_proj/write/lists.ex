@@ -7,6 +7,7 @@ defmodule Vdr.ETSProj.Write.Lists do
   """
 
   require Logger
+  alias VDR.ETSRead
 
   defstruct [:tid, :decode_fun]
 
@@ -39,15 +40,18 @@ defmodule Vdr.ETSProj.Write.Lists do
 
     Logger.debug("lpush: #{inspect(values)} #{inspect(min_idx)}")
 
-    values
-    |> Enum.reverse()
-    |> Enum.with_index(min_idx - length(values))
-    |> Enum.each(fn {value, idx} ->
-      decoded = decode_fun.(key, value)
-      Logger.debug("insert: #{inspect({db, key, :list, idx})}: #{inspect(decoded)}")
-      :ets.insert(tid, {{db, key, :list, idx}, decoded})
-    end)
+    # Batch insert all values at once
+    entries =
+      values
+      |> Enum.reverse()
+      |> Enum.with_index(min_idx - length(values))
+      |> Enum.map(fn {value, idx} ->
+        decoded = decode_fun.(key, value)
+        Logger.debug("insert: #{inspect({db, key, :list, idx})}: #{inspect(decoded)}")
+        {{db, key, :list, idx}, decoded}
+      end)
 
+    :ets.insert(tid, entries)
     :ok
   end
 
@@ -59,13 +63,16 @@ defmodule Vdr.ETSProj.Write.Lists do
       when is_list(values) do
     max_idx = find_max_index(tid, db, key)
 
-    values
-    |> Enum.with_index(max_idx + 1)
-    |> Enum.each(fn {value, idx} ->
-      decoded = decode_fun.(key, value)
-      :ets.insert(tid, {{db, key, :list, idx}, decoded})
-    end)
+    # Batch insert all values at once
+    entries =
+      values
+      |> Enum.with_index(max_idx + 1)
+      |> Enum.map(fn {value, idx} ->
+        decoded = decode_fun.(key, value)
+        {{db, key, :list, idx}, decoded}
+      end)
 
+    :ets.insert(tid, entries)
     :ok
   end
 
@@ -127,29 +134,79 @@ defmodule Vdr.ETSProj.Write.Lists do
   @spec lrem(t(), db(), key(), integer(), element()) :: :ok
   def lrem(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, count, element) do
     decoded_element = decode_fun.(key, element)
-    entries = fetch_all_entries_sorted(tid, db, key)
+    match_spec = [
+      {{{db, key, :list, :"$1"}, :"$2"}, [], [{{:"$1", :"$2"}}]}
+    ]
 
-    entries_to_remove =
+    # Step 1: Stream through entries and delete matching ones on-the-fly
+    deleted_count =
       cond do
         count > 0 ->
-          entries
-          |> Enum.filter(fn {_idx, decoded} -> decoded == decoded_element end)
-          |> Enum.take(count)
+          # Stream forward, filter matching, take count, delete on-the-fly
+          tid
+          |> :ets.select(match_spec)
+          |> Stream.filter(fn {_idx, decoded} -> decoded == decoded_element end)
+          |> Stream.take(count)
+          |> Enum.reduce(0, fn {idx, _decoded}, acc ->
+            :ets.delete(tid, {db, key, :list, idx})
+            acc + 1
+          end)
 
         count < 0 ->
-          entries
-          |> Enum.reverse()
-          |> Enum.filter(fn {_idx, decoded} -> decoded == decoded_element end)
-          |> Enum.take(abs(count))
+          # Stream backward, filter matching, take abs(count), delete on-the-fly
+          case :ets.select_reverse(tid, match_spec, 100) do
+            :"$end_of_table" ->
+              0
+
+            {results, continuation} ->
+              Stream.resource(
+                fn -> {results, continuation} end,
+                fn
+                  :"$end_of_table" -> {:halt, nil}
+                  {results, cont} -> {results, :ets.select_reverse(cont)}
+                end,
+                fn _ -> :ok end
+              )
+              |> Stream.filter(fn {_idx, decoded} -> decoded == decoded_element end)
+              |> Stream.take(abs(count))
+              |> Enum.reduce(0, fn {idx, _decoded}, acc ->
+                :ets.delete(tid, {db, key, :list, idx})
+                acc + 1
+              end)
+          end
 
         count == 0 ->
-          entries
-          |> Enum.filter(fn {_idx, decoded} -> decoded == decoded_element end)
+          # Stream all, filter matching, delete on-the-fly
+          tid
+          |> :ets.select(match_spec)
+          |> Stream.filter(fn {_idx, decoded} -> decoded == decoded_element end)
+          |> Enum.reduce(0, fn {idx, _decoded}, acc ->
+            :ets.delete(tid, {db, key, :list, idx})
+            acc + 1
+          end)
       end
 
-    Enum.each(entries_to_remove, fn {idx, _decoded} ->
-      :ets.delete(tid, {db, key, :list, idx})
-    end)
+    # Step 2: Re-enumerate remaining elements if any were deleted
+    if deleted_count > 0 do
+      # Step 3: Stream through remaining entries and update indices on-the-fly
+      # Zip with expected indices starting from min_idx (min_idx, min_idx+1, min_idx+2, ...)
+      case find_min_index_entry(tid, db, key) do
+        nil ->
+          :ok
+
+        {min_idx, _} ->
+          # Stream through entries in order using ETSRead, zip with expected indices starting from min_idx
+          # Update only entries where actual_idx != expected_idx
+          ETSRead.select_stream(tid, match_spec, 100)
+          |> Stream.with_index(min_idx)
+          |> Enum.each(fn {{actual_idx, decoded}, expected_idx} ->
+            if actual_idx != expected_idx do
+              :ets.delete(tid, {db, key, :list, actual_idx})
+              :ets.insert(tid, {{db, key, :list, expected_idx}, decoded})
+            end
+          end)
+      end
+    end
 
     :ok
   end
@@ -220,18 +277,22 @@ defmodule Vdr.ETSProj.Write.Lists do
 
         new_insert_pos = if position == :before, do: pivot_pos, else: pivot_pos + 1
 
+        # Delete all old entries
         Enum.each(entries, fn {idx, _decoded} ->
           :ets.delete(tid, {db, key, :list, idx})
         end)
 
-        entries
-        |> Enum.with_index()
-        |> Enum.each(fn {{_old_idx, decoded}, new_pos} ->
-          final_pos = if new_pos >= new_insert_pos, do: new_pos + 1, else: new_pos
-          :ets.insert(tid, {{db, key, :list, final_pos}, decoded})
-        end)
+        # Batch insert all reindexed entries plus the new value
+        reindexed_entries =
+          entries
+          |> Enum.with_index()
+          |> Enum.map(fn {{_old_idx, decoded}, new_pos} ->
+            final_pos = if new_pos >= new_insert_pos, do: new_pos + 1, else: new_pos
+            {{db, key, :list, final_pos}, decoded}
+          end)
 
-        :ets.insert(tid, {{db, key, :list, new_insert_pos}, decoded_value})
+        all_entries = [{{db, key, :list, new_insert_pos}, decoded_value} | reindexed_entries]
+        :ets.insert(tid, all_entries)
 
         :ok
     end
@@ -264,7 +325,11 @@ defmodule Vdr.ETSProj.Write.Lists do
       {{{db, key, :list, :_}, :_}, [], [true]}
     ]
 
-    :ets.select_count(tid, match_spec) > 0
+    # Use select with limit 1 to check existence without counting all entries
+    case :ets.select(tid, match_spec, 1) do
+      {[_result | _], _continuation} -> true
+      :"$end_of_table" -> false
+    end
   end
 
   @spec find_min_index(:ets.tid(), db(), key()) :: integer()
@@ -289,9 +354,11 @@ defmodule Vdr.ETSProj.Write.Lists do
       {{{db, key, :list, :"$1"}, :"$2"}, [], [{{:"$1", :"$2"}}]}
     ]
 
-    case :ets.select(tid, match_spec) do
-      [] -> nil
-      entries -> Enum.min_by(entries, fn {idx, _decoded} -> idx end)
+    # Use select with limit 1 to efficiently get just the first entry
+    # Since ETS ordered_set maintains order, the first match is the minimum
+    case :ets.select(tid, match_spec, 1) do
+      {[entry | _], _continuation} -> entry
+      :"$end_of_table" -> nil
     end
   end
 
@@ -301,9 +368,11 @@ defmodule Vdr.ETSProj.Write.Lists do
       {{{db, key, :list, :"$1"}, :"$2"}, [], [{{:"$1", :"$2"}}]}
     ]
 
-    case :ets.select(tid, match_spec) do
-      [] -> nil
-      entries -> Enum.max_by(entries, fn {idx, _decoded} -> idx end)
+    # Use select_reverse with limit 1 to efficiently get just the last entry
+    # Since ETS ordered_set maintains order, the first match in reverse is the maximum
+    case :ets.select_reverse(tid, match_spec, 1) do
+      {[entry | _], _continuation} -> entry
+      :"$end_of_table" -> nil
     end
   end
 
@@ -313,9 +382,8 @@ defmodule Vdr.ETSProj.Write.Lists do
       {{{db, key, :list, :"$1"}, :"$2"}, [], [{{:"$1", :"$2"}}]}
     ]
 
-    tid
-    |> :ets.select(match_spec)
-    |> Enum.sort_by(fn {idx, _decoded} -> idx end)
+    # ETS ordered_set already returns entries in key order, no need to sort
+    :ets.select(tid, match_spec)
   end
 
   @spec normalize_index(integer(), non_neg_integer()) :: non_neg_integer()

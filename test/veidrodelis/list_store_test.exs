@@ -158,6 +158,21 @@ defmodule Vdr.ListStoreTest do
       assert [] = Read.Lists.lrange(read_store, 0, "mylist", 0, -1)
     end
 
+    test "re-enumerates indices after removal", %{write_store: write_store, tid: tid} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "a", "c", "a"])
+      Lists.lrem(write_store, 0, "mylist", 2, "a")
+      
+      # Check that indices are consecutive starting from min_idx
+      match_spec = [{{{0, "mylist", :list, :"$1"}, :"$2"}, [], [{{:"$1", :"$2"}}]}]
+      entries = :ets.select(tid, match_spec) |> Enum.sort_by(fn {idx, _} -> idx end)
+      indices = Enum.map(entries, fn {idx, _} -> idx end)
+      
+      # After rpush, indices were [0, 1, 2, 3, 4] for ["a", "b", "a", "c", "a"]
+      # After removing first 2 "a"s (at indices 0, 2), remaining entries were at [1, 3, 4]
+      # After re-enumeration from min_idx=1: should be [1, 2, 3] for remaining elements ["b", "c", "a"]
+      assert indices == [1, 2, 3], "Indices should be consecutive starting from min_idx, got: #{inspect(indices)}"
+    end
+
     test "does nothing when element not found", %{write_store: write_store, read_store: read_store} do
       Lists.rpush(write_store, 0, "mylist", ["a", "b", "c"])
       Lists.lrem(write_store, 0, "mylist", 2, "x")
