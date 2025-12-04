@@ -5,6 +5,8 @@ defmodule Vdr.ETSProj.Read.Sets do
   Reads already-decoded data from ETS.
   """
 
+  alias VDR.ETSRead
+
   defstruct [:tid]
 
   @type t :: %__MODULE__{
@@ -13,6 +15,7 @@ defmodule Vdr.ETSProj.Read.Sets do
 
   @type db :: non_neg_integer()
   @type key :: any()
+  @type member_match_pattern :: {pattern :: term(), guards :: list()}
 
   @doc """
   Creates a new set read store with the given ETS table.
@@ -52,6 +55,37 @@ defmodule Vdr.ETSProj.Read.Sets do
     ]
 
     :ets.select_count(tid, match_spec)
+  end
+
+  @doc """
+  Creates a stream of set members matching the member pattern.
+
+  The pattern is a simplified match spec tuple: `{head_pattern, guards}` that matches against
+  the member value only.
+
+  Example: `{:"$_", [{:==, :"$_", "value"}]}` matches members equal to "value"
+  """
+  @spec select_stream(t(), db(), key(), member_match_pattern()) :: Enumerable.t()
+  def select_stream(%__MODULE__{tid: tid}, db, key, {head, guards}) do
+    # Build full match spec that wraps the head pattern
+    # Pattern: {{{db, key, :set, head}, '_'}, guards, [head]}
+    full_match_spec = [{{{db, key, :set, head}, :_}, guards, [head]}]
+
+    ETSRead.select_stream(tid, full_match_spec, 100)
+  end
+
+  @doc """
+  Creates a reverse stream of set members matching the member pattern.
+
+  The pattern is a simplified match spec tuple: `{head_pattern, guards}` that matches against
+  the member value only.
+  """
+  @spec select_rev_stream(t(), db(), key(), member_match_pattern()) :: Enumerable.t()
+  def select_rev_stream(%__MODULE__{tid: tid}, db, key, {head, guards}) do
+    # Build full match spec that wraps the head pattern
+    full_match_spec = [{{{db, key, :set, head}, :_}, guards, [head]}]
+
+    ETSRead.select_rev_stream(tid, full_match_spec, 100)
   end
 
   # Private helpers

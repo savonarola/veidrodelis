@@ -10,14 +10,14 @@ defmodule Vdr.ListStoreTest do
     decode_fun = fn _key, val -> val end
     write_store = Lists.new(tid, decode_fun)
     read_store = Read.Lists.new(tid)
-    
+
     on_exit(fn ->
       # Check if table still exists before deleting
       if tid in :ets.all() do
         :ets.delete(tid)
       end
     end)
-    
+
     {:ok, write_store: write_store, read_store: read_store, tid: tid}
   end
 
@@ -382,7 +382,7 @@ defmodule Vdr.ListStoreTest do
       tid = :ets.new(:test, [:ordered_set, :public])
       decode_fun = fn key, val -> {:decoded, key, val} end
       write_store = Lists.new(tid, decode_fun)
-    read_store = Read.Lists.new(tid)
+      read_store = Read.Lists.new(tid)
 
       Lists.lpush(write_store, 0, "mylist", ["a", "b"])
 
@@ -396,7 +396,7 @@ defmodule Vdr.ListStoreTest do
       tid = :ets.new(:test, [:ordered_set, :public])
       decode_fun = fn _key, val -> String.upcase(val) end
       write_store = Lists.new(tid, decode_fun)
-    read_store = Read.Lists.new(tid)
+      read_store = Read.Lists.new(tid)
 
       Lists.rpush(write_store, 0, "mylist", ["a", "b", "a"])
       Lists.lrem(write_store, 0, "mylist", 1, "a")
@@ -409,7 +409,7 @@ defmodule Vdr.ListStoreTest do
       tid = :ets.new(:test, [:ordered_set, :public])
       decode_fun = fn _key, val -> String.upcase(val) end
       write_store = Lists.new(tid, decode_fun)
-    read_store = Read.Lists.new(tid)
+      read_store = Read.Lists.new(tid)
 
       Lists.rpush(write_store, 0, "mylist", ["a", "b", "c"])
       Lists.linsert(write_store, 0, "mylist", :before, "b", "x")
@@ -422,7 +422,7 @@ defmodule Vdr.ListStoreTest do
       tid = :ets.new(:test, [:ordered_set, :public])
       decode_fun = fn _key, val -> String.upcase(val) end
       write_store = Lists.new(tid, decode_fun)
-    read_store = Read.Lists.new(tid)
+      read_store = Read.Lists.new(tid)
 
       Lists.rpush(write_store, 0, "source", ["a", "b"])
       Lists.rpush(write_store, 0, "dest", ["x"])
@@ -452,6 +452,255 @@ defmodule Vdr.ListStoreTest do
 
       assert ["a", "b"] = Read.Lists.lrange(read_store, 0, "mylist", 0, -1)
       assert ["x", "y"] = Read.Lists.lrange(read_store, 1, "mylist", 0, -1)
+    end
+  end
+
+  describe "stream/3" do
+    test "streams all list elements with 0-based indices", %{write_store: write_store, read_store: read_store} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "c", "d"])
+
+      result = read_store
+        |> Read.Lists.stream(0, "mylist")
+        |> Enum.to_list()
+
+      assert [{0, "a"}, {1, "b"}, {2, "c"}, {3, "d"}] = result
+    end
+
+    test "returns empty stream for non-existent list", %{read_store: read_store} do
+      result = read_store
+        |> Read.Lists.stream(0, "nonexistent")
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+
+    test "works with lpush (negative internal indices)", %{write_store: write_store, read_store: read_store} do
+      Lists.lpush(write_store, 0, "mylist", ["a", "b", "c"])
+
+      result = read_store
+        |> Read.Lists.stream(0, "mylist")
+        |> Enum.to_list()
+
+      # lpush reverses, so ["a", "b", "c"] becomes ["c", "b", "a"]
+      assert [{0, "c"}, {1, "b"}, {2, "a"}] = result
+    end
+
+    test "streams lazily", %{write_store: write_store, read_store: read_store} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "c", "d", "e"])
+
+      result = read_store
+        |> Read.Lists.stream(0, "mylist")
+        |> Stream.take(3)
+        |> Enum.to_list()
+
+      assert [{0, "a"}, {1, "b"}, {2, "c"}] = result
+    end
+  end
+
+  describe "range_stream/4" do
+    test "streams range with positive indices", %{write_store: write_store, read_store: read_store} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "c", "d", "e"])
+
+      result = read_store
+        |> Read.Lists.range_stream(0, "mylist", 1, 3)
+        |> Enum.to_list()
+
+      assert [{1, "b"}, {2, "c"}, {3, "d"}] = result
+    end
+
+    test "streams range with negative indices", %{write_store: write_store, read_store: read_store} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "c", "d", "e"])
+
+      result = read_store
+        |> Read.Lists.range_stream(0, "mylist", -3, -1)
+        |> Enum.to_list()
+
+      assert [{2, "c"}, {3, "d"}, {4, "e"}] = result
+    end
+
+    test "streams full range with 0 to -1", %{write_store: write_store, read_store: read_store} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "c"])
+
+      result = read_store
+        |> Read.Lists.range_stream(0, "mylist", 0, -1)
+        |> Enum.to_list()
+
+      assert [{0, "a"}, {1, "b"}, {2, "c"}] = result
+    end
+
+    test "returns empty stream for invalid range", %{write_store: write_store, read_store: read_store} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "c"])
+
+      result = read_store
+        |> Read.Lists.range_stream(0, "mylist", 5, 10)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+
+    test "returns empty stream when start > stop", %{write_store: write_store, read_store: read_store} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "c"])
+
+      result = read_store
+        |> Read.Lists.range_stream(0, "mylist", 2, 1)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+
+    test "returns empty stream for non-existent list", %{read_store: read_store} do
+      result = read_store
+        |> Read.Lists.range_stream(0, "nonexistent", 0, -1)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+  end
+
+  describe "range_rev_stream/4" do
+    test "streams range in reverse order", %{write_store: write_store, read_store: read_store} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "c", "d", "e"])
+
+      result = read_store
+        |> Read.Lists.range_rev_stream(0, "mylist", 1, 3)
+        |> Enum.to_list()
+
+      assert [{3, "d"}, {2, "c"}, {1, "b"}] = result
+    end
+
+    test "streams full range in reverse with 0 to -1", %{write_store: write_store, read_store: read_store} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "c"])
+
+      result = read_store
+        |> Read.Lists.range_rev_stream(0, "mylist", 0, -1)
+        |> Enum.to_list()
+
+      assert [{2, "c"}, {1, "b"}, {0, "a"}] = result
+    end
+
+    test "streams range with negative indices in reverse", %{write_store: write_store, read_store: read_store} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "c", "d", "e"])
+
+      result = read_store
+        |> Read.Lists.range_rev_stream(0, "mylist", -3, -1)
+        |> Enum.to_list()
+
+      assert [{4, "e"}, {3, "d"}, {2, "c"}] = result
+    end
+
+    test "returns empty stream for non-existent list", %{read_store: read_store} do
+      result = read_store
+        |> Read.Lists.range_rev_stream(0, "nonexistent", 0, -1)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+  end
+
+  describe "select_stream/4" do
+    test "streams entries matching a simple equality pattern", %{write_store: write_store, read_store: read_store} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "a", "c", "a"])
+
+      # Match pattern that matches entries equal to "a"
+      # Use $1 to bind the value, then check it in guards
+      match_pattern = {:"$1", [{:==, :"$1", "a"}]}
+
+      result = read_store
+        |> Read.Lists.select_stream(0, "mylist", match_pattern)
+        |> Enum.to_list()
+
+      assert [{0, "a"}, {2, "a"}, {4, "a"}] = result
+    end
+
+    test "streams entries matching a pattern with guards", %{} do
+      tid = :ets.new(:test, [:ordered_set, :public])
+      decode_fun = fn _key, val -> String.to_integer(val) end
+      write_store = Lists.new(tid, decode_fun)
+      read_store = Read.Lists.new(tid)
+
+      Lists.rpush(write_store, 0, "mylist", ["1", "2", "3", "4", "5"])
+
+      # Match pattern that matches entries > 2
+      # Use $1 to bind the value, then check it in guards
+      match_pattern = {:"$1", [{:>, :"$1", 2}]}
+
+      result = read_store
+        |> Read.Lists.select_stream(0, "mylist", match_pattern)
+        |> Enum.to_list()
+
+      assert [{2, 3}, {3, 4}, {4, 5}] = result
+
+      :ets.delete(tid)
+    end
+
+    test "returns empty stream when no matches", %{write_store: write_store, read_store: read_store} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "c"])
+
+      # Match pattern that matches entries equal to "x"
+      match_pattern = {:"$1", [{:==, :"$1", "x"}]}
+
+      result = read_store
+        |> Read.Lists.select_stream(0, "mylist", match_pattern)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+
+    test "returns empty stream for non-existent list", %{read_store: read_store} do
+      match_pattern = {:"$1", [{:==, :"$1", "a"}]}
+
+      result = read_store
+        |> Read.Lists.select_stream(0, "nonexistent", match_pattern)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+  end
+
+  describe "select_rev_stream/4" do
+    test "streams matching entries in reverse order", %{write_store: write_store, read_store: read_store} do
+      Lists.rpush(write_store, 0, "mylist", ["a", "b", "a", "c", "a"])
+
+      # Match pattern that matches entries equal to "a"
+      # Use $1 to bind the value, then check it in guards
+      match_pattern = {:"$1", [{:==, :"$1", "a"}]}
+
+      result = read_store
+        |> Read.Lists.select_rev_stream(0, "mylist", match_pattern)
+        |> Enum.to_list()
+
+      assert [{4, "a"}, {2, "a"}, {0, "a"}] = result
+    end
+
+    test "streams all matching entries in reverse", %{} do
+      tid = :ets.new(:test, [:ordered_set, :public])
+      decode_fun = fn _key, val -> String.to_integer(val) end
+      write_store = Lists.new(tid, decode_fun)
+      read_store = Read.Lists.new(tid)
+
+      Lists.rpush(write_store, 0, "mylist", ["1", "2", "3", "4", "5"])
+
+      # Match pattern that matches entries > 2
+      # Use $1 to bind the value, then check it in guards
+      match_pattern = {:"$1", [{:>, :"$1", 2}]}
+
+      result = read_store
+        |> Read.Lists.select_rev_stream(0, "mylist", match_pattern)
+        |> Enum.to_list()
+
+      assert [{4, 5}, {3, 4}, {2, 3}] = result
+
+      :ets.delete(tid)
+    end
+
+    test "returns empty stream for non-existent list", %{read_store: read_store} do
+      match_pattern = {:"$1", [{:==, :"$1", "a"}]}
+
+      result = read_store
+        |> Read.Lists.select_rev_stream(0, "nonexistent", match_pattern)
+        |> Enum.to_list()
+
+      assert [] = result
     end
   end
 end

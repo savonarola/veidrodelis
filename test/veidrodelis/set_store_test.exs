@@ -521,4 +521,217 @@ defmodule Vdr.SetStoreTest do
       assert Read.Sets.scard(read_store, 0, "diff") == 499
     end
   end
+
+  describe "select_stream/4" do
+    test "streams members matching a simple equality pattern", %{write_store: write_store, read_store: read_store} do
+      :ok = Sets.sadd(write_store, 0, "myset", ["apple", "banana", "cherry", "avocado"])
+
+      # Match pattern that matches members equal to "banana"
+      match_pattern = {:"$1", [{:==, :"$1", "banana"}]}
+
+      result =
+        read_store
+        |> Read.Sets.select_stream(0, "myset", match_pattern)
+        |> Enum.to_list()
+
+      assert ["banana"] = result
+    end
+
+    test "streams multiple matching members", %{write_store: write_store, read_store: read_store} do
+      :ok = Sets.sadd(write_store, 0, "myset", ["a", "b", "a1", "a2", "c"])
+
+      # Match pattern that matches members "a1" or "a2"
+      match_pattern = {:"$1", [{:orelse, {:==, :"$1", "a1"}, {:==, :"$1", "a2"}}]}
+
+      result =
+        read_store
+        |> Read.Sets.select_stream(0, "myset", match_pattern)
+        |> Enum.sort()
+
+      assert ["a1", "a2"] = result
+    end
+
+    test "streams members with numeric pattern", %{} do
+      # Use numeric decode function
+      decode_fun = fn _key, element ->
+        case Integer.parse(element) do
+          {num, ""} -> num
+          _ -> element
+        end
+      end
+
+      tid = :ets.new(:test_store, [:set, :public])
+      write_store = Sets.new(tid, decode_fun)
+      read_store = Read.Sets.new(tid)
+
+      :ok = Sets.sadd(write_store, 0, "numbers", ["1", "5", "10", "15", "20"])
+
+      # Match pattern that matches members > 10
+      match_pattern = {:"$1", [{:>, :"$1", 10}]}
+
+      result =
+        read_store
+        |> Read.Sets.select_stream(0, "numbers", match_pattern)
+        |> Enum.sort()
+
+      assert [15, 20] = result
+
+      :ets.delete(tid)
+    end
+
+    test "returns empty stream when no matches", %{write_store: write_store, read_store: read_store} do
+      :ok = Sets.sadd(write_store, 0, "myset", ["a", "b", "c"])
+
+      # Match pattern that matches members equal to "x"
+      match_pattern = {:"$1", [{:==, :"$1", "x"}]}
+
+      result =
+        read_store
+        |> Read.Sets.select_stream(0, "myset", match_pattern)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+
+    test "returns empty stream for non-existent set", %{read_store: read_store} do
+      match_pattern = {:"$1", [{:==, :"$1", "a"}]}
+
+      result =
+        read_store
+        |> Read.Sets.select_stream(0, "nonexistent", match_pattern)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+
+    test "works with match all pattern", %{write_store: write_store, read_store: read_store} do
+      :ok = Sets.sadd(write_store, 0, "myset", ["a", "b", "c"])
+
+      # Match pattern that matches all members using $1
+      match_pattern = {:"$1", []}
+
+      result =
+        read_store
+        |> Read.Sets.select_stream(0, "myset", match_pattern)
+        |> Enum.sort()
+
+      assert ["a", "b", "c"] = result
+    end
+
+    test "streams lazily", %{write_store: write_store, read_store: read_store} do
+      members = for i <- 1..100, do: "elem_#{String.pad_leading("#{i}", 3, "0")}"
+      :ok = Sets.sadd(write_store, 0, "myset", members)
+
+      # Match all using $1 and take only first 5
+      match_pattern = {:"$1", []}
+
+      result =
+        read_store
+        |> Read.Sets.select_stream(0, "myset", match_pattern)
+        |> Stream.take(5)
+        |> Enum.to_list()
+
+      assert length(result) == 5
+    end
+  end
+
+  describe "select_rev_stream/4" do
+    test "streams matching members in reverse order" do
+      # Use ordered_set for predictable ordering
+      tid = :ets.new(:test_store, [:ordered_set, :public])
+      decode_fun = fn _key, element -> element end
+      write_store = Sets.new(tid, decode_fun)
+      read_store = Read.Sets.new(tid)
+
+      :ok = Sets.sadd(write_store, 0, "myset", ["apple", "banana", "cherry"])
+
+      # Match pattern that matches all members
+      match_pattern = {:"$1", []}
+
+      result =
+        read_store
+        |> Read.Sets.select_rev_stream(0, "myset", match_pattern)
+        |> Enum.to_list()
+
+      forward_result =
+        read_store
+        |> Read.Sets.select_stream(0, "myset", match_pattern)
+        |> Enum.to_list()
+
+      # Reverse stream should be reverse of forward stream with ordered_set
+      assert result == Enum.reverse(forward_result)
+
+      :ets.delete(tid)
+    end
+
+    test "streams numeric members in reverse order", %{} do
+      # Use numeric decode function and ordered_set for predictable ordering
+      decode_fun = fn _key, element ->
+        case Integer.parse(element) do
+          {num, ""} -> num
+          _ -> element
+        end
+      end
+
+      tid = :ets.new(:test_store, [:ordered_set, :public])
+      write_store = Sets.new(tid, decode_fun)
+      read_store = Read.Sets.new(tid)
+
+      :ok = Sets.sadd(write_store, 0, "numbers", ["1", "5", "10", "15", "20"])
+
+      # Match pattern that matches members > 5
+      match_pattern = {:"$1", [{:>, :"$1", 5}]}
+
+      result =
+        read_store
+        |> Read.Sets.select_rev_stream(0, "numbers", match_pattern)
+        |> Enum.to_list()
+
+      # Should be in descending order with ordered_set
+      assert [20, 15, 10] = result
+
+      :ets.delete(tid)
+    end
+
+    test "returns empty stream when no matches", %{write_store: write_store, read_store: read_store} do
+      :ok = Sets.sadd(write_store, 0, "myset", ["a", "b", "c"])
+
+      # Match pattern that matches members equal to "x"
+      match_pattern = {:"$1", [{:==, :"$1", "x"}]}
+
+      result =
+        read_store
+        |> Read.Sets.select_rev_stream(0, "myset", match_pattern)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+
+    test "returns empty stream for non-existent set", %{read_store: read_store} do
+      match_pattern = {:"$1", [{:==, :"$1", "a"}]}
+
+      result =
+        read_store
+        |> Read.Sets.select_rev_stream(0, "nonexistent", match_pattern)
+        |> Enum.to_list()
+
+      assert [] = result
+    end
+
+    test "streams lazily in reverse", %{write_store: write_store, read_store: read_store} do
+      members = for i <- 1..100, do: "elem_#{String.pad_leading("#{i}", 3, "0")}"
+      :ok = Sets.sadd(write_store, 0, "myset", members)
+
+      # Match all and take only first 5 in reverse order
+      match_pattern = {:"$1", []}
+
+      result =
+        read_store
+        |> Read.Sets.select_rev_stream(0, "myset", match_pattern)
+        |> Stream.take(5)
+        |> Enum.to_list()
+
+      assert length(result) == 5
+    end
+  end
 end
