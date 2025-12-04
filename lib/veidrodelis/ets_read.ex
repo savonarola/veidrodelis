@@ -294,11 +294,8 @@ defmodule VDR.ETSRead do
   def key_range_stream(tid, key_first, key_last) do
     Stream.resource(
       fn ->
-        # Start from key_first
-        case :ets.lookup(tid, key_first) do
-          [] -> :done
-          [object] -> {object, key_first}
-        end
+        # Start from key_first or find the first key >= key_first
+        find_next_valid_key(tid, key_first, key_last, :next)
       end,
       fn
         :done ->
@@ -314,21 +311,45 @@ defmodule VDR.ETSRead do
               :"$end_of_table" ->
                 {[object], :done}
 
+              next_key when next_key > key_last ->
+                # Next key is beyond range
+                {[object], :done}
+
               next_key ->
-                if next_key > key_last do
-                  # Next key is beyond range
-                  {[object], :done}
-                else
-                  case :ets.lookup(tid, next_key) do
-                    [] -> {[object], :done}
-                    [next_object] -> {[object], {next_object, next_key}}
-                  end
-                end
+                # Continue searching for next valid key
+                next_state = find_next_valid_key(tid, next_key, key_last, :next)
+                {[object], next_state}
             end
           end
       end,
       fn _ -> :ok end
     )
+  end
+
+  # Helper function to find the next valid key with an object
+  defp find_next_valid_key(tid, start_key, end_key, direction) do
+    case :ets.lookup(tid, start_key) do
+      [object] ->
+        {object, start_key}
+      [] ->
+        # Key doesn't exist, try to find the next/prev key
+        next_key = case direction do
+          :next -> :ets.next(tid, start_key)
+          :prev -> :ets.prev(tid, start_key)
+        end
+
+        case next_key do
+          :"$end_of_table" ->
+            :done
+          key when direction == :next and key > end_key ->
+            :done
+          key when direction == :prev and key < end_key ->
+            :done
+          key ->
+            # Recursively search for a valid key
+            find_next_valid_key(tid, key, end_key, direction)
+        end
+    end
   end
 
   @doc """
@@ -361,11 +382,8 @@ defmodule VDR.ETSRead do
   def key_rev_range_stream(tid, key_first, key_last) do
     Stream.resource(
       fn ->
-        # Start from key_first
-        case :ets.lookup(tid, key_first) do
-          [] -> :done
-          [object] -> {object, key_first}
-        end
+        # Start from key_first (highest key) or find the first key <= key_first
+        find_next_valid_key(tid, key_first, key_last, :prev)
       end,
       fn
         :done ->
@@ -381,16 +399,14 @@ defmodule VDR.ETSRead do
               :"$end_of_table" ->
                 {[object], :done}
 
+              prev_key when prev_key < key_last ->
+                # Previous key is beyond range
+                {[object], :done}
+
               prev_key ->
-                if prev_key < key_last do
-                  # Previous key is beyond range
-                  {[object], :done}
-                else
-                  case :ets.lookup(tid, prev_key) do
-                    [] -> {[object], :done}
-                    [prev_object] -> {[object], {prev_object, prev_key}}
-                  end
-                end
+                # Continue searching for next valid key
+                next_state = find_next_valid_key(tid, prev_key, key_last, :prev)
+                {[object], next_state}
             end
           end
       end,

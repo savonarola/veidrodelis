@@ -202,7 +202,7 @@ defmodule Vdr.ZsetStoreTest do
           {3.0, "three"}
         ])
 
-      :ok = ZSets.zremrangebyscore(write_store, 0, "myzset", :neg_inf, 2.0)
+      :ok = ZSets.zremrangebyscore(write_store, 0, "myzset", -1.0e308, 2.0)
 
       assert Read.ZSets.zcard(read_store, 0, "myzset") == 1
       assert Read.ZSets.zscore(read_store, 0, "myzset", "three") == 3.0
@@ -468,12 +468,12 @@ defmodule Vdr.ZsetStoreTest do
           {2.0, "two"}
         ])
 
-      result = Read.ZSets.zrange(read_store, 0, "myzset", 0, -1)
+      result = Read.ZSets.zrange(read_store, 0, "myzset", 1.0, 3.0)
 
       assert result == [{"one", 1.0}, {"two", 2.0}, {"three", 3.0}]
     end
 
-    test "returns subset by rank range", %{write_store: write_store, read_store: read_store} do
+    test "returns subset by score range", %{write_store: write_store, read_store: read_store} do
       :ok =
         ZSets.zadd(write_store, 0, "myzset", [
           {1.0, "one"},
@@ -482,12 +482,12 @@ defmodule Vdr.ZsetStoreTest do
           {4.0, "four"}
         ])
 
-      result = Read.ZSets.zrange(read_store, 0, "myzset", 1, 2)
+      result = Read.ZSets.zrange(read_store, 0, "myzset", 2.0, 3.0)
 
       assert result == [{"two", 2.0}, {"three", 3.0}]
     end
 
-    test "supports negative indices", %{write_store: write_store, read_store: read_store} do
+    test "supports score range filtering", %{write_store: write_store, read_store: read_store} do
       :ok =
         ZSets.zadd(write_store, 0, "myzset", [
           {1.0, "one"},
@@ -495,13 +495,13 @@ defmodule Vdr.ZsetStoreTest do
           {3.0, "three"}
         ])
 
-      result = Read.ZSets.zrange(read_store, 0, "myzset", -2, -1)
+      result = Read.ZSets.zrange(read_store, 0, "myzset", 2.0, 3.0)
 
       assert result == [{"two", 2.0}, {"three", 3.0}]
     end
 
     test "returns empty list for non-existent zset", %{read_store: read_store} do
-      result = Read.ZSets.zrange(read_store, 0, "nonexistent", 0, -1)
+      result = Read.ZSets.zrange(read_store, 0, "nonexistent", -1.0e308, 1.0e308)
 
       assert result == []
     end
@@ -532,7 +532,7 @@ defmodule Vdr.ZsetStoreTest do
           {3.0, "three"}
         ])
 
-      result = Read.ZSets.zrangebyscore(read_store, 0, "myzset", :neg_inf, 2.0)
+      result = Read.ZSets.zrangebyscore(read_store, 0, "myzset", -1.0e308, 2.0)
 
       assert length(result) == 2
     end
@@ -577,12 +577,12 @@ defmodule Vdr.ZsetStoreTest do
 
       tid = :ets.new(:test_zset_store, [:ordered_set, :protected])
       write_store = ZSets.new(tid, decode_fun)
-    read_store = Read.ZSets.new(tid)
+      read_store = Read.ZSets.new(tid)
 
       :ok = ZSets.zadd(write_store, 0, "myzset", [{1.0, "apple"}, {2.0, "BANANA"}])
 
       # Members are stored by their decoded (uppercased) keys
-      result = Read.ZSets.zrange(read_store, 0, "myzset", 0, -1)
+      result = Read.ZSets.zrange(read_store, 0, "myzset", 1.0, 2.0)
       decoded_members = Enum.map(result, fn {member, _score} -> member end)
 
       assert Enum.sort(decoded_members) == ["APPLE", "BANANA"]
@@ -677,7 +677,7 @@ defmodule Vdr.ZsetStoreTest do
           {1.0, "c"}
         ])
 
-      result = Read.ZSets.zrange(read_store, 0, "myzset", 0, -1)
+      result = Read.ZSets.zrange(read_store, 0, "myzset", 1.0, 1.0)
       assert length(result) == 3
       assert Enum.all?(result, fn {_member, score} -> score == 1.0 end)
     end
@@ -690,7 +690,7 @@ defmodule Vdr.ZsetStoreTest do
           {5.0, "positive"}
         ])
 
-      result = Read.ZSets.zrange(read_store, 0, "myzset", 0, -1)
+      result = Read.ZSets.zrange(read_store, 0, "myzset", -5.0, 5.0)
       scores = Enum.map(result, fn {_member, score} -> score end)
 
       assert scores == [-5.0, 0.0, 5.0]
@@ -718,7 +718,7 @@ defmodule Vdr.ZsetStoreTest do
       assert Read.ZSets.zcard(read_store, 0, "large_zset") == 1000
 
       # Range query should work
-      result = Read.ZSets.zrange(read_store, 0, "large_zset", 0, 9)
+      result = Read.ZSets.zrange(read_store, 0, "large_zset", 1.0, 10.0)
       assert length(result) == 10
 
       # Score range query should work

@@ -5,6 +5,8 @@ defmodule Vdr.ETSProj.Read.ZSets do
   Reads already-decoded data from ETS.
   """
 
+  alias VDR.ETSRead
+
   defstruct [:tid]
 
   @type t :: %__MODULE__{
@@ -14,6 +16,7 @@ defmodule Vdr.ETSProj.Read.ZSets do
   @type db :: non_neg_integer()
   @type key :: any()
   @type score :: float()
+  @type entry_match_pattern :: {pattern :: term(), guards :: list()}
 
   @doc """
   Creates a new zset read store with the given ETS table.
@@ -48,68 +51,180 @@ defmodule Vdr.ETSProj.Read.ZSets do
   end
 
   @doc """
-  Returns members in a sorted set by score order.
-  Returns a list of {decoded_value, score} tuples.
+  Creates a stream of {entry, score} tuples for all sorted set members in score order.
+
+  Uses the :zset_index entries which are ordered by score.
+  Returns tuples of {decoded_entry, score}.
   """
-  @spec zrange(t(), db(), key(), integer(), integer()) :: [{any(), score()}]
-  def zrange(%__MODULE__{tid: tid}, db, key, start, stop) do
-    zrange_with_scores(tid, db, key, start, stop)
+  @spec select_stream(t(), db(), key()) :: Enumerable.t()
+  def select_stream(%__MODULE__{tid: tid}, db, key) do
+    # Match all :zset_index entries for this key
+    # Pattern: {{db, key, :zset_index, {score, entry}}, nil}
+    # Return: {entry, score}
+    match_spec = [
+      {{{db, key, :zset_index, {:"$1", :"$2"}}, :_}, [], [{{:"$2", :"$1"}}]}
+    ]
+
+    ETSRead.select_stream(tid, match_spec, 100)
+  end
+
+  @doc """
+  Creates a reverse stream of {entry, score} tuples for all sorted set members in reverse score order.
+
+  Uses the :zset_index entries which are ordered by score.
+  Returns tuples of {decoded_entry, score} in reverse order.
+  """
+  @spec select_rev_stream(t(), db(), key()) :: Enumerable.t()
+  def select_rev_stream(%__MODULE__{tid: tid}, db, key) do
+    # Match all :zset_index entries for this key in reverse order
+    match_spec = [
+      {{{db, key, :zset_index, {:"$1", :"$2"}}, :_}, [], [{{:"$2", :"$1"}}]}
+    ]
+
+    ETSRead.select_rev_stream(tid, match_spec, 100)
+  end
+
+  @doc """
+  Creates a stream of {entry, score} tuples for sorted set members within a score range.
+
+  Returns tuples of {decoded_entry, score} where score is between from_score and to_score (inclusive).
+  Members are returned in ascending score order.
+  """
+  @spec range_stream(t(), db(), key(), number(), number()) :: Enumerable.t()
+  def range_stream(%__MODULE__{tid: tid}, db, key, from_score, to_score)
+      when is_number(from_score) and is_number(to_score) do
+    case find_range_boundaries(tid, db, key, from_score, to_score) do
+      nil ->
+        # Empty range
+        Stream.map([], fn _ -> nil end)
+
+      {first_key, last_key} ->
+        tid
+        |> ETSRead.key_range_stream(first_key, last_key)
+        |> Stream.map(fn {{_db, _key, :zset_index, {score, entry}}, _} ->
+          {entry, score}
+        end)
+    end
+  end
+
+  @doc """
+  Creates a reverse stream of {entry, score} tuples for sorted set members within a score range.
+
+  Returns tuples of {decoded_entry, score} where score is between from_score and to_score (inclusive).
+  Members are returned in descending score order.
+  """
+  @spec range_rev_stream(t(), db(), key(), number(), number()) :: Enumerable.t()
+  def range_rev_stream(%__MODULE__{tid: tid}, db, key, from_score, to_score)
+      when is_number(from_score) and is_number(to_score) do
+    case find_range_boundaries(tid, db, key, from_score, to_score) do
+      nil ->
+        # Empty range
+        Stream.map([], fn _ -> nil end)
+
+      {first_key, last_key} ->
+        tid
+        |> ETSRead.key_rev_range_stream(last_key, first_key)
+        |> Stream.map(fn {{_db, _key, :zset_index, {score, entry}}, _} ->
+          {entry, score}
+        end)
+    end
   end
 
   @doc """
   Returns members in a sorted set by score range.
   Returns a list of {decoded_value, score} tuples.
   """
-  @spec zrangebyscore(
-          t(),
-          db(),
-          key(),
-          score() | :neg_inf | :pos_inf,
-          score() | :neg_inf | :pos_inf
-        ) :: [{any(), score()}]
-  def zrangebyscore(%__MODULE__{tid: tid}, db, key, min, max) do
-    match_head = {{db, key, :zset_index, {:"$1", :"$2"}}, :_}
-    match_spec = [{match_head, [], [{{:"$2", :"$1"}}]}]
+  @spec zrange(t(), db(), key(), number(), number()) :: [{any(), score()}]
+  def zrange(store, db, key, start, stop)
+      when is_number(start) and is_number(stop) do
+    zrange_with_scores(store, db, key, start, stop)
+  end
 
-    :ets.select(tid, match_spec)
-    |> Enum.filter(fn {_decoded_value, score} ->
-      score_in_range?(score, min, max)
-    end)
+  @doc """
+  Returns members in a sorted set by score range.
+  Returns a list of {decoded_value, score} tuples.
+  """
+  @spec zrangebyscore(t(), db(), key(), number(), number()) :: [{any(), score()}]
+  def zrangebyscore(store, db, key, min, max) when is_number(min) and is_number(max) do
+    # Use efficient range_stream for score bounds
+    store
+    |> range_stream(db, key, min, max)
+    |> Enum.to_list()
   end
 
   # Private helpers
 
-  @spec zrange_with_scores(:ets.tid(), db(), key(), integer(), integer()) :: [{any(), score()}]
-  defp zrange_with_scores(tid, db, key, start, stop) do
-    match_head = {{db, key, :zset_index, {:"$1", :"$2"}}, :_}
-    match_spec = [{match_head, [], [{{:"$2", :"$1"}}]}]
+  @spec zrange_with_scores(t(), db(), key(), number(), number()) :: [{any(), score()}]
+  defp zrange_with_scores(store, db, key, start, stop)
+       when is_number(start) and is_number(stop) do
+    # start and stop are scores (numbers)
+    # Use range_stream
+    store
+    |> range_stream(db, key, start, stop)
+    |> Enum.to_list()
+  end
 
-    all_members = :ets.select(tid, match_spec)
+  @spec find_range_boundaries(:ets.tid(), db(), key(), number(), number()) ::
+          {tuple(), tuple()} | nil
+  defp find_range_boundaries(tid, db, key, from_score, to_score) do
+    # Find the first key >= {db, key, :zset_index, {from_score, _}}
+    first_key =
+      case ETSRead.first_key(tid, {{db, key, :zset_index, {from_score, :_}}, :_}) do
+        nil ->
+          # No exact match for from_score, find next key after this score
+          # Use a minimal term "" to find the next entry
+          case :ets.next(tid, {db, key, :zset_index, {from_score, -1.0e99}}) do
+            :"$end_of_table" ->
+              nil
 
-    count = length(all_members)
-    start_idx = if start < 0, do: max(0, count + start), else: start
-    stop_idx = if stop < 0, do: max(-1, count + stop), else: stop
+            next_key ->
+              # Verify it's still in our key space and within range
+              case next_key do
+                {^db, ^key, :zset_index, {score, _entry}} when score <= to_score ->
+                  next_key
 
-    if stop_idx < start_idx or start_idx >= count do
-      []
-    else
-      Enum.slice(all_members, start_idx..stop_idx)
+                _ ->
+                  nil
+              end
+          end
+
+        key ->
+          key
+      end
+
+    # Find the last key <= {db, key, :zset_index, {to_score, _}}
+    last_key =
+      case ETSRead.last_key(tid, {{db, key, :zset_index, {to_score, :_}}, :_}) do
+        nil ->
+          # No exact match for to_score, find previous key before this score
+          # Use a large term to find the previous entry
+          # In Erlang term ordering, atoms come after most other terms
+          case :ets.prev(tid, {db, key, :zset_index, {to_score, <<255>>}}) do
+            :"$end_of_table" ->
+              nil
+
+            prev_key ->
+              # Verify it's still in our key space and within range
+              case prev_key do
+                {^db, ^key, :zset_index, {score, _entry}} when score >= from_score ->
+                  prev_key
+
+                _ ->
+                  nil
+              end
+          end
+
+        key ->
+          key
+      end
+
+    # Return nil if either boundary is missing
+    case {first_key, last_key} do
+      {nil, _} -> nil
+      {_, nil} -> nil
+      {first, last} when first <= last -> {first, last}
+      _ -> nil
     end
   end
 
-  defp score_in_range?(score, min, max) do
-    min_ok =
-      case min do
-        :neg_inf -> true
-        min_score -> score >= min_score
-      end
-
-    max_ok =
-      case max do
-        :pos_inf -> true
-        max_score -> score <= max_score
-      end
-
-    min_ok and max_ok
-  end
 end

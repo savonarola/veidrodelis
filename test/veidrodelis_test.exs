@@ -226,7 +226,7 @@ defmodule VeidrodelisTest do
       # Verify decoded data in store (zrange returns tuples with scores)
       assert_happens_within 1000 do
         Logger.debug("zset store: #{inspect(:ets.tab2list(zset_store.tid))}")
-        members_with_scores = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:myzset", 0, -1)
+        members_with_scores = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:myzset", 1.0, 3.0)
 
         members_with_scores == [
           {{:zset_entry, "member1"}, 1.0},
@@ -513,7 +513,7 @@ defmodule VeidrodelisTest do
       # member3: 3*2 + 0*3 = 6
       # member4: 0*2 + 4*3 = 12
       assert_happens_within 1000 do
-        result = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:result_weighted_union", 0, -1)
+        result = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:result_weighted_union", 6.0, 13.0)
         result == [
           {{:zset_entry, "member3"}, 6.0},
           {{:zset_entry, "member1"}, 8.0},
@@ -558,7 +558,7 @@ defmodule VeidrodelisTest do
       # alice: min(10, 15) = 10
       # bob: min(20, 25) = 20
       wait_happens_within 100 do
-        result = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:result_inter_min", 0, -1)
+        result = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:result_inter_min", 10.0, 20.0)
         result == [
           {{:zset_entry, "alice"}, 10.0},
           {{:zset_entry, "bob"}, 20.0}
@@ -601,7 +601,7 @@ defmodule VeidrodelisTest do
       # task1: max(5, 7) = 7
       # task2: max(8, 3) = 8
       wait_happens_within 100 do
-        result = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:result_inter_max", 0, -1)
+        result = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:result_inter_max", 7.0, 8.0)
         result == [
           {{:zset_entry, "task1"}, 7.0},
           {{:zset_entry, "task2"}, 8.0}
@@ -651,7 +651,7 @@ defmodule VeidrodelisTest do
       # product2: 9.0*0.5 + 6.5*0.3 + 0*0.2 = 4.5 + 1.95 + 0 = 6.45
       # product3: 0*0.5 + 0*0.3 + 8.0*0.2 = 0 + 0 + 1.6 = 1.6
       wait_happens_within 100 do
-        result = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:combined_rating", 0, -1)
+        result = Vdr.ETSProj.Read.ZSets.zrange(zset_store, 0, "key:combined_rating", 1.6, 8.25)
         result == [
           {{:zset_entry, "product3"}, 1.6},
           {{:zset_entry, "product2"}, 6.45},
