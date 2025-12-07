@@ -17,34 +17,34 @@ defmodule Vdr.RDB do
         alias Vdr.Command
 
         @impl true
-        def on_command(state, db, %Command.Set{key: key, value: value}) do
+        def handle_command(state, db, %Command.Set{key: key, value: value}) do
           IO.puts("SET \#{key} = \#{value}")
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.RPush{key: key, values: values}) do
+        def handle_command(state, db, %Command.RPush{key: key, values: values}) do
           IO.puts("RPUSH \#{key} \#{Enum.join(values, " ")}")
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.SAdd{key: key, members: members}) do
+        def handle_command(state, db, %Command.SAdd{key: key, members: members}) do
           IO.puts("SADD \#{key} \#{Enum.join(members, " ")}")
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.ZAdd{key: key, members: members}) do
+        def handle_command(state, db, %Command.ZAdd{key: key, members: members}) do
           pairs = Enum.map_join(members, " ", fn {score, member} -> "\#{score} \#{member}" end)
           IO.puts("ZADD \#{key} \#{pairs}")
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.HSet{key: key, fields: fields}) do
+        def handle_command(state, db, %Command.HSet{key: key, fields: fields}) do
           pairs = Enum.map_join(fields, " ", fn {field, value} -> "\#{field} \#{value}" end)
           IO.puts("HSET \#{key} \#{pairs}")
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.PExpireAt{key: key, timestamp_ms: timestamp_ms}) do
+        def handle_command(state, db, %Command.PExpireAt{key: key, timestamp_ms: timestamp_ms}) do
           IO.puts("PEXPIREAT \#{key} \#{timestamp_ms}")
           {:ok, state}
         end
@@ -691,7 +691,7 @@ defmodule Vdr.RDB do
 
   defp emit_pexpireat(callback_module, state, db_num, key, expire_ms) do
     command = %Command.PExpireAt{key: key, timestamp_ms: expire_ms}
-    callback_module.on_command(state, db_num, command)
+    callback_module.handle_command(state, db_num, command)
   end
 
   # Load an object based on its type
@@ -699,7 +699,7 @@ defmodule Vdr.RDB do
     {value, rest1} = load_string(rest)
     command = %Command.Set{key: key, value: value}
 
-    with {:ok, new_state} <- callback_module.on_command(state, db_num, command),
+    with {:ok, new_state} <- callback_module.handle_command(state, db_num, command),
          {:ok, final_state} <- emit_pexpireat(callback_module, new_state, db_num, key, expire_ms) do
       {:ok, final_state, rest1}
     end
@@ -860,7 +860,7 @@ defmodule Vdr.RDB do
     {values, rest1} = load_list_values(count, rest, [])
     command = %Command.RPush{key: key, values: values}
 
-    case callback_module.on_command(state, db_num, command) do
+    case callback_module.handle_command(state, db_num, command) do
       {:ok, new_state} ->
         {:ok, new_state, rest1}
 
@@ -881,7 +881,7 @@ defmodule Vdr.RDB do
     {members, rest1} = load_set_members(count, rest, [])
     command = %Command.SAdd{key: key, members: members}
 
-    case callback_module.on_command(state, db_num, command) do
+    case callback_module.handle_command(state, db_num, command) do
       {:ok, new_state} ->
         {:ok, new_state, rest1}
 
@@ -902,7 +902,7 @@ defmodule Vdr.RDB do
     {members, rest1} = load_zset_members_v1(count, rest, [])
     command = %Command.ZAdd{key: key, members: members}
 
-    case callback_module.on_command(state, db_num, command) do
+    case callback_module.handle_command(state, db_num, command) do
       {:ok, new_state} ->
         {:ok, new_state, rest1}
 
@@ -924,7 +924,7 @@ defmodule Vdr.RDB do
     {members, rest1} = load_zset_members_v2(count, rest, [])
     command = %Command.ZAdd{key: key, members: members}
 
-    case callback_module.on_command(state, db_num, command) do
+    case callback_module.handle_command(state, db_num, command) do
       {:ok, new_state} ->
         {:ok, new_state, rest1}
 
@@ -946,7 +946,7 @@ defmodule Vdr.RDB do
     {fields, rest1} = load_hash_fields(count, rest, [])
     command = %Command.HSet{key: key, fields: fields}
 
-    case callback_module.on_command(state, db_num, command) do
+    case callback_module.handle_command(state, db_num, command) do
       {:ok, new_state} ->
         {:ok, new_state, rest1}
 
@@ -1018,7 +1018,7 @@ defmodule Vdr.RDB do
   defp load_listpack_entries_as_list(entries, callback_module, state, db_num, key) do
     command = %Command.RPush{key: key, values: entries}
 
-    case callback_module.on_command(state, db_num, command) do
+    case callback_module.handle_command(state, db_num, command) do
       {:ok, new_state} ->
         {:ok, new_state}
 
@@ -1046,7 +1046,7 @@ defmodule Vdr.RDB do
     members = Enum.map(entries, &Integer.to_string/1)
     command = %Command.SAdd{key: key, members: members}
 
-    case callback_module.on_command(state, db_num, command) do
+    case callback_module.handle_command(state, db_num, command) do
       {:ok, new_state} ->
         {:ok, new_state, rest}
 
@@ -1073,7 +1073,7 @@ defmodule Vdr.RDB do
   defp load_listpack_entries_as_set(entries, callback_module, state, db_num, key, rest) do
     command = %Command.SAdd{key: key, members: entries}
 
-    case callback_module.on_command(state, db_num, command) do
+    case callback_module.handle_command(state, db_num, command) do
       {:ok, new_state} ->
         {:ok, new_state, rest}
 
@@ -1102,7 +1102,7 @@ defmodule Vdr.RDB do
       {:ok, fields} ->
         command = %Command.HSet{key: key, fields: fields}
 
-        case callback_module.on_command(state, db_num, command) do
+        case callback_module.handle_command(state, db_num, command) do
           {:ok, new_state} ->
             {:ok, new_state, rest}
 
@@ -1142,7 +1142,7 @@ defmodule Vdr.RDB do
       {:ok, fields} ->
         command = %Command.HSet{key: key, fields: fields}
 
-        case callback_module.on_command(state, db_num, command) do
+        case callback_module.handle_command(state, db_num, command) do
           {:ok, new_state} ->
             {:ok, new_state, rest}
 
@@ -1175,7 +1175,7 @@ defmodule Vdr.RDB do
       {:ok, members} ->
         command = %Command.ZAdd{key: key, members: members}
 
-        case callback_module.on_command(state, db_num, command) do
+        case callback_module.handle_command(state, db_num, command) do
           {:ok, new_state} ->
             {:ok, new_state, rest}
 
@@ -1216,7 +1216,7 @@ defmodule Vdr.RDB do
       {:ok, members} ->
         command = %Command.ZAdd{key: key, members: members}
 
-        case callback_module.on_command(state, db_num, command) do
+        case callback_module.handle_command(state, db_num, command) do
           {:ok, new_state} ->
             {:ok, new_state, rest}
 

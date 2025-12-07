@@ -1,17 +1,26 @@
-defmodule Vdr.ETSProj.Write.Strings do
+defmodule Vdr.MapProj.Strings do
   @moduledoc """
-  Write operations for Redis string store.
+  String store operations for MapProj.
 
-  Uses a shared ETS table to store key-value pairs with decoded values.
-  Each entry is stored as `{{db, decoded_key, :string, nil}, {original_value, decoded_value}}`.
+  Stores string values in a map structure with decoded values.
+  Each string is stored as `%String{raw: binary(), decoded: any()}`.
   """
 
   import Bitwise
 
-  defstruct [:tid, :decode_fun]
+  defmodule String do
+    @moduledoc false
+    defstruct [:raw, :decoded]
+
+    @type t :: %__MODULE__{
+            raw: binary(),
+            decoded: any()
+          }
+  end
+
+  defstruct [:decode_fun]
 
   @type t :: %__MODULE__{
-          tid: :ets.tid(),
           decode_fun: decode_fun()
         }
 
@@ -19,73 +28,88 @@ defmodule Vdr.ETSProj.Write.Strings do
   @type key :: any()
   @type value :: binary()
   @type decode_fun :: (key(), value() -> any())
+  @type store :: %{db() => %{key() => String.t()}}
   @type bitop ::
           :AND | :OR | :XOR | :NOT | :DIFF | :DIFF1 | :ANDOR | :ONE
 
   @doc """
-  Creates a new string store with the given ETS table and decode function.
+  Creates a new string store configuration with the given decode function.
   """
-  @spec new(:ets.tid(), decode_fun()) :: t()
-  def new(tid, decode_fun) when is_function(decode_fun, 2) do
-    %__MODULE__{tid: tid, decode_fun: decode_fun}
+  @spec new(decode_fun()) :: t()
+  def new(decode_fun) when is_function(decode_fun, 2) do
+    %__MODULE__{decode_fun: decode_fun}
   end
 
   @doc """
   Sets the value for a key in the specified database.
+  Returns the updated store.
   """
-  @spec set(t(), db(), key(), value()) :: :ok
-  def set(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, value)
+  @spec set(store(), t(), db(), key(), value()) :: store()
+  def set(store, %__MODULE__{decode_fun: decode_fun}, db, key, value)
       when is_binary(value) do
     decoded = decode_fun.(key, value)
-    :ets.insert(tid, {{db, key, :string, nil}, {value, decoded}})
-    :ok
+    string_entry = %String{raw: value, decoded: decoded}
+
+    db_map = Map.get(store, db, %{})
+    new_db_map = Map.put(db_map, key, string_entry)
+    Map.put(store, db, new_db_map)
   end
 
   @doc """
   Sets multiple key-value pairs at once.
+  Returns the updated store.
   """
-  @spec mset(t(), db(), [{key(), value()}]) :: :ok
-  def mset(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, pairs) do
-    entries =
-      Enum.map(pairs, fn {key, value} ->
+  @spec mset(store(), t(), db(), [{key(), value()}]) :: store()
+  def mset(store, %__MODULE__{decode_fun: decode_fun}, db, pairs) do
+    db_map = Map.get(store, db, %{})
+
+    new_db_map =
+      Enum.reduce(pairs, db_map, fn {key, value}, acc ->
         decoded = decode_fun.(key, value)
-        {{db, key, :string, nil}, {value, decoded}}
+        string_entry = %String{raw: value, decoded: decoded}
+        Map.put(acc, key, string_entry)
       end)
 
-    :ets.insert(tid, entries)
-    :ok
+    Map.put(store, db, new_db_map)
   end
 
   @doc """
   Appends data to the value at key.
   If the key doesn't exist, it's created with the data as value.
+  Returns the updated store.
   """
-  @spec append(t(), db(), key(), value()) :: :ok
-  def append(%__MODULE__{tid: tid, decode_fun: decode_fun} = store, db, key, data)
+  @spec append(store(), t(), db(), key(), value()) :: store()
+  def append(store, %__MODULE__{decode_fun: decode_fun} = config, db, key, data)
       when is_binary(data) do
-    case :ets.lookup(tid, {db, key, :string, nil}) do
-      [] ->
-        set(store, db, key, data)
+    db_map = Map.get(store, db, %{})
 
-      [{{^db, ^key, :string, nil}, {orig_value, _decoded}}] ->
+    case Map.get(db_map, key) do
+      nil ->
+        set(store, config, db, key, data)
+
+      %String{raw: orig_value} ->
         new_value = orig_value <> data
         new_decoded = decode_fun.(key, new_value)
-        :ets.insert(tid, {{db, key, :string, nil}, {new_value, new_decoded}})
-        :ok
+        string_entry = %String{raw: new_value, decoded: new_decoded}
+        new_db_map = Map.put(db_map, key, string_entry)
+        Map.put(store, db, new_db_map)
     end
   end
 
   @doc """
   Overwrites part of the string at key starting at the specified offset.
   Pads with zero bytes if needed.
+  Returns the updated store.
   """
-  @spec setrange(t(), db(), key(), non_neg_integer(), value()) :: :ok
-  def setrange(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, offset, value)
+  @spec setrange(store(), t(), db(), key(), non_neg_integer(), value()) :: store()
+  def setrange(store, %__MODULE__{decode_fun: decode_fun}, db, key, offset, value)
       when is_integer(offset) and offset >= 0 and is_binary(value) do
+    db_map = Map.get(store, db, %{})
+
     orig_value =
-      case :ets.lookup(tid, {db, key, :string, nil}) do
-        [] -> ""
-        [{{^db, ^key, :string, nil}, {val, _decoded}}] -> val
+      case Map.get(db_map, key) do
+        nil -> ""
+        %String{raw: val} -> val
       end
 
     # Pad with zero bytes if offset is beyond current length
@@ -111,21 +135,25 @@ defmodule Vdr.ETSProj.Write.Strings do
     new_value = prefix <> value <> suffix
 
     new_decoded = decode_fun.(key, new_value)
-    :ets.insert(tid, {{db, key, :string, nil}, {new_value, new_decoded}})
-    :ok
+    string_entry = %String{raw: new_value, decoded: new_decoded}
+    new_db_map = Map.put(db_map, key, string_entry)
+    Map.put(store, db, new_db_map)
   end
 
   @doc """
   Sets or clears the bit at the given offset.
   Bits are numbered from 0, with bit 0 being the most significant bit of the first byte.
+  Returns the updated store.
   """
-  @spec setbit(t(), db(), key(), non_neg_integer(), 0 | 1) :: :ok
-  def setbit(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, key, offset, bit)
+  @spec setbit(store(), t(), db(), key(), non_neg_integer(), 0 | 1) :: store()
+  def setbit(store, %__MODULE__{decode_fun: decode_fun}, db, key, offset, bit)
       when is_integer(offset) and offset >= 0 and bit in [0, 1] do
+    db_map = Map.get(store, db, %{})
+
     orig_value =
-      case :ets.lookup(tid, {db, key, :string, nil}) do
-        [] -> ""
-        [{{^db, ^key, :string, nil}, {val, _decoded}}] -> val
+      case Map.get(db_map, key) do
+        nil -> ""
+        %String{raw: val} -> val
       end
 
     byte_offset = div(offset, 8)
@@ -165,12 +193,14 @@ defmodule Vdr.ETSProj.Write.Strings do
     new_value = prefix <> <<new_byte>> <> suffix
 
     new_decoded = decode_fun.(key, new_value)
-    :ets.insert(tid, {{db, key, :string, nil}, {new_value, new_decoded}})
-    :ok
+    string_entry = %String{raw: new_value, decoded: new_decoded}
+    new_db_map = Map.put(db_map, key, string_entry)
+    Map.put(store, db, new_db_map)
   end
 
   @doc """
   Performs a bitwise operation on source keys and stores result in dest.
+  Returns the updated store.
 
   Supported operations:
   - `:AND` - Set bit if set in ALL source bitmaps
@@ -182,28 +212,32 @@ defmodule Vdr.ETSProj.Write.Strings do
   - `:ANDOR` - Set bit if set in X AND in any Y (X AND (Y1 OR Y2 OR ...))
   - `:ONE` - Set bit if set in EXACTLY one source bitmap
   """
-  @spec bitop(t(), bitop(), db(), key(), [key()]) :: :ok
-  def bitop(store, op, db, dest_key, source_keys)
+  @spec bitop(store(), t(), bitop(), db(), key(), [key()]) :: store()
+  def bitop(store, config, op, db, dest_key, source_keys)
 
-  def bitop(%__MODULE__{tid: tid} = store, :NOT, db, dest_key, [source_key]) do
+  def bitop(store, %__MODULE__{} = config, :NOT, db, dest_key, [source_key]) do
+    db_map = Map.get(store, db, %{})
+
     value =
-      case :ets.lookup(tid, {db, source_key, :string, nil}) do
-        [] -> ""
-        [{{^db, ^source_key, :string, nil}, {val, _decoded}}] -> val
+      case Map.get(db_map, source_key) do
+        nil -> ""
+        %String{raw: val} -> val
       end
 
     result = invert_binary(value)
-    store_result(store, db, dest_key, result)
+    store_result(store, config, db, dest_key, result)
   end
 
-  def bitop(%__MODULE__{tid: tid} = store, op, db, dest_key, source_keys)
+  def bitop(store, %__MODULE__{} = config, op, db, dest_key, source_keys)
       when is_list(source_keys) do
+    db_map = Map.get(store, db, %{})
+
     # Get all source values
     values =
       Enum.map(source_keys, fn key ->
-        case :ets.lookup(tid, {db, key, :string, nil}) do
-          [] -> ""
-          [{{^db, ^key, :string, nil}, {val, _decoded}}] -> val
+        case Map.get(db_map, key) do
+          nil -> ""
+          %String{raw: val} -> val
         end
       end)
 
@@ -229,16 +263,53 @@ defmodule Vdr.ETSProj.Write.Strings do
           apply_bitop(op, padded)
       end
 
-    store_result(store, db, dest_key, result)
+    store_result(store, config, db, dest_key, result)
+  end
+
+  @doc """
+  Gets the original (binary) value for a key.
+  Returns nil if the key doesn't exist.
+  """
+  @spec get(store(), db(), key()) :: value() | nil
+  def get(store, db, key) do
+    case Map.get(store, db) do
+      nil -> nil
+      db_map ->
+        case Map.get(db_map, key) do
+          nil -> nil
+          %String{raw: value} -> value
+          _ -> nil
+        end
+    end
+  end
+
+  @doc """
+  Gets the decoded value for a key.
+  Returns nil if the key doesn't exist.
+  """
+  @spec get_decoded(store(), db(), key()) :: any()
+  def get_decoded(store, db, key) do
+    case Map.get(store, db) do
+      nil -> nil
+      db_map ->
+        case Map.get(db_map, key) do
+          nil -> nil
+          %String{decoded: decoded} -> decoded
+          _ -> nil
+        end
+    end
   end
 
   # Private helpers
 
-  @spec store_result(t(), db(), key(), binary()) :: :ok
-  defp store_result(%__MODULE__{tid: tid, decode_fun: decode_fun}, db, dest_key, result) do
+  @spec store_result(store(), t(), db(), key(), binary()) :: store()
+  defp store_result(store, %__MODULE__{decode_fun: decode_fun}, db, dest_key, result) do
     decoded = decode_fun.(dest_key, result)
-    :ets.insert(tid, {{db, dest_key, :string, nil}, {result, decoded}})
-    :ok
+    string_entry = %String{raw: result, decoded: decoded}
+
+    db_map = Map.get(store, db, %{})
+    new_db_map = Map.put(db_map, dest_key, string_entry)
+    Map.put(store, db, new_db_map)
   end
 
   @spec apply_bitop(bitop(), [binary()]) :: binary()

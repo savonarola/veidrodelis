@@ -13,7 +13,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
     @behaviour Vdr.RedisStream.Callback
 
     @impl true
-    def on_command(state, db, command) do
+    def handle_command(state, db, command) do
       # Add command to the list with timestamp
       commands = Map.get(state, :commands, [])
       entry = {System.monotonic_time(), db, command}
@@ -22,7 +22,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
     end
 
     @impl true
-    def on_replication_start(state) do
+    def handle_replication_start(state) do
       # Mark that replication has started
       replication_starts = Map.get(state, :replication_starts, 0)
       new_state = Map.put(state, :replication_starts, replication_starts + 1)

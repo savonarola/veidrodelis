@@ -11,7 +11,7 @@ defmodule Veidrodelis.ReplicaTest do
     @behaviour Vdr.RedisStream.Callback
 
     @impl true
-    def on_command(state, db, command) do
+    def handle_command(state, db, command) do
       # Add command to the list with timestamp
       commands = Map.get(state, :commands, [])
       entry = {System.monotonic_time(), db, command}

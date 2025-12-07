@@ -19,12 +19,12 @@ defmodule Vdr.RedisStream.Replica do
         alias Vdr.Command
 
         @impl true
-        def on_command(state, db, %Command.Set{key: key, value: value}) do
+        def handle_command(state, db, %Command.Set{key: key, value: value}) do
           IO.puts("SET \#{key} = \#{value} in DB \#{db}")
           {:ok, Map.update(state, :count, 1, &(&1 + 1))}
         end
 
-        def on_command(state, _db, _command) do
+        def handle_command(state, _db, _command) do
           {:ok, Map.update(state, :count, 1, &(&1 + 1))}
         end
       end
@@ -177,6 +177,33 @@ defmodule Vdr.RedisStream.Replica do
     GenServer.call(server, :get_replication_state)
   end
 
+  @doc """
+  Make a synchronous call to the replica's callback module.
+
+  This will invoke the callback module's `handle_call/2` function with the provided
+  message, allowing you to query or interact with the callback state.
+
+  The call will only succeed if the replica is in a valid state (after replication
+  has started but before termination). If called during initialization or after
+  disconnection, it will return `{:error, :not_connected}`.
+
+  ## Parameters
+
+    * `server` - The replica GenServer PID or name
+    * `message` - The message to pass to the callback's `handle_call/2`
+
+  ## Returns
+
+    * `{:ok, reply}` - Success with reply from callback
+    * `{:error, :not_implemented}` - Callback doesn't implement `handle_call/2`
+    * `{:error, :not_connected}` - Replica not in valid state
+    * `{:error, reason}` - Other error from callback
+  """
+  @spec call(GenServer.server(), term()) :: {:ok, term()} | {:error, term()}
+  def call(server, message) do
+    GenServer.call(server, {:callback_call, message})
+  end
+
   # Server callbacks
 
   @impl true
@@ -266,6 +293,30 @@ defmodule Vdr.RedisStream.Replica do
     {:reply, state.state, state}
   end
 
+  def handle_call({:callback_call, message}, _from, state) do
+    # Only allow calls when replica is in a valid state (after replication start)
+    # Valid states are :rdb_transfer and :streaming
+    if state.state in [:rdb_transfer, :streaming] do
+      # Check if callback implements handle_call
+      if function_exported?(state.callback_module, :handle_call, 2) do
+        case state.callback_module.handle_call(state.callback_state, message) do
+          {:reply, reply, new_callback_state} ->
+            {:reply, {:ok, reply}, %{state | callback_state: new_callback_state}}
+
+          {:noreply, new_callback_state} ->
+            {:noreply, %{state | callback_state: new_callback_state}}
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
+      else
+        {:reply, {:error, :not_implemented}, state}
+      end
+    else
+      {:reply, {:error, :not_connected}, state}
+    end
+  end
+
   @impl true
   def handle_info({:tcp, socket, data}, %{socket: socket} = state) do
     handle_data(data, state)
@@ -328,14 +379,14 @@ defmodule Vdr.RedisStream.Replica do
     # Cancel ACK timer
     cancel_ack_timer(state)
 
-    # Call on_destroy callback if implemented
-    if function_exported?(state.callback_module, :on_destroy, 1) do
-      case state.callback_module.on_destroy(state.callback_state) do
+    # Call handle_destroy callback if implemented
+    if function_exported?(state.callback_module, :handle_destroy, 1) do
+      case state.callback_module.handle_destroy(state.callback_state) do
         :ok ->
-          Logger.debug("on_destroy callback succeeded")
+          Logger.debug("handle_destroy callback succeeded")
 
         {:error, reason} ->
-          Logger.error("on_destroy callback failed: #{inspect(reason)}")
+          Logger.error("handle_destroy callback failed: #{inspect(reason)}")
       end
     end
 
@@ -676,16 +727,16 @@ defmodule Vdr.RedisStream.Replica do
       {:ok, :fullresync, replication_id, offset, new_state} ->
         Logger.info("PSYNC: FULLRESYNC #{replication_id} #{offset}")
 
-        # Call on_replication_start callback if implemented
+        # Call handle_replication_start callback if implemented
         callback_state_update_result =
-          if function_exported?(state.callback_module, :on_replication_start, 1) do
-            case state.callback_module.on_replication_start(state.callback_state) do
+          if function_exported?(state.callback_module, :handle_replication_start, 1) do
+            case state.callback_module.handle_replication_start(state.callback_state) do
               {:ok, new_callback_state} ->
-                Logger.debug("on_replication_start callback succeeded")
+                Logger.debug("handle_replication_start callback succeeded")
                 {:ok, new_callback_state}
 
               {:error, reason} ->
-                Logger.error("on_replication_start callback failed: #{inspect(reason)}")
+                Logger.error("handle_replication_start callback failed: #{inspect(reason)}")
                 {:error, reason}
             end
           else
@@ -710,7 +761,7 @@ defmodule Vdr.RedisStream.Replica do
             handle_rdb_data(new_state)
 
           {:error, reason} ->
-            {:stop, {:on_replication_start_failed, reason}, new_state}
+            {:stop, {:handle_replication_start_failed, reason}, new_state}
         end
 
       {:ok, :continue, new_state} ->
@@ -894,7 +945,7 @@ defmodule Vdr.RedisStream.Replica do
     Logger.debug("Processing command: #{inspect(command)}")
 
     # Invoke callback with the parsed command
-    case state.callback_module.on_command(state.callback_state, state.current_db, command) do
+    case state.callback_module.handle_command(state.callback_state, state.current_db, command) do
       {:ok, new_callback_state} ->
         %{state | callback_state: new_callback_state}
 

@@ -25,32 +25,32 @@ defmodule Vdr.RedisStream.Callback do
         alias Vdr.Command
 
         @impl true
-        def on_command(state, db, %Command.Set{key: key, value: value}) do
+        def handle_command(state, db, %Command.Set{key: key, value: value}) do
           IO.puts("SET \#{key} = \#{value} in DB \#{db}")
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.RPush{key: key, value: value}) do
+        def handle_command(state, db, %Command.RPush{key: key, value: value}) do
           IO.puts("RPUSH \#{key} \#{value} in DB \#{db}")
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.SAdd{key: key, member: member}) do
+        def handle_command(state, db, %Command.SAdd{key: key, member: member}) do
           IO.puts("SADD \#{key} \#{member} in DB \#{db}")
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.ZAdd{key: key, score: score, member: member}) do
+        def handle_command(state, db, %Command.ZAdd{key: key, score: score, member: member}) do
           IO.puts("ZADD \#{key} \#{score} \#{member} in DB \#{db}")
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.HSet{key: key, field: field, value: value}) do
+        def handle_command(state, db, %Command.HSet{key: key, field: field, value: value}) do
           IO.puts("HSET \#{key} \#{field} \#{value} in DB \#{db}")
           {:ok, state}
         end
 
-        def on_command(state, db, %Command.PExpireAt{key: key, timestamp_ms: timestamp_ms}) do
+        def handle_command(state, db, %Command.PExpireAt{key: key, timestamp_ms: timestamp_ms}) do
           IO.puts("PEXPIREAT \#{key} \#{timestamp_ms} in DB \#{db}")
           {:ok, state}
         end
@@ -83,7 +83,7 @@ defmodule Vdr.RedisStream.Callback do
   This callback is optional. If not implemented, replication will proceed with
   the existing state.
   """
-  @callback on_replication_start(state :: term()) :: {:ok, term()} | {:error, term()}
+  @callback handle_replication_start(state :: term()) :: {:ok, term()} | {:error, term()}
 
   @doc """
   Called when a Redis command is parsed from the RDB file.
@@ -99,12 +99,37 @@ defmodule Vdr.RedisStream.Callback do
     * `{:ok, new_state}` - Continue parsing with new state
     * `{:error, reason}` - Halt parsing with error
   """
-  @callback on_command(
+  @callback handle_command(
               state :: term(),
               db :: non_neg_integer(),
               command :: Command.t()
             ) ::
               {:ok, term()} | {:error, term()}
+
+  @doc """
+  Called when a synchronous call is made to the replica via `Replica.call/2`.
+
+  This callback allows your application to respond to custom synchronous queries
+  or commands. It is invoked in the replica's GenServer context, only when the
+  replica is in a valid state (after replication start and before destroy).
+
+  ## Parameters
+
+    * `state` - Current state
+    * `message` - The message passed to `Replica.call/2`
+
+  ## Returns
+
+    * `{:reply, reply, new_state}` - Reply to the caller with `reply` and update state
+    * `{:noreply, new_state}` - Don't reply (caller will timeout)
+    * `{:error, reason}` - Return error to caller
+
+  ## Optional
+
+  This callback is optional. If not implemented, calls will return `{:error, :not_implemented}`.
+  """
+  @callback handle_call(state :: term(), message :: term()) ::
+              {:reply, term(), term()} | {:noreply, term()} | {:error, term()}
 
   @doc """
   Called when the replication connection is being terminated.
@@ -126,7 +151,7 @@ defmodule Vdr.RedisStream.Callback do
   This callback is optional. If not implemented, termination will proceed without
   additional cleanup.
   """
-  @callback on_destroy(state :: term()) :: :ok | {:error, term()}
+  @callback handle_destroy(state :: term()) :: :ok | {:error, term()}
 
-  @optional_callbacks on_replication_start: 1, on_destroy: 1
+  @optional_callbacks handle_replication_start: 1, handle_destroy: 1, handle_call: 2
 end

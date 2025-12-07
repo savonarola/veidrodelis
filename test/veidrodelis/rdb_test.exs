@@ -11,40 +11,40 @@ defmodule Vdr.RDBTest do
 
   # Callback implementation that collects all parsed commands
   @impl true
-  def on_command(state, db, %Command.Set{key: key, value: value}) do
+  def handle_command(state, db, %Command.Set{key: key, value: value}) do
     strings = Map.get(state, :strings, [])
     {:ok, Map.put(state, :strings, [{db, key, value} | strings])}
   end
 
-  def on_command(state, db, %Command.RPush{key: key, values: values}) do
+  def handle_command(state, db, %Command.RPush{key: key, values: values}) do
     lists = Map.get(state, :lists, [])
     # Expand each value into a separate entry
     new_entries = Enum.map(values, fn value -> {db, key, value} end)
     {:ok, Map.put(state, :lists, new_entries ++ lists)}
   end
 
-  def on_command(state, db, %Command.SAdd{key: key, members: members}) do
+  def handle_command(state, db, %Command.SAdd{key: key, members: members}) do
     sets = Map.get(state, :sets, [])
     # Expand each member into a separate entry
     new_entries = Enum.map(members, fn member -> {db, key, member} end)
     {:ok, Map.put(state, :sets, new_entries ++ sets)}
   end
 
-  def on_command(state, db, %Command.ZAdd{key: key, members: members}) do
+  def handle_command(state, db, %Command.ZAdd{key: key, members: members}) do
     zsets = Map.get(state, :zsets, [])
     # Expand each score/member pair into a separate entry
     new_entries = Enum.map(members, fn {score, member} -> {db, key, member, score} end)
     {:ok, Map.put(state, :zsets, new_entries ++ zsets)}
   end
 
-  def on_command(state, db, %Command.HSet{key: key, fields: fields}) do
+  def handle_command(state, db, %Command.HSet{key: key, fields: fields}) do
     hashes = Map.get(state, :hashes, [])
     # Expand each field/value pair into a separate entry
     new_entries = Enum.map(fields, fn {field, value} -> {db, key, field, value} end)
     {:ok, Map.put(state, :hashes, new_entries ++ hashes)}
   end
 
-  def on_command(state, _db, %Command.PExpireAt{}) do
+  def handle_command(state, _db, %Command.PExpireAt{}) do
     # For testing, we just ignore expire commands
     {:ok, state}
   end

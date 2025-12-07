@@ -129,8 +129,8 @@ defmodule Mix.Tasks.Benchmark do
 
     # Setup
     {:ok, redis_conn} = setup_redis()
-    :ok = setup_veidrodelis()
-    {:ok, _tracker_pid} = setup_lag_tracker(redis_conn)
+    {:ok, vdr_pid} = setup_veidrodelis()
+    {:ok, _tracker_pid} = setup_lag_tracker(redis_conn, vdr_pid)
 
     # Run scenarios
     _results =
@@ -142,7 +142,7 @@ defmodule Mix.Tasks.Benchmark do
     Mix.shell().info("")
 
     # Cleanup
-    cleanup(redis_conn)
+    cleanup(redis_conn, vdr_pid)
 
     # Report
     Mix.shell().info("")
@@ -193,11 +193,11 @@ defmodule Mix.Tasks.Benchmark do
            host: @redis_host,
            port: @redis_port
          ) do
-      {:ok, _pid} ->
+      {:ok, pid} ->
         # Wait for replication to start
-        wait_for_replication(@vdr_id)
+        wait_for_replication(pid)
         Mix.shell().info("Veidrodelis replica started")
-        :ok
+        {:ok, pid}
 
       {:error, reason} ->
         Mix.shell().error("Error: Failed to start Veidrodelis: #{inspect(reason)}")
@@ -205,39 +205,28 @@ defmodule Mix.Tasks.Benchmark do
     end
   end
 
-  defp wait_for_replication(id, attempts \\ 0) do
+  defp wait_for_replication(pid, attempts \\ 0) do
     if attempts > 50 do
       Mix.shell().error("Error: Veidrodelis did not enter streaming state")
       exit({:shutdown, 1})
     end
 
-    try do
-      # Get the replica PID from the registry
-      replica_pid = Veidrodelis.replica_pid(id)
+    case Veidrodelis.get_replication_state(pid) do
+      :streaming ->
+        :ok
 
-      case Veidrodelis.get_replication_state(replica_pid) do
-        :streaming ->
-          :ok
-
-        state ->
-          Mix.shell().info("  Replication state: #{state}")
-          Process.sleep(100)
-          wait_for_replication(id, attempts + 1)
-      end
-    rescue
-      ArgumentError ->
-        # Registry not yet initialized, wait and retry
-        Mix.shell().info("  Waiting for replica to initialize...")
+      state ->
+        Mix.shell().info("  Replication state: #{state}")
         Process.sleep(100)
-        wait_for_replication(id, attempts + 1)
+        wait_for_replication(pid, attempts + 1)
     end
   end
 
-  defp setup_lag_tracker(redis_conn) do
+  defp setup_lag_tracker(redis_conn, vdr_pid) do
     Mix.shell().info("Starting lag tracker...")
 
     case LagTracker.start_link(
-           vdr_id: @vdr_id,
+           vdr_pid: vdr_pid,
            tracker_key: "lagmon",
            redis_conn: redis_conn,
            timestamp_interval_ms: 1000
@@ -271,12 +260,11 @@ defmodule Mix.Tasks.Benchmark do
     result
   end
 
-  defp cleanup(redis_conn) do
+  defp cleanup(redis_conn, vdr_pid) do
     Mix.shell().info("")
     Mix.shell().info("Cleaning up...")
     Redix.stop(redis_conn)
-    replica_pid = Veidrodelis.replica_pid(@vdr_id)
-    Veidrodelis.stop(replica_pid)
+    Veidrodelis.stop(vdr_pid)
     Mix.shell().info("Cleanup complete")
   end
 end
