@@ -1,0 +1,27 @@
+defmodule Vdr.RedisParser do
+  @moduledoc """
+  Native Redis parser implementation using Rustler NIFs.
+
+  This module provides the low-level NIF interface for Redis parsing.
+  Most users should use Vdr.RDB instead of calling these functions directly.
+  """
+
+  use Rustler,
+    otp_app: :veidrodelis,
+    crate: :vdr_nif,
+    mode: if(Mix.env() == :prod, do: :release, else: :debug)
+
+  # Internal LZF compression/decompression (used by Rust, not exposed to Elixir)
+  @doc false
+  def compress(_data), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  def decompress(_compressed_data, _uncompressed_size), do: :erlang.nif_error(:nif_not_loaded)
+
+  # RDB Parser NIFs
+  @doc false
+  def create(), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  def data(_parser, _chunk), do: :erlang.nif_error(:nif_not_loaded)
+end

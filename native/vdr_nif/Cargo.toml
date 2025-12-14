@@ -10,6 +10,7 @@ crate-type = ["cdylib"]
 [dependencies]
 rustler = "0.36"
 libc = "0.2"
+bytes = "1.5"
 
 [build-dependencies]
 cc = "1.0"

@@ -122,6 +122,7 @@ defmodule Vdr.MapProj do
 
   @impl Vdr.RedisStream.Callback
   def handle_command(%__MODULE__{} = state, db, command) do
+    dbg(command)
     new_store = do_handle_command(state, db, command)
     {:ok, %{state | store: new_store}}
   end

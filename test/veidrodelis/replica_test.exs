@@ -317,9 +317,14 @@ defmodule Veidrodelis.ReplicaTest do
     end
 
     test "receives PEXPIREAT commands for expiring keys", %{redis: redis} do
-      # Set a key with expiration
+      # Set multiple keys including one with expiration
+      Redix.command!(redis, ["SET", "normalkey", "normal"])
       Redix.command!(redis, ["SET", "expirekey", "value"])
       Redix.command!(redis, ["PEXPIREAT", "expirekey", "9999999999000"])
+      Redix.command!(redis, ["SET", "anotherkey", "another"])
+
+      # Give Redis a moment to persist the data
+      Process.sleep(50)
 
       opts = [
         host: @redis_host,

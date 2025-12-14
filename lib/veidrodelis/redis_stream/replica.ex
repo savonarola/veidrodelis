@@ -754,7 +754,7 @@ defmodule Vdr.RedisStream.Replica do
             }
 
             # Create RDB parser
-            rdb_parser = RDB.create(state.callback_module, new_state.callback_state)
+            rdb_parser = RDB.create()
             new_state = %{new_state | rdb_parser: rdb_parser}
 
             # Start parsing RDB data
@@ -829,52 +829,68 @@ defmodule Vdr.RedisStream.Replica do
         # Extract bytes_to_feed from buffer
         {chunk, new_state} = consume_bytes(state, bytes_to_feed)
 
+
         # Feed to RDB parser
         case RDB.data(state.rdb_parser, chunk) do
-          {:ok, rdb_parser} ->
+          {:ok, commands} when is_list(commands) ->
+            # Parsing finished (2-tuple), process final commands
             new_bytes_read = state.rdb_bytes_read + bytes_to_feed
 
-            new_state = %{
-              new_state
-              | rdb_parser: rdb_parser,
-                rdb_bytes_read: new_bytes_read
-            }
+            # Process commands through callback
+            case process_rdb_commands(commands, new_state) do
+              {:ok, new_state_with_commands} ->
+                Logger.info(
+                  "RDB transfer complete (#{new_bytes_read} bytes), switching to streaming mode"
+                )
 
-            # Check if RDB transfer is complete
-            if new_bytes_read >= state.rdb_bulk_size do
-              # RDB transfer complete, finalize
-              case RDB.finish(rdb_parser) do
-                {:ok, callback_state} ->
-                  Logger.info(
-                    "RDB transfer complete (#{new_bytes_read} bytes), switching to streaming mode"
-                  )
+                new_state = %{
+                  new_state_with_commands
+                  | rdb_parser: nil,
+                    rdb_bulk_size: nil,
+                    rdb_bytes_read: 0,
+                    state: :streaming
+                }
 
-                  new_state = %{
-                    new_state
-                    | rdb_parser: nil,
-                      callback_state: callback_state,
-                      rdb_bulk_size: nil,
-                      rdb_bytes_read: 0,
-                      state: :streaming
-                  }
+                # Start periodic ACK timer
+                new_state = schedule_periodic_ack(new_state)
 
-                  # Start periodic ACK timer
-                  new_state = schedule_periodic_ack(new_state)
+                # Process any command stream data that's already in the buffer
+                if new_state.buffer_size > 0 do
+                  handle_command_stream(new_state)
+                else
+                  {:noreply, new_state}
+                end
 
-                  # Process any command stream data that's already in the buffer
-                  if new_state.buffer_size > 0 do
-                    handle_command_stream(new_state)
-                  else
-                    {:noreply, new_state}
-                  end
+              {:error, reason} ->
+                {:stop, {:rdb_callback_failed, reason}, new_state}
+            end
 
-                {:error, :incomplete_rdb} ->
-                  # This shouldn't happen if we've read all bytes
-                  {:stop, {:rdb_incomplete, new_bytes_read, state.rdb_bulk_size}, new_state}
-              end
-            else
-              # More RDB data to come
-              {:noreply, new_state}
+          {:ok, commands, rdb_parser} ->
+            # Parsing continues (3-tuple)
+            new_bytes_read = state.rdb_bytes_read + bytes_to_feed
+
+            # Process commands through callback
+            case process_rdb_commands(commands, new_state) do
+              {:ok, new_state_with_commands} ->
+                new_state = %{
+                  new_state_with_commands
+                  | rdb_parser: rdb_parser,
+                    rdb_bytes_read: new_bytes_read
+                }
+
+                # Check if we've unexpectedly read all RDB bytes without EOF
+                if new_bytes_read >= state.rdb_bulk_size do
+                  {:stop,
+                   {:rdb_parse_error,
+                    "Read all RDB bytes (#{new_bytes_read}) but parser hasn't signaled EOF - invalid RDB format or parser bug"},
+                   new_state}
+                else
+                  # More RDB data expected
+                  {:noreply, new_state}
+                end
+
+              {:error, reason} ->
+                {:stop, {:rdb_callback_failed, reason}, new_state}
             end
 
           {:error, reason} ->
@@ -885,8 +901,12 @@ defmodule Vdr.RedisStream.Replica do
         {:noreply, state}
       end
     else
-      # Should not reach here
-      {:noreply, state}
+      # bytes_remaining <= 0 but we're still in rdb_transfer state
+      # This means we consumed all RDB bytes but never got EOF (2-tuple)
+      {:stop,
+       {:rdb_parse_error,
+        "RDB transfer incomplete: consumed all #{state.rdb_bulk_size} bytes but parser never signaled EOF"},
+       state}
     end
   end
 
@@ -952,6 +972,24 @@ defmodule Vdr.RedisStream.Replica do
       {:error, reason} ->
         Logger.error("Callback error: #{inspect(reason)}")
         state
+    end
+  end
+
+  # Process RDB commands (already parsed Command structs) through callback
+  defp process_rdb_commands([], state), do: {:ok, state}
+
+  defp process_rdb_commands([{db, command} | rest], state) do
+    Logger.debug("Processing RDB command: #{inspect(command)} in DB #{db}")
+
+    # Invoke callback with the parsed command and database number
+    case state.callback_module.handle_command(state.callback_state, db, command) do
+      {:ok, new_callback_state} ->
+        new_state = %{state | callback_state: new_callback_state}
+        process_rdb_commands(rest, new_state)
+
+      {:error, reason} ->
+        Logger.error("RDB callback error: #{inspect(reason)}")
+        {:error, reason}
     end
   end
 
