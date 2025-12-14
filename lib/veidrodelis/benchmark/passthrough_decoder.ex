@@ -32,8 +32,8 @@ defmodule Vdr.Benchmark.PassthroughDecoder do
   @impl true
   def decode_list_entry("lagmon", entry) do
     Logger.debug("decode_list_entry lagmon: #{inspect(entry)}")
-    # For lagmon key, decode as {received_timestamp, sent_timestamp}
-    received_ts = System.system_time(:millisecond)
+    # For lagmon key, decode as {received_timestamp, sent_timestamp} in microseconds
+    received_ts = System.system_time(:microsecond)
     sent_ts = String.to_integer(entry)
     {received_ts, sent_ts}
   end

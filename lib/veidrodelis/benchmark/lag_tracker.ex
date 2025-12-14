@@ -38,7 +38,7 @@ defmodule Vdr.Benchmark.LagTracker do
 
   @doc """
   Gets all collected lag samples.
-  Returns a list of {relative_time_ms, lag_ms} tuples.
+  Returns a list of {relative_time_us, lag_us} tuples in microseconds.
   """
   def get_lag_samples do
     GenServer.call(__MODULE__, :get_lag_samples)
@@ -61,7 +61,7 @@ defmodule Vdr.Benchmark.LagTracker do
     state = %__MODULE__{
       vdr_pid: vdr_pid,
       tracker_key: tracker_key,
-      start_time: System.monotonic_time(:millisecond),
+      start_time: System.monotonic_time(:microsecond),
       redis_conn: redis_conn,
       timestamp_interval_ms: timestamp_interval_ms
     }
@@ -82,7 +82,7 @@ defmodule Vdr.Benchmark.LagTracker do
   def handle_call(:reset, _from, state) do
     new_state = %{
       state
-      | start_time: System.monotonic_time(:millisecond)
+      | start_time: System.monotonic_time(:microsecond)
     }
 
     # Clear the timestamp key in Redis
@@ -103,15 +103,15 @@ defmodule Vdr.Benchmark.LagTracker do
   end
 
   defp inject_timestamp(state) do
-    # Use system_time (wall clock) for measuring actual lag
-    timestamp_ms = System.system_time(:millisecond)
+    # Use system_time (wall clock) for measuring actual lag in microseconds
+    timestamp_us = System.system_time(:microsecond)
 
     try do
       # Push timestamp to lagmon list
       res = Redix.command!(state.redis_conn, [
         "LPUSH",
         state.tracker_key,
-        Integer.to_string(timestamp_ms)
+        Integer.to_string(timestamp_us)
       ])
       Logger.debug("inject_timestamp LPUSH result: #{inspect(res)}")
     rescue
@@ -137,8 +137,8 @@ defmodule Vdr.Benchmark.LagTracker do
           [{_, start_time} | _] = decoded_entries
           decoded_entries
           |> Enum.map(fn {received_ts_system, sent_ts_system} ->
-            lag_ms = received_ts_system - sent_ts_system
-            {sent_ts_system - start_time, lag_ms}
+            lag_us = received_ts_system - sent_ts_system
+            {sent_ts_system - start_time, lag_us}
           end)
       end
     rescue
