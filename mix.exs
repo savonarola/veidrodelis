@@ -9,10 +9,7 @@ defmodule Veidrodelis.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       erlc_paths: ["src"],
-      compilers: [:elixir_make] ++ Mix.compilers(),
-      make_targets: ["all"],
-      make_clean: ["clean"],
-      # Include Erlang source files
+      compilers: Mix.compilers(),
       erlc_options: [:debug_info],
       elixirc_paths: elixirc_paths(Mix.env())
     ]
@@ -30,7 +27,7 @@ defmodule Veidrodelis.MixProject do
 
   defp deps do
     [
-      {:elixir_make, "~> 0.6", runtime: false},
+      {:rustler, "~> 0.36", runtime: false},
       {:redix, "~> 1.5", only: [:dev, :test]},
       {:req, "~> 0.5", only: :test}
     ]

@@ -10,6 +10,10 @@ deps/
 *.dylib
 *.dll
 
+# Rust NIF artifacts
+/native/*/target/
+Cargo.lock
+
 # Crash dumps
 erl_crash.dump
 
