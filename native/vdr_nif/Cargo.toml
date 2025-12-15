@@ -8,7 +8,7 @@ name = "vdr_nif"
 crate-type = ["cdylib"]
 
 [dependencies]
-rustler = "0.36"
+rustler = "0.37.2"
 libc = "0.2"
 bytes = "1.5"
 

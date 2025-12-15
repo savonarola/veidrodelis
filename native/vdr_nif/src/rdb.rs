@@ -1,5 +1,7 @@
-use rustler::{Binary, Encoder, Env, NewBinary, ResourceArc, Term};
+use rustler::{Binary, Encoder, Env, LocalPid, NewBinary, Resource, ResourceArc, Term};
 use bytes::{Buf, BufMut, BytesMut};
+use std::cell::RefCell;
+use std::panic::{RefUnwindSafe, UnwindSafe};
 
 use crate::atoms;
 
@@ -62,8 +64,7 @@ enum ParseState {
     Finished,
 }
 
-#[derive(Clone)]
-pub struct RDBParser {
+struct ParserState {
     buffer: BytesMut,
     parse_state: ParseState,
     current_db: u32,
@@ -72,31 +73,51 @@ pub struct RDBParser {
     saved_key: Vec<u8>, // Temporary storage for key when parsing value
 }
 
+pub struct RDBParser {
+    pid: LocalPid,
+    state: RefCell<ParserState>,
+}
+
+// SAFETY: RDBParser is only accessed by a single Erlang process (checked via pid)
+// and will never be used concurrently, so it's safe to implement Send and Sync
+unsafe impl Send for RDBParser {}
+unsafe impl Sync for RDBParser {}
+impl RefUnwindSafe for RDBParser {}
+impl UnwindSafe for RDBParser {}
+
+#[rustler::resource_impl(register = false)]
+impl Resource for RDBParser {}
+
 impl RDBParser {
-    fn new() -> Self {
+    fn new(pid: LocalPid) -> Self {
         RDBParser {
-            buffer: BytesMut::new(),
-            parse_state: ParseState::Magic(0),
-            current_db: 0,
-            expire_ms: None,
-            finished: false,
-            saved_key: Vec::new(),
+            pid,
+            state: RefCell::new(ParserState {
+                buffer: BytesMut::new(),
+                parse_state: ParseState::Magic(0),
+                current_db: 0,
+                expire_ms: None,
+                finished: false,
+                saved_key: Vec::new(),
+            }),
         }
     }
 
-    fn feed_data(&mut self, data: &[u8]) -> Result<Vec<RawCommand>, String> {
-        if self.finished {
+    fn feed_data(&self, data: &[u8]) -> Result<Vec<RawCommand>, String> {
+        let mut state = self.state.borrow_mut();
+
+        if state.finished {
             return Err("already_finished".to_string());
         }
 
         // Append data to buffer
-        self.buffer.put_slice(data);
+        state.buffer.put_slice(data);
 
         // Parse and collect commands
         let mut commands = Vec::new();
 
         loop {
-            match self.parse_next()? {
+            match state.parse_next()? {
                 Some(mut cmds) => commands.append(&mut cmds),
                 None => break,  // Need more data
             }
@@ -104,7 +125,9 @@ impl RDBParser {
 
         Ok(commands)
     }
+}
 
+impl ParserState {
     fn parse_next(&mut self) -> Result<Option<Vec<RawCommand>>, String> {
         match self.parse_state {
             ParseState::Magic(pos) => self.parse_magic(pos),
@@ -1512,8 +1535,8 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
 // NIFs
 
 #[rustler::nif(name = "create")]
-fn create_parser() -> ResourceArc<RDBParser> {
-    ResourceArc::new(RDBParser::new())
+fn create_parser(env: Env) -> ResourceArc<RDBParser> {
+    ResourceArc::new(RDBParser::new(env.pid()))
 }
 
 #[rustler::nif(name = "data")]
@@ -1522,9 +1545,11 @@ fn feed_data<'a>(
     parser: ResourceArc<RDBParser>,
     data: Binary,
 ) -> Term<'a> {
-    let mut parser_clone = (*parser).clone();
+    if parser.pid != env.pid() {
+        return (atoms::error(), "parser_not_owned".to_string()).encode(env);
+    }
 
-    match parser_clone.feed_data(data.as_slice()) {
+    match parser.feed_data(data.as_slice()) {
         Ok(commands) => {
             // Convert RawCommand to Elixir terms: {db, name, [args...]}
             let result: Vec<Term<'a>> = commands.iter()
@@ -1547,25 +1572,22 @@ fn feed_data<'a>(
                 })
                 .collect();
 
-            // Check if finished before moving
-            let finished = parser_clone.finished;
+            // Check if finished
+            let finished = parser.state.borrow().finished;
 
             if finished {
                 // Return {:ok, commands} - finished parsing
                 (atoms::ok(), result).encode(env)
             } else {
                 // Return {:ok, commands, parser} - more data needed
-                let new_parser = ResourceArc::new(parser_clone);
-                (atoms::ok(), result, new_parser).encode(env)
+                // Parser has been mutated in place, just return the same resource
+                (atoms::ok(), result, parser).encode(env)
             }
         }
         Err(e) => (atoms::error(), e).encode(env),
     }
 }
 
-#[allow(unused_must_use)]
-#[allow(non_local_definitions)]
 pub fn load(env: Env) -> bool {
-    rustler::resource!(RDBParser, env);
-    true
+    env.register::<RDBParser>().is_ok()
 }
