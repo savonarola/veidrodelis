@@ -32,7 +32,6 @@ defmodule Veidrodelis do
 
       # Start a Veidrodelis instance
       {:ok, pid} = Veidrodelis.start_link(
-        id: :my_instance,
         decoder: MyDecoder,
         host: "localhost",
         port: 6379
@@ -44,7 +43,6 @@ defmodule Veidrodelis do
       members = Veidrodelis.smembers(pid, 0, "myset")
   """
 
-  @type id :: term()
   @type key :: binary()
   @type value :: binary()
   @type db :: non_neg_integer()
@@ -111,7 +109,6 @@ defmodule Veidrodelis do
 
   ## Options
 
-    * `:id` - Required. Unique identifier for this Veidrodelis instance
     * `:decoder` - Required. Module implementing the Veidrodelis decoder behaviour
     * `:host` - Redis host (default: "localhost")
     * `:port` - Redis port (default: 6379)
@@ -131,7 +128,6 @@ defmodule Veidrodelis do
   ## Example
 
       opts = [
-        id: :my_instance,
         decoder: MyDecoder,
         host: "localhost",
         port: 6379

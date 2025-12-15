@@ -5,9 +5,7 @@ defmodule Vdr.Application do
 
   @impl true
   def start(_type, _args) do
-    children = [
-      Vdr.Registry
-    ]
+    children = []
 
     opts = [strategy: :one_for_one, name: Vdr.Application.Supervisor]
     Supervisor.start_link(children, opts)

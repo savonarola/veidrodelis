@@ -48,7 +48,7 @@ defmodule VeidrodelisTest do
     port: @redis_port
   ]
 
-  def veidrodelis_opts(opts) do
+  def veidrodelis_opts(opts \\ []) do
     @veidrodelis_base_opts ++ opts
   end
 
@@ -75,9 +75,7 @@ defmodule VeidrodelisTest do
       Redix.command!(redis, ["SET", "key2", "value2"])
 
       # Start Veidrodelis instance with custom decoder
-      instance_id = :"test_strings_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
       assert_happens_within 2000 do
@@ -133,9 +131,7 @@ defmodule VeidrodelisTest do
       Redix.command!(redis, ["RPUSH", "mylist", "item1", "item2", "item3"])
 
       # Start Veidrodelis instance with custom decoder
-      instance_id = :"test_lists_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
       assert_happens_within 2000 do
@@ -163,9 +159,7 @@ defmodule VeidrodelisTest do
       Redix.command!(redis, ["HSET", "myhash", "field1", "value1", "field2", "value2"])
 
       # Start Veidrodelis instance with custom decoder
-      instance_id = :"test_hashes_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
       assert_happens_within 2000 do
@@ -199,9 +193,7 @@ defmodule VeidrodelisTest do
       ])
 
       # Start Veidrodelis instance with custom decoder
-      instance_id = :"test_zsets_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
       assert_happens_within 2000 do
@@ -228,9 +220,7 @@ defmodule VeidrodelisTest do
 
     test "processes streaming commands with decoder", %{redis: redis} do
       # Start Veidrodelis FIRST (before writing data)
-      instance_id = :"test_streaming_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication to start
       assert_happens_within 2000 do
@@ -260,8 +250,7 @@ defmodule VeidrodelisTest do
 
     test "handles type changes correctly", %{redis: redis} do
       # Start Veidrodelis first so we can test streaming commands
-      instance_id = :"test_type_changes_#{:erlang.unique_integer([:positive])}"
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
       assert_happens_within 2000 do
@@ -320,9 +309,7 @@ defmodule VeidrodelisTest do
       Redix.command!(redis, ["SELECT", "0"])
 
       # Start Veidrodelis instance
-      instance_id = :"test_multi_db_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
       assert_happens_within 2000 do
@@ -357,9 +344,7 @@ defmodule VeidrodelisTest do
       Redix.command!(redis, ["SINTERSTORE", "result_inter", "set1", "set2", "set3"])
 
       # Start Veidrodelis instance
-      instance_id = :"test_set_inter_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
       assert_happens_within 2000 do
@@ -388,9 +373,7 @@ defmodule VeidrodelisTest do
       Redix.command!(redis, ["SUNIONSTORE", "result_union", "setA", "setB", "setC"])
 
       # Start Veidrodelis instance
-      instance_id = :"test_set_union_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
       assert_happens_within 2000 do
@@ -421,9 +404,7 @@ defmodule VeidrodelisTest do
       Redix.command!(redis, ["SDIFFSTORE", "result_diff", "base_set", "subtract1", "subtract2"])
 
       # Start Veidrodelis instance
-      instance_id = :"test_set_diff_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
       assert_happens_within 2000 do
@@ -459,9 +440,7 @@ defmodule VeidrodelisTest do
       ])
 
       # Start Veidrodelis instance
-      instance_id = :"test_zset_weighted_union_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
       assert_happens_within 2000 do
@@ -503,9 +482,7 @@ defmodule VeidrodelisTest do
       ])
 
       # Start Veidrodelis instance
-      instance_id = :"test_zset_inter_min_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
       assert_happens_within 2000 do
@@ -543,9 +520,7 @@ defmodule VeidrodelisTest do
       ])
 
       # Start Veidrodelis instance
-      instance_id = :"test_zset_inter_max_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
       assert_happens_within 2000 do
@@ -589,9 +564,7 @@ defmodule VeidrodelisTest do
       ])
 
       # Start Veidrodelis instance
-      instance_id = :"test_zset_weighted_sum_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
       assert_happens_within 2000 do

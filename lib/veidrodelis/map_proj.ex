@@ -14,7 +14,6 @@ defmodule Vdr.MapProj do
   alias Vdr.MapProj.{Strings, Lists, Sets, Hashes, ZSets, Common}
 
   defstruct [
-    :id,
     :decoder,
     :strings_config,
     :sets_config,
@@ -25,12 +24,10 @@ defmodule Vdr.MapProj do
     :store
   ]
 
-  @type id :: term()
   @type key :: binary()
   @type value :: binary()
 
   @type t :: %__MODULE__{
-          id: id(),
           decoder: module(),
           strings_config: Strings.t(),
           sets_config: Sets.t(),
@@ -48,7 +45,6 @@ defmodule Vdr.MapProj do
 
   ## Options
 
-    * `:id` - Required. Unique identifier for this instance
     * `:decoder` - Required. Module implementing the Veidrodelis decoder behaviour
     * `:host` - Redis host (default: "localhost")
     * `:port` - Redis port (default: 6379)
@@ -66,7 +62,6 @@ defmodule Vdr.MapProj do
     * `{:error, reason}` - Failed to start
   """
   def start_link(opts) do
-    id = Keyword.fetch!(opts, :id)
     decoder = Keyword.fetch!(opts, :decoder)
 
     redis_opts =
@@ -82,7 +77,7 @@ defmodule Vdr.MapProj do
         :max_reconnect_delay_ms
       ])
 
-    initial_state = %{id: id, decoder: decoder}
+    initial_state = %{decoder: decoder}
 
     replica_opts =
       [
@@ -122,7 +117,6 @@ defmodule Vdr.MapProj do
 
   @impl Vdr.RedisStream.Callback
   def handle_command(%__MODULE__{} = state, db, command) do
-    dbg(command)
     new_store = do_handle_command(state, db, command)
     {:ok, %{state | store: new_store}}
   end
@@ -207,7 +201,7 @@ defmodule Vdr.MapProj do
 
   # Private functions
 
-  defp initialize_state(%{id: id, decoder: decoder}) do
+  defp initialize_state(%{decoder: decoder}) do
     decode_key_fun = get_decode_key_fun(decoder)
 
     # Create store configs with decode functions
@@ -224,7 +218,6 @@ defmodule Vdr.MapProj do
     lists_config = Lists.new(decode_list_entry_fun(decoder))
 
     state = %__MODULE__{
-      id: id,
       decoder: decoder,
       strings_config: strings_config,
       sets_config: sets_config,
@@ -238,8 +231,8 @@ defmodule Vdr.MapProj do
     {:ok, state}
   end
 
-  defp reinitialize_state(%__MODULE__{id: id, decoder: decoder}) do
-    initialize_state(%{id: id, decoder: decoder})
+  defp reinitialize_state(%__MODULE__{decoder: decoder}) do
+    initialize_state(%{decoder: decoder})
   end
 
   # Command handlers
@@ -405,12 +398,14 @@ defmodule Vdr.MapProj do
 
   defp do_handle_command(state, db, %Command.ZPopMax{key: raw_key, count: count}) do
     decoded_key = state.decode_key.(raw_key)
-    ZSets.zpopmax(state.store, db, decoded_key, count)
+    {new_store, _popped} = ZSets.zpopmax(state.store, db, decoded_key, count)
+    new_store
   end
 
   defp do_handle_command(state, db, %Command.ZPopMin{key: raw_key, count: count}) do
     decoded_key = state.decode_key.(raw_key)
-    ZSets.zpopmin(state.store, db, decoded_key, count)
+    {new_store, _popped} = ZSets.zpopmin(state.store, db, decoded_key, count)
+    new_store
   end
 
   defp do_handle_command(state, db, %Command.ZRemRangeByRank{
