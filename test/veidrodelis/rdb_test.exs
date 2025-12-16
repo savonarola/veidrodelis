@@ -66,17 +66,14 @@ defmodule Vdr.RDBTest do
             final_state = process_commands(commands)
             {:ok, parsed: final_state}
 
-          {:ok, commands, _parser} ->
-            # Parsing not finished (3-tuple return)
-            final_state = process_commands(commands)
-            {:ok, parsed: final_state}
+          {:ok, _commands, _parser} ->
+            flunk("RDB parse error: parsing should be completed but it is not")
 
-          {:error, _} ->
-            {:ok, skip: true}
+          {:error, reason} ->
+            flunk("RDB parse error: #{inspect(reason)}")
         end
-
-      {:error, _} ->
-        {:ok, skip: true}
+      {:error, reason} ->
+        flunk("RDB read error: #{inspect(reason)}")
     end
   end
 
@@ -307,7 +304,7 @@ defmodule Vdr.RDBTest do
       {:ok, rdb_binary} = File.read(dump_file)
 
       # Split into chunks of 64 bytes
-      chunks = split_into_chunks(rdb_binary, 64)
+      chunks = split_into_chunks(rdb_binary, 128)
 
       parser = Vdr.RDB.create()
 
@@ -348,6 +345,8 @@ defmodule Vdr.RDBTest do
 
       # Split into chunks of 32 bytes (small)
       chunks = split_into_chunks(rdb_binary, 32)
+      chunk_sizes = Enum.map(chunks, &byte_size/1)
+      dbg(chunk_sizes)
 
       parser = Vdr.RDB.create()
 
@@ -458,7 +457,7 @@ defmodule Vdr.RDBTest do
       parser = Vdr.RDB.create()
 
       # Feed all chunks and accumulate commands
-      {all_commands, _final_result} =
+      assert {all_commands, :finished} =
         Enum.reduce(chunks, {[], parser}, fn chunk, {commands_acc, current_parser} ->
           # Skip if already finished
           if current_parser == :finished do
@@ -495,19 +494,20 @@ defmodule Vdr.RDBTest do
   end
 
   # Helper to split binary into fixed-size chunks
-  defp split_into_chunks(binary, chunk_size) do
-    do_split_chunks(binary, chunk_size, [])
+  defp split_into_chunks(binary, mean_chunk_size) do
+    do_split_chunks(binary, mean_chunk_size, [])
   end
 
-  defp do_split_chunks(<<>>, _chunk_size, acc), do: Enum.reverse(acc)
+  defp do_split_chunks(<<>>, _mean_chunk_size, acc), do: Enum.reverse(acc)
 
-  defp do_split_chunks(binary, chunk_size, acc) when byte_size(binary) <= chunk_size do
-    Enum.reverse([binary | acc])
-  end
-
-  defp do_split_chunks(binary, chunk_size, acc) do
-    <<chunk::binary-size(chunk_size), rest::binary>> = binary
-    do_split_chunks(rest, chunk_size, [chunk | acc])
+  defp do_split_chunks(binary, mean_chunk_size, acc) do
+    chunk_size = :rand.uniform(mean_chunk_size * 2)
+    if chunk_size > byte_size(binary) do
+      Enum.reverse([binary | acc])
+    else
+      <<chunk::binary-size(chunk_size), rest::binary>> = binary
+      do_split_chunks(rest, mean_chunk_size, [chunk | acc])
+    end
   end
 
   # Helper to split binary into random-sized chunks

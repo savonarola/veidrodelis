@@ -24,4 +24,14 @@ defmodule Vdr.RedisParser do
 
   @doc false
   def data(_parser, _chunk), do: :erlang.nif_error(:nif_not_loaded)
+
+  # Replica Parser NIFs
+  @doc false
+  def replica_create(), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  def replica_data(_parser, _chunk), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc false
+  def replica_state(_parser), do: :erlang.nif_error(:nif_not_loaded)
 end

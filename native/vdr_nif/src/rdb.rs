@@ -38,10 +38,10 @@ const RDB_ENC_LZF: u8 = 3;
 /// Represents a raw Redis command as parsed from RDB
 /// Will be converted to Vdr.Command structs in Elixir
 #[derive(Debug, Clone)]
-struct RawCommand {
-    db: u32,           // Database number
-    name: Vec<u8>,     // Command name like "SET", "RPUSH", etc.
-    args: Vec<Vec<u8>>, // Command arguments
+pub(crate) struct RawCommand {
+    pub(crate) db: u32,           // Database number
+    pub(crate) name: Vec<u8>,     // Command name like "SET", "RPUSH", etc.
+    pub(crate) args: Vec<Vec<u8>>, // Command arguments
 }
 
 impl RawCommand {
@@ -59,6 +59,7 @@ enum ParseState {
     Magic(usize),    // Reading magic + version (9 bytes total)
     Opcode,
     ProcessingOpcode(u8),
+    ProcessingKey(u8),
     ProcessingValue(u8, usize), // type, key_offset in saved_key
     WaitingChecksum, // Encountered EOF, waiting for 8-byte checksum
     Finished,
@@ -89,7 +90,7 @@ impl UnwindSafe for RDBParser {}
 impl Resource for RDBParser {}
 
 impl RDBParser {
-    fn new(pid: LocalPid) -> Self {
+    pub(crate) fn new(pid: LocalPid) -> Self {
         RDBParser {
             pid,
             state: RefCell::new(ParserState {
@@ -103,7 +104,7 @@ impl RDBParser {
         }
     }
 
-    fn feed_data(&self, data: &[u8]) -> Result<Vec<RawCommand>, String> {
+    pub(crate) fn feed_data(&self, data: &[u8]) -> Result<Vec<RawCommand>, String> {
         let mut state = self.state.borrow_mut();
 
         if state.finished {
@@ -116,23 +117,38 @@ impl RDBParser {
         // Parse and collect commands
         let mut commands = Vec::new();
 
+        log::debug!("feed_data, state: {:?}, passed bytes: {:?}", state.parse_state, data.len());
+
         loop {
             match state.parse_next()? {
-                Some(mut cmds) => commands.append(&mut cmds),
-                None => break,  // Need more data
+                Some(mut cmds) => {
+                    log::debug!("parse_next is some, state: {:?}, cmds: {:?}", state.parse_state, cmds);
+                    commands.append(&mut cmds);
+                }
+                None => {
+                    log::trace!("parse_next is none, state: {:?}", state.parse_state);
+                    break;
+                }
             }
         }
+
+        log::debug!("feed_data, buf size: {:?}", state.buffer.len());
 
         Ok(commands)
     }
 }
 
 impl ParserState {
+    fn buffer_advance(&mut self, bytes: usize) {
+        self.buffer.advance(bytes);
+    }
+
     fn parse_next(&mut self) -> Result<Option<Vec<RawCommand>>, String> {
         match self.parse_state {
             ParseState::Magic(pos) => self.parse_magic(pos),
             ParseState::Opcode => self.parse_opcode(),
             ParseState::ProcessingOpcode(opcode) => self.process_opcode(opcode),
+            ParseState::ProcessingKey(value_type) => self.process_key(value_type),
             ParseState::ProcessingValue(value_type, key_len) => {
                 self.parse_value(value_type, key_len)
             }
@@ -165,6 +181,7 @@ impl ParserState {
         }
 
         self.buffer.advance(9);
+        log::debug!("parsed_magic, got to opcode");
         self.parse_state = ParseState::Opcode;
 
         // Continue parsing
@@ -179,8 +196,7 @@ impl ParserState {
         }
 
         // Consume the checksum (we don't verify it currently)
-        self.buffer.advance(8);
-
+        self.buffer_advance(8);
         self.finished = true;
         self.parse_state = ParseState::Finished;
         Ok(None)
@@ -188,11 +204,13 @@ impl ParserState {
 
     fn parse_opcode(&mut self) -> Result<Option<Vec<RawCommand>>, String> {
         if self.buffer.is_empty() {
+            log::trace!("parse_opcode, buffer is empty");
             return Ok(None); // Need more data
         }
 
         let opcode = self.buffer[0];
-        self.buffer.advance(1);
+        log::debug!("parse_opcode, opcode: {:?}", opcode);
+        self.buffer_advance(1);
 
         match opcode {
             RDB_OPCODE_EOF => {
@@ -207,24 +225,22 @@ impl ParserState {
             }
             value_type => {
                 // This is a value type, read the key
-                self.parse_state = ParseState::Opcode; // Reset for next iteration
-                match self.load_string()? {
-                    Some(key) => {
-                        self.saved_key = key;
-                        let key_len = self.saved_key.len();
-                        self.parse_state = ParseState::ProcessingValue(value_type, key_len);
-                        self.parse_next()
-                    }
-                    None => {
-                        // Need more data, put opcode back
-                        let mut temp = BytesMut::with_capacity(1 + self.buffer.len());
-                        temp.put_u8(value_type);
-                        temp.put(self.buffer.split());
-                        self.buffer = temp;
-                        self.parse_state = ParseState::Opcode;
-                        Ok(None)
-                    }
-                }
+                self.parse_state = ParseState::ProcessingKey(value_type);
+                self.parse_next()
+            }
+        }
+    }
+
+    fn process_key(&mut self, value_type: u8) -> Result<Option<Vec<RawCommand>>, String> {
+        match self.load_string()? {
+            Some(key) => {
+                self.saved_key = key;
+                let key_len = self.saved_key.len();
+                self.parse_state = ParseState::ProcessingValue(value_type, key_len);
+                self.parse_next()
+            }
+            None => {
+                Ok(None)
             }
         }
     }
@@ -264,10 +280,14 @@ impl ParserState {
                     Some(s) => s,
                     None => return Ok(None),
                 };
-                let _val_size = match self.calculate_string_size(key_size)? {
+                let val_size = match self.calculate_string_size(key_size)? {
                     Some(s) => s,
                     None => return Ok(None),
                 };
+                // println!("process_opcode, RDB_OPCODE_AUX, enough data, key_size: {:?}, val_size: {:?}", key_size, val_size);
+                if self.buffer.len() < key_size + val_size {
+                    return Ok(None);
+                }
 
                 // Now consume both strings
                 let _ = self.load_string()?;
@@ -528,7 +548,7 @@ impl ParserState {
         match self.peek_length_at(0)? {
             Some((length, bytes_used)) => {
                 // We have enough data, now consume it
-                self.buffer.advance(bytes_used);
+                self.buffer_advance(bytes_used);
                 Ok(Some(length))
             }
             None => Ok(None),
@@ -550,61 +570,80 @@ impl ParserState {
             match enc_subtype {
                 RDB_ENC_INT8 => {
                     if self.buffer.len() < 2 {
+                        log::trace!("load_string, RDB_ENC_INT8, not enough data, state: {:?}", self.parse_state);
                         return Ok(None);
                     }
-                    self.buffer.advance(1);
+                    self.buffer_advance(1);
                     let val = self.buffer.get_i8();
+                    log::debug!("load_string, RDB_ENC_INT8, value: {}", val.to_string());
                     Ok(Some(val.to_string().into_bytes()))
                 }
                 RDB_ENC_INT16 => {
+                    log::debug!("load_string, RDB_ENC_INT16");
                     if self.buffer.len() < 3 {
+                        log::trace!("load_string, RDB_ENC_INT16, not enough data");
                         return Ok(None);
                     }
-                    self.buffer.advance(1);
+                    self.buffer_advance(1);
                     let val = self.buffer.get_i16_le();
+                    log::debug!("load_string, RDB_ENC_INT16, value: {}", val.to_string());
                     Ok(Some(val.to_string().into_bytes()))
                 }
                 RDB_ENC_INT32 => {
+                    log::debug!("load_string, RDB_ENC_INT32");
                     if self.buffer.len() < 5 {
+                        log::trace!("load_string, RDB_ENC_INT32, not enough data");
                         return Ok(None);
                     }
-                    self.buffer.advance(1);
+                    self.buffer_advance(1);
                     let val = self.buffer.get_i32_le();
+                    log::debug!("load_string, RDB_ENC_INT32, value: {}", val.to_string());
                     Ok(Some(val.to_string().into_bytes()))
                 }
                 RDB_ENC_LZF => {
+                    log::debug!("load_string, RDB_ENC_LZF");
                     // LZF: Peek at lengths without consuming to know total size needed
                     let mut peek_cursor = 1; // Will skip encoding byte
 
                     if self.buffer.len() < peek_cursor + 1 {
+                        log::trace!("load_string, RDB_ENC_LZF, not enough data");
                         return Ok(None);
                     }
 
                     // Peek at compressed length
                     let (clen, clen_bytes) = match self.peek_length_at(peek_cursor)? {
                         Some((len, bytes_used)) => (len, bytes_used),
-                        None => return Ok(None),
+                        None =>
+                        {
+                            log::trace!("load_string, RDB_ENC_LZF, not enough data");
+                            return Ok(None);
+                        }
                     };
                     peek_cursor += clen_bytes;
 
                     // Peek at uncompressed length
                     let (_ulen, ulen_bytes) = match self.peek_length_at(peek_cursor)? {
                         Some((len, bytes_used)) => (len, bytes_used),
-                        None => return Ok(None),
+                        None => {
+                            log::trace!("load_string, RDB_ENC_LZF, not enough data");
+                            return Ok(None);
+                        }
                     };
                     peek_cursor += ulen_bytes;
 
                     // Check if we have all the compressed data
                     if self.buffer.len() < peek_cursor + clen as usize {
+                        log::trace!("load_string, RDB_ENC_LZF, not enough data");
                         return Ok(None);
                     }
 
                     // Now we know we have everything - consume bytes
-                    self.buffer.advance(1); // encoding byte
+                    self.buffer_advance(1); // encoding byte
                     let clen_actual = self.load_length()?.unwrap(); // comp len
                     let ulen_actual = self.load_length()?.unwrap(); // uncomp len
                     let compressed = self.buffer.split_to(clen_actual as usize);
                     let decompressed = lzf_decompress(&compressed, ulen_actual as usize)?;
+                    log::debug!("load_string, RDB_ENC_LZF, decompressed: {}", String::from_utf8_lossy(&decompressed));
                     Ok(Some(decompressed))
                 }
                 _ => Err(format!("unknown_encoding: 0x{:02X} (enc_type={}, subtype={})",
@@ -614,17 +653,22 @@ impl ParserState {
             // Regular string - peek at length first
             let (len, len_bytes) = match self.peek_length_at(0)? {
                 Some((len, bytes_used)) => (len, bytes_used),
-                None => return Ok(None),
+                None => {
+                    log::trace!("load_string, regular string, no length");
+                    return Ok(None)
+                }
             };
 
             // Check if we have enough data for the entire string
             if self.buffer.len() < len_bytes + len as usize {
+                log::trace!("load_string, regular string, not enough data");
                 return Ok(None);
             }
 
             // Now consume the length and data
             let _ = self.load_length()?; // Already validated
             let data = self.buffer.split_to(len as usize).to_vec();
+            log::debug!("load_string, regular string, data: {:?}, ascii: {}", data, String::from_utf8_lossy(&data));
             Ok(Some(data))
         }
     }
@@ -865,7 +909,7 @@ impl ParserState {
         }
 
         let len = self.buffer[0];
-        self.buffer.advance(1);
+        self.buffer_advance(1);
 
         match len {
             253 => Ok(Some(b"nan".to_vec())),
@@ -1530,6 +1574,7 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
         }
         _ => Err("invalid_listpack_encoding".to_string()),
     }
+
 }
 
 // NIFs

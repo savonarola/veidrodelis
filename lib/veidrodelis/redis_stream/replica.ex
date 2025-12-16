@@ -68,8 +68,7 @@ defmodule Vdr.RedisStream.Replica do
   use GenServer
   require Logger
 
-  alias Vdr.RDB
-  alias Vdr.RedisStream.CommandParser
+  alias Vdr.ReplicaParser
 
   @default_port 6379
   @default_timeout 5000
@@ -236,15 +235,12 @@ defmodule Vdr.RedisStream.Replica do
       saved_replication_offset: 0,
       replication_id: nil,
       replication_offset: 0,
-      rdb_parser: nil,
-      # IOList buffer for accumulating data
+      # Rust replica parser handles all parsing (RDB + commands)
+      replica_parser: nil,
+      # Buffer for protocol messages before replication starts
       buffer: [],
       buffer_size: 0,
-      state: :init,
-      current_db: 0,
-      # For RDB bulk string parsing
-      rdb_bulk_size: nil,
-      rdb_bytes_read: 0
+      state: :init
     }
 
     # Start connection process asynchronously
@@ -290,13 +286,25 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   def handle_call(:get_replication_state, _from, state) do
-    {:reply, state.state, state}
+    # If we're in :replication mode, check the parser state
+    reply_state = if state.state == :replication && state.replica_parser do
+      # Query the Rust parser's actual state
+      case Vdr.RedisParser.replica_state(state.replica_parser) do
+        :streaming -> :streaming
+        :reading_rdb -> :rdb_transfer
+        :waiting_rdb -> :rdb_transfer
+        _ -> state.state
+      end
+    else
+      state.state
+    end
+    {:reply, reply_state, state}
   end
 
   def handle_call({:callback_call, message}, _from, state) do
     # Only allow calls when replica is in a valid state (after replication start)
-    # Valid states are :rdb_transfer and :streaming
-    if state.state in [:rdb_transfer, :streaming] do
+    # Valid state is :replication (which handles both RDB and streaming)
+    if state.state == :replication do
       # Check if callback implements handle_call
       if function_exported?(state.callback_module, :handle_call, 2) do
         case state.callback_module.handle_call(state.callback_state, message) do
@@ -416,12 +424,10 @@ defmodule Vdr.RedisStream.Replica do
         saved_replication_id: state.replication_id || state.saved_replication_id,
         saved_replication_offset: state.replication_offset,
         # Clear current replication state but keep saved values
+        replica_parser: nil,
         buffer: [],
         buffer_size: 0,
-        state: :init,
-        rdb_parser: nil,
-        rdb_bulk_size: nil,
-        rdb_bytes_read: 0
+        state: :init
     }
 
     if new_state.reconnect_enabled do
@@ -615,32 +621,43 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   defp handle_data(data, state) do
-    new_buffer = [data | state.buffer]
-    new_buffer_size = state.buffer_size + byte_size(data)
-    new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
-
+    # Before replication starts, accumulate in buffer for protocol parsing
+    # After replication starts, feed directly to replica parser
     result =
-      case new_state.state do
+      case state.state do
         :ping ->
+          new_buffer = [data | state.buffer]
+          new_buffer_size = state.buffer_size + byte_size(data)
+          new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
           handle_ping_response(new_state)
 
         :auth ->
+          new_buffer = [data | state.buffer]
+          new_buffer_size = state.buffer_size + byte_size(data)
+          new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
           handle_auth_response(new_state)
 
         :replconf_listening_port ->
+          new_buffer = [data | state.buffer]
+          new_buffer_size = state.buffer_size + byte_size(data)
+          new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
           handle_replconf_response(new_state, :replconf_capa)
 
         :replconf_capa ->
+          new_buffer = [data | state.buffer]
+          new_buffer_size = state.buffer_size + byte_size(data)
+          new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
           handle_replconf_response(new_state, :send_psync)
 
         :psync ->
+          new_buffer = [data | state.buffer]
+          new_buffer_size = state.buffer_size + byte_size(data)
+          new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
           handle_psync_response(new_state)
 
-        :rdb_transfer ->
-          handle_rdb_data(new_state)
-
-        :streaming ->
-          handle_command_stream(new_state)
+        :replication ->
+          # After PSYNC, all data goes to the replica parser (no buffering)
+          handle_replication_data(data, state)
       end
 
     # Re-enable socket for next packet (backpressure)
@@ -745,20 +762,29 @@ defmodule Vdr.RedisStream.Replica do
 
         case callback_state_update_result do
           {:ok, updated_callback_state} ->
+            # Create replica parser (handles both RDB and command streaming)
+            replica_parser = ReplicaParser.create()
+
             new_state = %{
               new_state
               | callback_state: updated_callback_state,
                 replication_id: replication_id,
                 replication_offset: offset,
-                state: :rdb_transfer
+                replica_parser: replica_parser,
+                state: :replication
             }
 
-            # Create RDB parser
-            rdb_parser = RDB.create()
-            new_state = %{new_state | rdb_parser: rdb_parser}
+            # Start periodic ACK timer
+            new_state = schedule_periodic_ack(new_state)
 
-            # Start parsing RDB data
-            handle_rdb_data(new_state)
+            # Feed any buffered data to replica parser
+            if new_state.buffer_size > 0 do
+              buffered_data = buffer_to_binary(new_state)
+              new_state = %{new_state | buffer: [], buffer_size: 0}
+              handle_replication_data(buffered_data, new_state)
+            else
+              {:noreply, new_state}
+            end
 
           {:error, reason} ->
             {:stop, {:handle_replication_start_failed, reason}, new_state}
@@ -767,23 +793,39 @@ defmodule Vdr.RedisStream.Replica do
       {:ok, :continue, new_state} ->
         Logger.info("PSYNC: CONTINUE - partial resync accepted")
 
-        # Continue with saved replication state, go straight to streaming
-        new_state = %{
-          new_state
-          | replication_id: state.saved_replication_id,
-            replication_offset: state.saved_replication_offset,
-            state: :streaming
-        }
+        # For partial resync, feed a fake empty RDB to trigger streaming mode
+        # The replica parser starts in WaitingRdb state, so we need to transition it
+        replica_parser = ReplicaParser.create()
 
-        # Start periodic ACK timer
-        new_state = schedule_periodic_ack(new_state)
+        # Feed minimal RDB header to transition parser to streaming mode
+        # $0\r\n means zero-length RDB (no data)
+        case ReplicaParser.data(replica_parser, "$0\r\n") do
+          {:ok, [], replica_parser} ->
+            # Parser now in streaming mode
+            new_state = %{
+              new_state
+              | replication_id: state.saved_replication_id,
+                replication_offset: state.saved_replication_offset,
+                replica_parser: replica_parser,
+                state: :replication
+            }
 
-        # Process any buffered command data
-        if new_state.buffer_size > 0 do
-          handle_command_stream(new_state)
-        else
-          {:noreply, new_state}
+            # Start periodic ACK timer
+            new_state = schedule_periodic_ack(new_state)
+
+            # Feed any buffered data
+            if new_state.buffer_size > 0 do
+              buffered_data = buffer_to_binary(new_state)
+              new_state = %{new_state | buffer: [], buffer_size: 0}
+              handle_replication_data(buffered_data, new_state)
+            else
+              {:noreply, new_state}
+            end
+
+          {:error, reason} ->
+            {:stop, {:partial_resync_init_failed, reason}, new_state}
         end
+
 
       :incomplete ->
         {:noreply, state}
@@ -793,202 +835,87 @@ defmodule Vdr.RedisStream.Replica do
     end
   end
 
-  defp handle_rdb_data(state) do
-    # RDB data comes as a bulk string: $<size>\r\n<data>
-    # We parse the header once, then stream data to RDB parser
-    if state.rdb_bulk_size == nil do
-      # Parse bulk string header
-      case parse_bulk_string_header(state) do
-        {:ok, rdb_size, new_state} ->
-          Logger.info("RDB transfer starting, size: #{rdb_size} bytes")
-          new_state = %{new_state | rdb_bulk_size: rdb_size, rdb_bytes_read: 0}
-          # Continue to stream RDB data
-          stream_rdb_data(new_state)
+  # Handle replication data using Rust replica parser
+  defp handle_replication_data(data, state) do
+    # Feed data to replica parser (handles RDB and command stream automatically)
+    case ReplicaParser.data(state.replica_parser, data) do
+      {:ok, commands, new_replica_parser} ->
+        # Parser returned commands and wants more data
+        # Update replication offset by data size
+        new_offset = state.replication_offset + byte_size(data)
 
-        :incomplete ->
-          {:noreply, state}
+        # Process commands through callback
+        case process_commands(commands, state) do
+          {:ok, new_state_with_commands} ->
+            new_state = %{
+              new_state_with_commands
+              | replica_parser: new_replica_parser,
+                replication_offset: new_offset
+            }
 
-        {:error, reason} ->
-          {:stop, {:rdb_transfer_failed, reason}, state}
-      end
-    else
-      # Already parsed header, stream data
-      stream_rdb_data(state)
-    end
-  end
-
-  defp stream_rdb_data(state) do
-    # Calculate how many bytes we still need for the RDB
-    bytes_remaining = state.rdb_bulk_size - state.rdb_bytes_read
-
-    if bytes_remaining > 0 do
-      # Feed available data to RDB parser
-      bytes_to_feed = min(state.buffer_size, bytes_remaining)
-
-      if bytes_to_feed > 0 do
-        # Extract bytes_to_feed from buffer
-        {chunk, new_state} = consume_bytes(state, bytes_to_feed)
-
-
-        # Feed to RDB parser
-        case RDB.data(state.rdb_parser, chunk) do
-          {:ok, commands} when is_list(commands) ->
-            # Parsing finished (2-tuple), process final commands
-            new_bytes_read = state.rdb_bytes_read + bytes_to_feed
-
-            # Process commands through callback
-            case process_rdb_commands(commands, new_state) do
-              {:ok, new_state_with_commands} ->
-                Logger.info(
-                  "RDB transfer complete (#{new_bytes_read} bytes), switching to streaming mode"
-                )
-
-                new_state = %{
-                  new_state_with_commands
-                  | rdb_parser: nil,
-                    rdb_bulk_size: nil,
-                    rdb_bytes_read: 0,
-                    state: :streaming
-                }
-
-                # Start periodic ACK timer
-                new_state = schedule_periodic_ack(new_state)
-
-                # Process any command stream data that's already in the buffer
-                if new_state.buffer_size > 0 do
-                  handle_command_stream(new_state)
-                else
-                  {:noreply, new_state}
-                end
-
-              {:error, reason} ->
-                {:stop, {:rdb_callback_failed, reason}, new_state}
-            end
-
-          {:ok, commands, rdb_parser} ->
-            # Parsing continues (3-tuple)
-            new_bytes_read = state.rdb_bytes_read + bytes_to_feed
-
-            # Process commands through callback
-            case process_rdb_commands(commands, new_state) do
-              {:ok, new_state_with_commands} ->
-                new_state = %{
-                  new_state_with_commands
-                  | rdb_parser: rdb_parser,
-                    rdb_bytes_read: new_bytes_read
-                }
-
-                # Check if we've unexpectedly read all RDB bytes without EOF
-                if new_bytes_read >= state.rdb_bulk_size do
-                  {:stop,
-                   {:rdb_parse_error,
-                    "Read all RDB bytes (#{new_bytes_read}) but parser hasn't signaled EOF - invalid RDB format or parser bug"},
-                   new_state}
-                else
-                  # More RDB data expected
-                  {:noreply, new_state}
-                end
-
-              {:error, reason} ->
-                {:stop, {:rdb_callback_failed, reason}, new_state}
-            end
+            {:noreply, new_state}
 
           {:error, reason} ->
-            {:stop, {:rdb_parse_failed, reason}, new_state}
+            {:stop, {:callback_failed, reason}, state}
         end
-      else
-        # No data available yet
-        {:noreply, state}
+
+      {:ok, commands} ->
+        # Parser finished (should not happen in normal replication)
+        # Update replication offset by data size
+        new_offset = state.replication_offset + byte_size(data)
+
+        # Process final commands
+        case process_commands(commands, state) do
+          {:ok, new_state_with_commands} ->
+            new_state = %{new_state_with_commands | replication_offset: new_offset}
+            Logger.warning("Replica parser finished unexpectedly")
+            {:noreply, new_state}
+
+          {:error, reason} ->
+            {:stop, {:callback_failed, reason}, state}
+        end
+
+      {:error, reason} ->
+        Logger.error("Replica parser error: #{inspect(reason)}")
+        {:stop, {:parse_failed, reason}, state}
+    end
+  end
+
+  # Process commands from replica parser through callback
+  defp process_commands([], state) do
+    {:ok, state}
+  end
+
+  defp process_commands([{db, command} | rest], state) do
+
+    # Handle special commands
+    result =
+      case command do
+        # PING - send ACK
+        %Vdr.Command.Set{key: "PING", value: ""} when db == 0 ->
+          Logger.debug("Received PING, sending REPLCONF ACK #{state.replication_offset}")
+          send_replconf_ack(state)
+          {:ok, state}
+
+        # Regular commands - invoke callback
+        _ ->
+          result = state.callback_module.handle_command(state.callback_state, db, command)
+
+          case result do
+            {:ok, new_callback_state} ->
+              {:ok, %{state | callback_state: new_callback_state}}
+
+            {:error, reason} ->
+              Logger.error("Callback error: #{inspect(reason)}")
+              {:error, reason}
+          end
       end
-    else
-      # bytes_remaining <= 0 but we're still in rdb_transfer state
-      # This means we consumed all RDB bytes but never got EOF (2-tuple)
-      {:stop,
-       {:rdb_parse_error,
-        "RDB transfer incomplete: consumed all #{state.rdb_bulk_size} bytes but parser never signaled EOF"},
-       state}
-    end
-  end
 
-  defp handle_command_stream(state) do
-    # Parse commands from the stream
-    case parse_command(state) do
-      {:ok, command, bytes_consumed, new_state} ->
-        # Update replication offset
-        new_state = %{
-          new_state
-          | replication_offset: new_state.replication_offset + bytes_consumed
-        }
-
-        # Process the command
-        new_state = process_command(command, new_state)
-
-        # Continue processing if there's more data
-        if new_state.buffer_size > 0 do
-          handle_command_stream(new_state)
-        else
-          {:noreply, new_state}
-        end
-
-      :incomplete ->
-        {:noreply, state}
+    case result do
+      {:ok, new_state} ->
+        process_commands(rest, new_state)
 
       {:error, reason} ->
-        Logger.error("Failed to parse command: #{inspect(reason)}")
-        {:stop, {:command_parse_failed, reason}, state}
-    end
-  end
-
-  defp process_command(["SELECT", db], state) do
-    db_num = String.to_integer(db)
-    Logger.debug("SELECT DB #{db_num}")
-    %{state | current_db: db_num}
-  end
-
-  defp process_command(["PING"], state) do
-    # PING in replication stream - send REPLCONF ACK with current offset
-    Logger.debug("Received PING, sending REPLCONF ACK #{state.replication_offset}")
-    send_replconf_ack(state)
-    state
-  end
-
-  defp process_command(["REPLCONF", "GETACK", "*"], state) do
-    # Master is requesting ACK with current offset
-    Logger.debug("Received REPLCONF GETACK, sending REPLCONF ACK #{state.replication_offset}")
-    send_replconf_ack(state)
-    state
-  end
-
-  defp process_command(raw_command, state) do
-    # Parse the command using CommandParser
-    {:ok, command} = CommandParser.parse(raw_command)
-    Logger.debug("Processing command: #{inspect(command)}")
-
-    # Invoke callback with the parsed command
-    case state.callback_module.handle_command(state.callback_state, state.current_db, command) do
-      {:ok, new_callback_state} ->
-        %{state | callback_state: new_callback_state}
-
-      {:error, reason} ->
-        Logger.error("Callback error: #{inspect(reason)}")
-        state
-    end
-  end
-
-  # Process RDB commands (already parsed Command structs) through callback
-  defp process_rdb_commands([], state), do: {:ok, state}
-
-  defp process_rdb_commands([{db, command} | rest], state) do
-    Logger.debug("Processing RDB command: #{inspect(command)} in DB #{db}")
-
-    # Invoke callback with the parsed command and database number
-    case state.callback_module.handle_command(state.callback_state, db, command) do
-      {:ok, new_callback_state} ->
-        new_state = %{state | callback_state: new_callback_state}
-        process_rdb_commands(rest, new_state)
-
-      {:error, reason} ->
-        Logger.error("RDB callback error: #{inspect(reason)}")
         {:error, reason}
     end
   end
@@ -999,18 +926,6 @@ defmodule Vdr.RedisStream.Replica do
     state.buffer |> Enum.reverse() |> :erlang.iolist_to_binary()
   end
 
-  defp consume_bytes(state, n) when state.buffer_size >= n do
-    binary = buffer_to_binary(state)
-    <<chunk::binary-size(n), rest::binary>> = binary
-
-    new_state = %{
-      state
-      | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
-        buffer_size: byte_size(rest)
-    }
-
-    {chunk, new_state}
-  end
 
   defp peek_bytes(state, n) when state.buffer_size >= n do
     binary = buffer_to_binary(state)
@@ -1122,133 +1037,6 @@ defmodule Vdr.RedisStream.Replica do
         :incomplete
     end
   end
-
-  defp parse_bulk_string_header(state) do
-    if state.buffer_size == 0 do
-      :incomplete
-    else
-      case peek_bytes(state, min(state.buffer_size, 64)) do
-        {:ok, peek} ->
-          case peek do
-            <<"$"::binary, _::binary>> ->
-              binary = buffer_to_binary(state)
-
-              case :binary.split(binary, "\r\n") do
-                [<<"$"::binary, size_str::binary>>, rest] ->
-                  size = String.to_integer(size_str)
-
-                  new_state = %{
-                    state
-                    | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
-                      buffer_size: byte_size(rest)
-                  }
-
-                  {:ok, size, new_state}
-
-                _ ->
-                  :incomplete
-              end
-
-            ## Redis has a replicationCron fun running once a second.
-            ## It sends a single \n to the replicas waiting for the RDB snapshot.
-            ## We should handle it and ignore.
-            <<"\n"::binary, _::binary>> ->
-              binary = buffer_to_binary(state)
-              <<"\n"::binary, rest::binary>> = binary
-
-              new_state = %{
-                state
-                | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
-                  buffer_size: byte_size(rest)
-              }
-
-              parse_bulk_string_header(new_state)
-
-            _ ->
-              {:error, :invalid_bulk_string_header}
-          end
-
-        :incomplete ->
-          :incomplete
-      end
-    end
-  end
-
-  defp parse_command(state) do
-    original_buffer_size = state.buffer_size
-
-    case peek_bytes(state, min(state.buffer_size, 64)) do
-      {:ok, peek} ->
-        case peek do
-          <<"*"::binary, _::binary>> ->
-            binary = buffer_to_binary(state)
-
-            case :binary.split(binary, "\r\n") do
-              [<<"*"::binary, count_str::binary>>, rest] ->
-                count = String.to_integer(count_str)
-
-                case parse_array_elements(rest, count, [], state) do
-                  {:ok, command, new_state} ->
-                    bytes_consumed = original_buffer_size - new_state.buffer_size
-                    {:ok, command, bytes_consumed, new_state}
-
-                  other ->
-                    other
-                end
-
-              _ ->
-                :incomplete
-            end
-
-          <<"\n"::binary, _::binary>> ->
-            binary = buffer_to_binary(state)
-            <<"\n"::binary, rest::binary>> = binary
-
-            new_state = %{
-              state
-              | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
-                buffer_size: byte_size(rest)
-            }
-
-            parse_command(new_state)
-
-          _ ->
-            :incomplete
-        end
-
-      :incomplete ->
-        :incomplete
-    end
-  end
-
-  defp parse_array_elements(rest, 0, acc, state) do
-    new_state = %{
-      state
-      | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
-        buffer_size: byte_size(rest)
-    }
-
-    {:ok, Enum.reverse(acc), new_state}
-  end
-
-  defp parse_array_elements(<<"$"::binary, rest::binary>>, count, acc, state) do
-    case :binary.split(rest, "\r\n") do
-      [size_str, rest] ->
-        size = String.to_integer(size_str)
-
-        if byte_size(rest) >= size + 2 do
-          <<element::binary-size(size), "\r\n"::binary, rest::binary>> = rest
-          parse_array_elements(rest, count - 1, [element | acc], state)
-        else
-          :incomplete
-        end
-
-      _ ->
-        :incomplete
-    end
-  end
-
-  defp parse_array_elements(_, _, _, _), do: :incomplete
 
   # Transport abstraction
 

@@ -5,4 +5,8 @@ rustler::atoms! {
     decompression_failed,
     size_mismatch,
     allocation_failed,
+    waiting_rdb,
+    reading_rdb,
+    streaming,
+    finished,
 }

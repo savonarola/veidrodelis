@@ -1,75 +1,51 @@
-defmodule Vdr.RDB do
+defmodule Vdr.ReplicaParser do
   @moduledoc """
-  Redis RDB (Redis Database) file parser implemented in Rust.
+  Redis replication stream parser implemented in Rust.
 
-  This module provides a streaming parser for Redis RDB files that returns
-  Redis command structs representing the data in the RDB file.
+  This module provides a streaming parser for Redis replication protocol
+  that handles RDB snapshot transfer and command streaming.
+
+  The parser manages state transitions:
+  - WaitingRdb: Initial state, waiting for RDB data
+  - ReadingRdb: Parsing RDB snapshot
+  - Streaming: Processing command stream after RDB
 
   ## Example - Basic Usage
 
       alias Vdr.Command
 
       # Create parser
-      parser = Vdr.RDB.create()
+      parser = Vdr.ReplicaParser.create()
 
-      # Read RDB file
-      {:ok, rdb_binary} = File.read("dump.rdb")
-
-      # Feed data and get commands
-      case Vdr.RDB.data(parser, rdb_binary) do
-        {:ok, commands} ->
-          # Parsing complete
-          Enum.each(commands, fn
-            {_db, %Command.Set{key: k, value: v}} ->
-              IO.puts("SET key=value")
-
-            {_db, %Command.RPush{}} ->
-              IO.puts("RPUSH command")
-
-            {_db, %Command.SAdd{}} ->
-              IO.puts("SADD command")
-
-            {_db, %Command.ZAdd{}} ->
-              IO.puts("ZADD command")
-
-            {_db, %Command.HSet{}} ->
-              IO.puts("HSET command")
-
-            {_db, %Command.PExpireAt{}} ->
-              IO.puts("PEXPIREAT command")
+      # Feed data chunks from replication stream
+      case Vdr.ReplicaParser.data(parser, chunk1) do
+        {:ok, commands, parser} ->
+          # Process commands from RDB or stream
+          Enum.each(commands, fn {db, command} ->
+            IO.inspect({db, command})
           end)
 
-        {:ok, commands, parser} ->
-          # More data needed - partial parsing
-          process_commands(commands)
-          # Feed more data...
+          # Continue feeding more data
+          Vdr.ReplicaParser.data(parser, chunk2)
+
+        {:ok, commands} ->
+          # Parser finished (connection closed)
+          process_final_commands(commands)
 
         {:error, reason} ->
           IO.puts("Error: \#{inspect(reason)}")
       end
 
-  ## Example - Streaming/Chunked Parsing
+  ## Example - Integration with Replica
 
-  The parser supports streaming/chunked parsing, which is useful for processing
-  large RDB files or reading from network streams:
-
-      # Create parser
-      parser = Vdr.RDB.create()
-
-      # Feed data in chunks (any size supported)
-      {:ok, commands1, parser} = Vdr.RDB.data(parser, chunk1)
-      {:ok, commands2, parser} = Vdr.RDB.data(parser, chunk2)
-      {:ok, commands3} = Vdr.RDB.data(parser, chunk3)  # Final chunk (EOF)
-
-      # Process all commands
-      all_commands = commands1 ++ commands2 ++ commands3
-      Enum.each(all_commands, &process_command/1)
+      # This parser is designed to be used internally by Vdr.RedisStream.Replica
+      # For normal use cases, use Vdr.RedisStream.Replica instead.
   """
 
   alias Vdr.Command
 
   @doc """
-  Create a new streaming RDB parser.
+  Create a new streaming replica parser.
 
   ## Returns
 
@@ -77,43 +53,48 @@ defmodule Vdr.RDB do
 
   ## Example
 
-      parser = Vdr.RDB.create()
-      {:ok, commands, parser} = Vdr.RDB.data(parser, chunk1)
+      parser = Vdr.ReplicaParser.create()
+      {:ok, commands, parser} = Vdr.ReplicaParser.data(parser, chunk)
   """
   @spec create() :: reference()
   def create() do
-    Vdr.RedisParser.create()
+    Vdr.RedisParser.replica_create()
   end
 
   @doc """
-  Feed a chunk of binary data to the parser.
+  Feed a chunk of binary data to the replica parser.
 
-  The parser will accumulate chunks and parse as much as possible,
-  returning any commands that were successfully parsed.
+  The parser will process the data according to its current state:
+  - In WaitingRdb state: waits for RDB bulk string header
+  - In ReadingRdb state: parses RDB snapshot and returns commands
+  - In Streaming state: parses RESP commands from the stream
 
   ## Parameters
 
     * `parser` - Parser resource from `create/0` or previous `data/2` call
-    * `chunk` - Binary chunk of RDB data
+    * `chunk` - Binary chunk of replication data
 
   ## Returns
 
-    * `{:ok, commands}` - Parsing completed (EOF reached), returns final commands
+    * `{:ok, commands}` - Parser finished (connection closed), returns final commands
     * `{:ok, commands, new_parser}` - Successfully processed chunk, returns parsed commands (may be empty)
     * `{:error, reason}` - Parsing failed
 
+  Commands are tuples: `{db, command_struct}` where `db` is the database number
+  and `command_struct` is a `Vdr.Command.*` struct.
+
   ## Example
 
-      parser = Vdr.RDB.create()
-      case Vdr.RDB.data(parser, chunk) do
-        {:ok, commands} ->
-          # EOF reached
-          process_final_commands(commands)
-
+      parser = Vdr.ReplicaParser.create()
+      case Vdr.ReplicaParser.data(parser, chunk) do
         {:ok, commands, parser} ->
-          # More data needed
+          # More data expected
           process_commands(commands)
           # Continue with next chunk...
+
+        {:ok, commands} ->
+          # Finished
+          process_final_commands(commands)
 
         {:error, reason} ->
           handle_error(reason)
@@ -122,9 +103,9 @@ defmodule Vdr.RDB do
   @spec data(reference(), binary()) ::
     {:ok, list()} | {:ok, list(), reference()} | {:error, term()}
   def data(parser, chunk) when is_reference(parser) and is_binary(chunk) do
-    case Vdr.RedisParser.data(parser, chunk) do
+    case Vdr.RedisParser.replica_data(parser, chunk) do
       {:ok, raw_commands} when is_list(raw_commands) ->
-        # EOF reached, convert commands
+        # Parser finished, convert commands
         commands = convert_commands(raw_commands)
         {:ok, commands}
 
