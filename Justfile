@@ -10,7 +10,7 @@ test-all:
     mix test --trace --include slow
 
 clean:
-    rm -rf native/vdr_nif/target/*
+    rm -rf native/vdr_redis_nif/target/*
     mix clean --deps
 
 # Start Redis in Docker for testing

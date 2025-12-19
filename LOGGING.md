@@ -30,11 +30,11 @@ RUST_LOG=debug iex -S mix
 # Enable trace logging (very verbose)
 RUST_LOG=trace iex -S mix
 
-# Enable debug logging only for the vdr_nif crate
-RUST_LOG=vdr_nif=debug iex -S mix
+# Enable debug logging only for the vdr_redis_nif crate
+RUST_LOG=vdr_redis_nif=debug iex -S mix
 
 # Enable different levels for different modules
-RUST_LOG=vdr_nif::rdb=debug,vdr_nif::replica=info iex -S mix
+RUST_LOG=vdr_redis_nif::rdb=debug,vdr_redis_nif::replica=info iex -S mix
 
 # Run tests with debug logging
 RUST_LOG=debug mix test
@@ -64,7 +64,7 @@ When `RUST_LOG` is unset or set to `off`, the logger has **zero runtime overhead
 
 The logging infrastructure has been implemented in:
 
-- `native/vdr_nif/src/rdb.rs` - RDB parser logging
+- `native/vdr_redis_nif/src/rdb.rs` - RDB parser logging
   - `log::debug!()` for general parsing flow
   - `log::trace!()` for very detailed buffer state info
 
@@ -84,13 +84,13 @@ The `RUST_LOG` environment variable supports advanced filtering:
 
 ```bash
 # Multiple targets with different levels
-RUST_LOG=warn,vdr_nif=debug iex -S mix
+RUST_LOG=warn,vdr_redis_nif=debug iex -S mix
 
 # Specific module paths
-RUST_LOG=vdr_nif::rdb=trace iex -S mix
+RUST_LOG=vdr_redis_nif::rdb=trace iex -S mix
 
 # Use regex patterns (requires env_logger regex feature)
-RUST_LOG=vdr_nif::r.* iex -S mix
+RUST_LOG=vdr_redis_nif::r.* iex -S mix
 ```
 
 See the [env_logger documentation](https://docs.rs/env_logger/) for more details.

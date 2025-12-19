@@ -1,10 +1,10 @@
 [package]
-name = "vdr_nif"
+name = "vdr_redis_nif"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "vdr_nif"
+name = "vdr_redis_nif"
 crate-type = ["cdylib"]
 
 [dependencies]
