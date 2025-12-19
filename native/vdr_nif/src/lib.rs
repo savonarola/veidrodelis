@@ -2,8 +2,8 @@ mod atoms;
 pub mod rdb;
 pub mod replica;
 
-// Register as Vdr.RedisParser
-rustler::init!("Elixir.Vdr.RedisParser", load = load_nif);
+// Register as Vdr.RedisNif
+rustler::init!("Elixir.Vdr.RedisNif", load = load_nif);
 
 fn load_nif(env: rustler::Env, _: rustler::Term) -> bool {
     // Initialize logger (reads RUST_LOG environment variable)

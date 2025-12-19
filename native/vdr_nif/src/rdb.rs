@@ -1579,12 +1579,12 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
 
 // NIFs
 
-#[rustler::nif(name = "create")]
+#[rustler::nif(name = "rdb_create")]
 fn create_parser(env: Env) -> ResourceArc<RDBParser> {
     ResourceArc::new(RDBParser::new(env.pid()))
 }
 
-#[rustler::nif(name = "data")]
+#[rustler::nif(name = "rdb_data")]
 fn feed_data<'a>(
     env: Env<'a>,
     parser: ResourceArc<RDBParser>,

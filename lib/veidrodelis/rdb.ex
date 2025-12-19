@@ -17,7 +17,7 @@ defmodule Vdr.RDB do
   """
   @spec create() :: reference()
   def create() do
-    Vdr.RedisParser.create()
+    Vdr.RedisNif.rdb_create()
   end
 
   @doc """
@@ -57,7 +57,7 @@ defmodule Vdr.RDB do
   @spec data(reference(), binary()) ::
     {:ok, list()} | {:ok, list(), reference()} | {:error, term()}
   def data(parser, chunk) when is_reference(parser) and is_binary(chunk) do
-    case Vdr.RedisParser.data(parser, chunk) do
+    case Vdr.RedisNif.rdb_data(parser, chunk) do
       {:ok, raw_commands} when is_list(raw_commands) ->
         # EOF reached, convert commands
         commands = convert_commands(raw_commands)

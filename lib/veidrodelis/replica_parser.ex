@@ -58,7 +58,7 @@ defmodule Vdr.ReplicaParser do
   """
   @spec create() :: reference()
   def create() do
-    Vdr.RedisParser.replica_create()
+    Vdr.RedisNif.replica_create()
   end
 
   @doc """
@@ -103,7 +103,7 @@ defmodule Vdr.ReplicaParser do
   @spec data(reference(), binary()) ::
     {:ok, list()} | {:ok, list(), reference()} | {:error, term()}
   def data(parser, chunk) when is_reference(parser) and is_binary(chunk) do
-    case Vdr.RedisParser.replica_data(parser, chunk) do
+    case Vdr.RedisNif.replica_data(parser, chunk) do
       {:ok, raw_commands} when is_list(raw_commands) ->
         # Parser finished, convert commands
         commands = convert_commands(raw_commands)

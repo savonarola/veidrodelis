@@ -289,7 +289,7 @@ defmodule Vdr.RedisStream.Replica do
     # If we're in :replication mode, check the parser state
     reply_state = if state.state == :replication && state.replica_parser do
       # Query the Rust parser's actual state
-      case Vdr.RedisParser.replica_state(state.replica_parser) do
+      case Vdr.RedisNif.replica_state(state.replica_parser) do
         :streaming -> :streaming
         :reading_rdb -> :rdb_transfer
         :waiting_rdb -> :rdb_transfer
