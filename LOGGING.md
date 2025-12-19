@@ -60,51 +60,6 @@ iex -S mix
 
 When `RUST_LOG` is unset or set to `off`, the logger has **zero runtime overhead**. The log level is checked at initialization time only, and disabled log statements compile to no-ops.
 
-## Elixir API
-
-The `Vdr.RedisParser.Logger` module provides helper functions:
-
-```elixir
-# Check current RUST_LOG setting
-Vdr.RedisParser.Logger.get_env_log_level()
-# => "debug" or "off" etc.
-
-# Check if debug logging is enabled
-Vdr.RedisParser.Logger.debug_enabled?()
-# => true or false
-```
-
-## Example Output
-
-### Without logging (default):
-```bash
-$ mix run examples/logging_example.exs
-Current RUST_LOG setting: off
-Debug enabled? false
-
-Parsing a simple RDB file...
-
-Successfully parsed RDB file!
-Number of commands: 0
-```
-
-### With debug logging:
-```bash
-$ RUST_LOG=debug mix run examples/logging_example.exs
-Current RUST_LOG setting: debug
-Debug enabled? true
-
-Parsing a simple RDB file...
-
-[2025-12-17T10:46:46Z DEBUG vdr_nif::rdb] feed_data, state: Magic(0), passed bytes: 18
-[2025-12-17T10:46:46Z DEBUG vdr_nif::rdb] parsed_magic, got to opcode
-[2025-12-17T10:46:46Z DEBUG vdr_nif::rdb] parse_opcode, opcode: 255
-[2025-12-17T10:46:46Z DEBUG vdr_nif::rdb] feed_data, buf size: 0
-
-Successfully parsed RDB file!
-Number of commands: 0
-```
-
 ## Log Message Locations
 
 The logging infrastructure has been implemented in:

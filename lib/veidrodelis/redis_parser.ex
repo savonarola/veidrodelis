@@ -1,10 +1,5 @@
 defmodule Vdr.RedisParser do
-  @moduledoc """
-  Native Redis parser implementation using Rustler NIFs.
-
-  This module provides the low-level NIF interface for Redis parsing.
-  Most users should use Vdr.RDB instead of calling these functions directly.
-  """
+  @moduledoc false
 
   use Rustler,
     otp_app: :veidrodelis,

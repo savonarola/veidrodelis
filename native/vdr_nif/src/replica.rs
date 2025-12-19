@@ -28,16 +28,6 @@ struct RawCommand {
     args: Vec<Vec<u8>>, // Command arguments
 }
 
-impl RawCommand {
-    fn with_args(db: u32, name: &[u8], args: Vec<Vec<u8>>) -> Self {
-        RawCommand {
-            db,
-            name: name.to_vec(),
-            args,
-        }
-    }
-}
-
 /// Internal parser state
 struct ParserState {
     buffer: BytesMut,

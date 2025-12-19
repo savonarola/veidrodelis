@@ -1,70 +1,5 @@
 defmodule Vdr.RDB do
-  @moduledoc """
-  Redis RDB (Redis Database) file parser implemented in Rust.
-
-  This module provides a streaming parser for Redis RDB files that returns
-  Redis command structs representing the data in the RDB file.
-
-  ## Example - Basic Usage
-
-      alias Vdr.Command
-
-      # Create parser
-      parser = Vdr.RDB.create()
-
-      # Read RDB file
-      {:ok, rdb_binary} = File.read("dump.rdb")
-
-      # Feed data and get commands
-      case Vdr.RDB.data(parser, rdb_binary) do
-        {:ok, commands} ->
-          # Parsing complete
-          Enum.each(commands, fn
-            {_db, %Command.Set{key: k, value: v}} ->
-              IO.puts("SET key=value")
-
-            {_db, %Command.RPush{}} ->
-              IO.puts("RPUSH command")
-
-            {_db, %Command.SAdd{}} ->
-              IO.puts("SADD command")
-
-            {_db, %Command.ZAdd{}} ->
-              IO.puts("ZADD command")
-
-            {_db, %Command.HSet{}} ->
-              IO.puts("HSET command")
-
-            {_db, %Command.PExpireAt{}} ->
-              IO.puts("PEXPIREAT command")
-          end)
-
-        {:ok, commands, parser} ->
-          # More data needed - partial parsing
-          process_commands(commands)
-          # Feed more data...
-
-        {:error, reason} ->
-          IO.puts("Error: \#{inspect(reason)}")
-      end
-
-  ## Example - Streaming/Chunked Parsing
-
-  The parser supports streaming/chunked parsing, which is useful for processing
-  large RDB files or reading from network streams:
-
-      # Create parser
-      parser = Vdr.RDB.create()
-
-      # Feed data in chunks (any size supported)
-      {:ok, commands1, parser} = Vdr.RDB.data(parser, chunk1)
-      {:ok, commands2, parser} = Vdr.RDB.data(parser, chunk2)
-      {:ok, commands3} = Vdr.RDB.data(parser, chunk3)  # Final chunk (EOF)
-
-      # Process all commands
-      all_commands = commands1 ++ commands2 ++ commands3
-      Enum.each(all_commands, &process_command/1)
-  """
+  @moduledoc false
 
   alias Vdr.Command
 
@@ -150,223 +85,30 @@ defmodule Vdr.RDB do
         [key, value | _rest] = args
         %Command.Set{key: key, value: value}
 
-      "MSET" when length(args) >= 2 ->
-        pairs = parse_pairs(args, [])
-        %Command.MSet{pairs: pairs}
-
-      "APPEND" when length(args) == 2 ->
-        [key, value] = args
-        %Command.Append{key: key, value: value}
-
-      "SETRANGE" when length(args) == 3 ->
-        [key, offset_str, value] = args
-        offset = String.to_integer(offset_str)
-        %Command.SetRange{key: key, offset: offset, value: value}
-
-      "SETBIT" when length(args) == 3 ->
-        [key, offset_str, value_str] = args
-        offset = String.to_integer(offset_str)
-        value = String.to_integer(value_str)
-        %Command.SetBit{key: key, offset: offset, value: value}
-
-      # List commands
       "RPUSH" ->
         [key | values] = args
         %Command.RPush{key: key, values: values}
 
-      "LPUSH" ->
-        [key | values] = args
-        %Command.LPush{key: key, values: values}
-
-      "LPUSHX" ->
-        [key | values] = args
-        %Command.LPushX{key: key, values: values}
-
-      "RPUSHX" ->
-        [key | values] = args
-        %Command.RPushX{key: key, values: values}
-
-      "LPOP" when length(args) >= 1 ->
-        [key | _rest] = args
-        %Command.LPop{key: key}
-
-      "RPOP" when length(args) >= 1 ->
-        [key | _rest] = args
-        %Command.RPop{key: key}
-
-      "LREM" when length(args) == 3 ->
-        [key, count_str, value] = args
-        count = String.to_integer(count_str)
-        %Command.LRem{key: key, count: count, value: value}
-
-      "LTRIM" when length(args) == 3 ->
-        [key, start_str, stop_str] = args
-        start = String.to_integer(start_str)
-        stop = String.to_integer(stop_str)
-        %Command.LTrim{key: key, start: start, stop: stop}
-
-      "LSET" when length(args) == 3 ->
-        [key, index_str, value] = args
-        index = String.to_integer(index_str)
-        %Command.LSet{key: key, index: index, value: value}
-
-      "LINSERT" when length(args) == 4 ->
-        [key, before_after_str, pivot, element] = args
-        before_after = if String.upcase(before_after_str) == "BEFORE", do: :before, else: :after
-        %Command.LInsert{key: key, before_after: before_after, pivot: pivot, element: element}
-
-      "RPOPLPUSH" when length(args) == 2 ->
-        [source, destination] = args
-        %Command.RPopLPush{source: source, destination: destination}
-
-      # Set commands
       "SADD" ->
         [key | members] = args
         %Command.SAdd{key: key, members: members}
 
-      "SREM" ->
-        [key | members] = args
-        %Command.SRem{key: key, members: members}
-
-      "SMOVE" when length(args) == 3 ->
-        [source, destination, member] = args
-        %Command.SMove{source: source, destination: destination, member: member}
-
-      "SINTERSTORE" when length(args) >= 2 ->
-        [destination, _numkeys | keys] = args
-        %Command.SInterStore{destination: destination, keys: keys}
-
-      "SUNIONSTORE" when length(args) >= 2 ->
-        [destination, _numkeys | keys] = args
-        %Command.SUnionStore{destination: destination, keys: keys}
-
-      "SDIFFSTORE" when length(args) >= 2 ->
-        [destination, _numkeys | keys] = args
-        %Command.SDiffStore{destination: destination, keys: keys}
-
-      # Sorted set commands
       "ZADD" ->
         [key | score_member_pairs] = args
         members = parse_zadd_args(score_member_pairs, [])
         %Command.ZAdd{key: key, members: members}
 
-      "ZUNIONSTORE" when length(args) >= 2 ->
-        parse_zunionstore(args)
-
-      "ZINTERSTORE" when length(args) >= 2 ->
-        parse_zinterstore(args)
-
-      "ZREM" ->
-        [key | members] = args
-        %Command.ZRem{key: key, members: members}
-
-      "ZPOPMAX" ->
-        [key | rest] = args
-        count = if rest == [], do: 1, else: String.to_integer(List.first(rest))
-        %Command.ZPopMax{key: key, count: count}
-
-      "ZPOPMIN" ->
-        [key | rest] = args
-        count = if rest == [], do: 1, else: String.to_integer(List.first(rest))
-        %Command.ZPopMin{key: key, count: count}
-
-      "ZREMRANGEBYRANK" when length(args) == 3 ->
-        [key, start_str, stop_str] = args
-        start = String.to_integer(start_str)
-        stop = String.to_integer(stop_str)
-        %Command.ZRemRangeByRank{key: key, start: start, stop: stop}
-
-      "ZREMRANGEBYSCORE" when length(args) == 3 ->
-        [key, min, max] = args
-        %Command.ZRemRangeByScore{key: key, min: min, max: max}
-
-      "ZREMRANGEBYLEX" when length(args) == 3 ->
-        [key, min, max] = args
-        %Command.ZRemRangeByLex{key: key, min: min, max: max}
-
-      # Hash commands
       "HSET" ->
         [key | field_value_pairs] = args
         fields = parse_hset_args(field_value_pairs, [])
         %Command.HSet{key: key, fields: fields}
 
-      "HDEL" ->
-        [key | fields] = args
-        %Command.HDel{key: key, fields: fields}
-
-      # Key management
-      "DEL" when length(args) >= 1 ->
-        %Command.Del{keys: args}
-
-      "RENAME" when length(args) == 2 ->
-        [key, newkey] = args
-        %Command.Rename{key: key, newkey: newkey}
-
-      "RENAMENX" when length(args) == 2 ->
-        [key, newkey] = args
-        %Command.RenameNX{key: key, newkey: newkey}
-
-      "MOVE" when length(args) == 2 ->
-        [key, db_str] = args
-        db = String.to_integer(db_str)
-        %Command.Move{key: key, db: db}
-
-      # Expiration
-      "PEXPIREAT" when length(args) == 2 ->
-        [key, timestamp_str] = args
-        timestamp_ms = String.to_integer(timestamp_str)
-        %Command.PExpireAt{key: key, timestamp_ms: timestamp_ms}
-
-      _ ->
-        # Return generic command for unknown or malformed commands
-        %Command.Generic{args: [name | args]}
+      "PEXPIREAT" ->
+        [key | [expire_ms]] = args
+        %Command.PExpireAt{key: key, timestamp_ms: expire_ms}
     end
 
     {db, command}
-  end
-
-  # Parse MSET arguments: [key, value, key, value, ...]
-  defp parse_pairs([], acc), do: Enum.reverse(acc)
-  defp parse_pairs([key, value | rest], acc) do
-    parse_pairs(rest, [{key, value} | acc])
-  end
-
-  # Parse ZUNIONSTORE/ZINTERSTORE args: destination numkeys key1 key2 ... [WEIGHTS w1 w2 ...] [AGGREGATE SUM|MIN|MAX]
-  defp parse_zunionstore([destination, numkeys_str | rest]) do
-    numkeys = String.to_integer(numkeys_str)
-    {keys, rest} = Enum.split(rest, numkeys)
-    {weights, aggregate} = parse_zstore_options(rest)
-    %Command.ZUnionStore{destination: destination, keys: keys, weights: weights, aggregate: aggregate}
-  end
-
-  defp parse_zinterstore([destination, numkeys_str | rest]) do
-    numkeys = String.to_integer(numkeys_str)
-    {keys, rest} = Enum.split(rest, numkeys)
-    {weights, aggregate} = parse_zstore_options(rest)
-    %Command.ZInterStore{destination: destination, keys: keys, weights: weights, aggregate: aggregate}
-  end
-
-  defp parse_zstore_options(args) do
-    parse_zstore_options(args, nil, nil)
-  end
-
-  defp parse_zstore_options([], weights, aggregate), do: {weights, aggregate}
-  defp parse_zstore_options(["WEIGHTS" | rest], _weights, aggregate) do
-    {weight_strs, rest} = Enum.split_while(rest, fn arg -> arg not in ["AGGREGATE"] end)
-    weights = Enum.map(weight_strs, &parse_float/1)
-    parse_zstore_options(rest, weights, aggregate)
-  end
-  defp parse_zstore_options(["AGGREGATE", agg_str | rest], weights, _aggregate) do
-    aggregate = case String.upcase(agg_str) do
-      "SUM" -> :sum
-      "MIN" -> :min
-      "MAX" -> :max
-      _ -> :sum
-    end
-    parse_zstore_options(rest, weights, aggregate)
-  end
-  defp parse_zstore_options([_ | rest], weights, aggregate) do
-    parse_zstore_options(rest, weights, aggregate)
   end
 
   # Parse ZADD arguments: [score, member, score, member, ...]
