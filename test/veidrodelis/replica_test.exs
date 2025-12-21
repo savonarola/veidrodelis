@@ -11,6 +11,11 @@ defmodule Veidrodelis.ReplicaTest do
     @behaviour Vdr.RedisStream.Callback
 
     @impl true
+    def handle_replication_start(state) do
+      {:ok, state}
+    end
+
+    @impl true
     def handle_command(state, db, command) do
       # Add command to the list with timestamp
       commands = Map.get(state, :commands, [])

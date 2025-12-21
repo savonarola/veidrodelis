@@ -350,7 +350,6 @@ defmodule Vdr.RDBTest do
       # Split into chunks of 32 bytes (small)
       chunks = split_into_chunks(rdb_binary, 32)
       chunk_sizes = Enum.map(chunks, &byte_size/1)
-      dbg(chunk_sizes)
 
       parser = Vdr.RDB.create()
 

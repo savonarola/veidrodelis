@@ -8,6 +8,8 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
   alias Veidrodelis.Test.Toxiproxy
   use CommandMatchers
 
+  require Logger
+
   # Callback module that collects all commands
   defmodule CollectorCallback do
     @behaviour Vdr.RedisStream.Callback
@@ -191,7 +193,9 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       # on_replication_start should NOT be called again for partial resync
       assert_happens_within 2000 do
         callback_state = Replica.get_callback_state(replica)
-        1 == CollectorCallback.replication_starts(callback_state)
+        replication_starts = CollectorCallback.replication_starts(callback_state)
+        assert replication_starts <= 1
+        replication_starts == 1
       end
 
       Replica.stop(replica)

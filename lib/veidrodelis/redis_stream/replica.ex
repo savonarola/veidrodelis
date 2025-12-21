@@ -69,6 +69,7 @@ defmodule Vdr.RedisStream.Replica do
   require Logger
 
   alias Vdr.ReplicaParser
+  alias Vdr.RedisStream.CommandFilter
 
   @default_port 6379
   @default_timeout 5000
@@ -107,6 +108,7 @@ defmodule Vdr.RedisStream.Replica do
     * `:reconnect_delay_ms` - Initial delay before reconnection in ms (default: 1000)
     * `:max_reconnect_delay_ms` - Maximum delay between reconnection attempts in ms (default: 30000)
     * `:ack_interval_ms` - Interval for sending periodic REPLCONF ACK to master in ms (default: 1000). Set to nil to disable periodic ACKs.
+    * `:command_filter` - Command filter to apply to commands (default: none)
 
   ## Authentication
 
@@ -240,7 +242,8 @@ defmodule Vdr.RedisStream.Replica do
       # Buffer for protocol messages before replication starts
       buffer: [],
       buffer_size: 0,
-      state: :init
+      state: :init,
+      command_filter: Keyword.get(opts, :command_filter, %CommandFilter{})
     }
 
     # Start connection process asynchronously
@@ -286,21 +289,7 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   def handle_call(:get_replication_state, _from, state) do
-    # If we're in :replication mode, check the parser state
-    reply_state =
-      if state.state == :replication && state.replica_parser do
-        # Query the Rust parser's actual state
-        case Vdr.RedisNif.replica_state(state.replica_parser) do
-          :streaming -> :streaming
-          :reading_rdb -> :rdb_transfer
-          :waiting_rdb -> :rdb_transfer
-          _ -> state.state
-        end
-      else
-        state.state
-      end
-
-    {:reply, reply_state, state}
+    {:reply, replication_state(state), state}
   end
 
   def handle_call({:callback_call, message}, _from, state) do
@@ -408,6 +397,20 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   # Private functions
+
+  defp replication_state(state) do
+    if state.state == :replication && state.replica_parser do
+      # Query the Rust parser's actual state
+      case Vdr.RedisNif.replica_state(state.replica_parser) do
+        :streaming -> :streaming
+        :reading_rdb -> :rdb_transfer
+        :waiting_rdb -> :rdb_transfer
+        _ -> state.state
+      end
+    else
+      state.state
+    end
+  end
 
   defp handle_disconnect(state, reason) do
     # Close existing socket if any
@@ -579,7 +582,7 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   defp send_replconf_ack(state) do
-    if state.socket && state.transport do
+    if state.socket && state.transport && replication_state(state) == :streaming do
       offset = state.replication_offset
       offset_str = Integer.to_string(offset)
       offset_len = byte_size(offset_str)
@@ -588,7 +591,7 @@ defmodule Vdr.RedisStream.Replica do
 
       case transport_send(state.transport, state.socket, cmd) do
         :ok ->
-          Logger.debug("Sent periodic REPLCONF ACK #{offset}")
+          Logger.info("Sent periodic REPLCONF ACK #{offset}")
           :ok
 
         {:error, reason} ->
@@ -596,6 +599,7 @@ defmodule Vdr.RedisStream.Replica do
           :error
       end
     else
+      Logger.info("Skipped REPLCONF ACK - not in streaming mode")
       :ok
     end
   end
@@ -604,13 +608,9 @@ defmodule Vdr.RedisStream.Replica do
     # Cancel existing timer if any
     state = cancel_ack_timer(state)
 
-    # Schedule next ACK if interval is configured and we're in streaming mode
-    if state.ack_interval_ms && state.state == :streaming do
-      timer_ref = Process.send_after(self(), :send_periodic_ack, state.ack_interval_ms)
-      %{state | ack_timer_ref: timer_ref}
-    else
-      state
-    end
+    # Schedule next ACK if interval is configured
+    timer_ref = Process.send_after(self(), :send_periodic_ack, state.ack_interval_ms)
+    %{state | ack_timer_ref: timer_ref}
   end
 
   defp cancel_ack_timer(state) do
@@ -627,39 +627,26 @@ defmodule Vdr.RedisStream.Replica do
     # After replication starts, feed directly to replica parser
     result =
       case state.state do
-        :ping ->
-          new_buffer = [data | state.buffer]
-          new_buffer_size = state.buffer_size + byte_size(data)
-          new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
-          handle_ping_response(new_state)
-
-        :auth ->
-          new_buffer = [data | state.buffer]
-          new_buffer_size = state.buffer_size + byte_size(data)
-          new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
-          handle_auth_response(new_state)
-
-        :replconf_listening_port ->
-          new_buffer = [data | state.buffer]
-          new_buffer_size = state.buffer_size + byte_size(data)
-          new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
-          handle_replconf_response(new_state, :replconf_capa)
-
-        :replconf_capa ->
-          new_buffer = [data | state.buffer]
-          new_buffer_size = state.buffer_size + byte_size(data)
-          new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
-          handle_replconf_response(new_state, :send_psync)
-
-        :psync ->
-          new_buffer = [data | state.buffer]
-          new_buffer_size = state.buffer_size + byte_size(data)
-          new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
-          handle_psync_response(new_state)
-
         :replication ->
           # After PSYNC, all data goes to the replica parser (no buffering)
           handle_replication_data(data, state)
+
+        other ->
+          new_buffer = [data | state.buffer]
+          new_buffer_size = state.buffer_size + byte_size(data)
+          new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
+          case other do
+            :ping ->
+              handle_ping_response(new_state)
+            :auth ->
+              handle_auth_response(new_state)
+            :replconf_listening_port ->
+              handle_replconf_response(new_state, :replconf_capa)
+            :replconf_capa ->
+              handle_replconf_response(new_state, :send_psync)
+            :psync ->
+              handle_psync_response(new_state)
+          end
       end
 
     # Re-enable socket for next packet (backpressure)
@@ -743,133 +730,107 @@ defmodule Vdr.RedisStream.Replica do
     # - +FULLRESYNC <replication_id> <offset>\r\n (full sync)
     # - +CONTINUE\r\n (partial resync accepted)
     case parse_psync_response(state) do
-      {:ok, :fullresync, replication_id, offset, new_state} ->
-        Logger.info("PSYNC: FULLRESYNC #{replication_id} #{offset}")
-
-        # Call handle_replication_start callback if implemented
-        callback_state_update_result =
-          if function_exported?(state.callback_module, :handle_replication_start, 1) do
-            case state.callback_module.handle_replication_start(state.callback_state) do
-              {:ok, new_callback_state} ->
-                Logger.debug("handle_replication_start callback succeeded")
-                {:ok, new_callback_state}
-
-              {:error, reason} ->
-                Logger.error("handle_replication_start callback failed: #{inspect(reason)}")
-                {:error, reason}
-            end
-          else
-            {:ok, state.callback_state}
-          end
-
-        case callback_state_update_result do
-          {:ok, updated_callback_state} ->
-            # Create replica parser (handles both RDB and command streaming)
-            replica_parser = ReplicaParser.create()
-
-            new_state = %{
-              new_state
-              | callback_state: updated_callback_state,
-                replication_id: replication_id,
-                replication_offset: offset,
-                replica_parser: replica_parser,
-                state: :replication
-            }
-
-            # Start periodic ACK timer
-            new_state = schedule_periodic_ack(new_state)
-
-            # Feed any buffered data to replica parser
-            if new_state.buffer_size > 0 do
-              buffered_data = buffer_to_binary(new_state)
-              new_state = %{new_state | buffer: [], buffer_size: 0}
-              handle_replication_data(buffered_data, new_state)
-            else
-              {:noreply, new_state}
-            end
-
-          {:error, reason} ->
-            {:stop, {:handle_replication_start_failed, reason}, new_state}
-        end
-
-      {:ok, :continue, new_state} ->
-        Logger.info("PSYNC: CONTINUE - partial resync accepted")
-
-        # For partial resync, feed a fake empty RDB to trigger streaming mode
-        # The replica parser starts in WaitingRdb state, so we need to transition it
-        replica_parser = ReplicaParser.create()
-
-        # Feed minimal RDB header to transition parser to streaming mode
-        # $0\r\n means zero-length RDB (no data)
-        case ReplicaParser.data(replica_parser, "$0\r\n") do
-          {:ok, [], replica_parser} ->
-            # Parser now in streaming mode
-            new_state = %{
-              new_state
-              | replication_id: state.saved_replication_id,
-                replication_offset: state.saved_replication_offset,
-                replica_parser: replica_parser,
-                state: :replication
-            }
-
-            # Start periodic ACK timer
-            new_state = schedule_periodic_ack(new_state)
-
-            # Feed any buffered data
-            if new_state.buffer_size > 0 do
-              buffered_data = buffer_to_binary(new_state)
-              new_state = %{new_state | buffer: [], buffer_size: 0}
-              handle_replication_data(buffered_data, new_state)
-            else
-              {:noreply, new_state}
-            end
-
-          {:error, reason} ->
-            {:stop, {:partial_resync_init_failed, reason}, new_state}
-        end
-
       :incomplete ->
         {:noreply, state}
 
       {:error, reason} ->
         {:stop, {:psync_failed, reason}, state}
+
+      {:ok, psync_completed} ->
+        case handle_psync_completed(psync_completed) do
+          {:ok, new_state} ->
+            new_state = schedule_periodic_ack(new_state)
+
+            # Feed rest of the buffered data to replica parser
+            if new_state.buffer_size > 0 do
+              buffered_data = buffer_to_binary(new_state)
+              new_state = %{new_state | buffer: [], buffer_size: 0}
+              handle_replication_data(buffered_data, new_state)
+            else
+              {:noreply, new_state}
+            end
+          {:error, reason} ->
+            Logger.error("handle_replication_start callback failed: #{inspect(reason)}")
+            {:stop, {:handle_replication_start_failed, reason}, state}
+        end
     end
+  end
+
+  defp handle_psync_completed({:fullresync, replication_id, offset, state}) do
+    Logger.info("PSYNC: FULLRESYNC #{replication_id} #{offset}")
+
+    case state.callback_module.handle_replication_start(state.callback_state) do
+      {:ok, updated_callback_state} ->
+        Logger.info("handle_replication_start callback succeeded")
+        # Create replica parser (handles both RDB and command streaming)
+
+        replica_parser = ReplicaParser.create()
+        new_state = %{
+          state
+          | callback_state: updated_callback_state,
+            replication_id: replication_id,
+            replication_offset: offset,
+            replica_parser: replica_parser,
+            state: :replication
+        }
+        {:ok, new_state}
+      {:error, reason} ->
+        {:error, {:handle_replication_start_failed, reason}}
+    end
+  end
+
+  defp handle_psync_completed({:continue, state}) do
+    Logger.info("PSYNC: CONTINUE - partial resync accepted")
+
+    # Create parser in streaming mode (no RDB expected)
+    replica_parser = ReplicaParser.create(rdb: false)
+
+    new_state = %{
+      state
+      | replication_id: state.saved_replication_id,
+        replication_offset: state.saved_replication_offset,
+        replica_parser: replica_parser,
+        state: :replication
+    }
+
+    {:ok, new_state}
   end
 
   # Handle replication data using Rust replica parser
   defp handle_replication_data(data, state) do
+    # CRITICAL: Check parser state BEFORE feeding data
+    # According to Redis replication protocol, the offset in FULLRESYNC represents
+    # the logical position in the command stream. The RDB is sent "out of band" and
+    # should not increment the offset. Only commands after the RDB increment the offset.
+    parser_state_before = Vdr.RedisNif.replica_state(state.replica_parser)
+
     # Feed data to replica parser (handles RDB and command stream automatically)
     case ReplicaParser.data(state.replica_parser, data) do
       {:ok, commands, new_replica_parser} ->
         # Parser returned commands and wants more data
-        # Update replication offset by data size
-        new_offset = state.replication_offset + byte_size(data)
+        #
+        # Only increment offset if we were in streaming mode BEFORE feeding this data
+        # If we were reading RDB, this data is RDB data and should not count
+        new_offset =
+          if parser_state_before == :streaming do
+            state.replication_offset + byte_size(data)
+          else
+            # During RDB transfer (:waiting_rdb or :reading_rdb), don't increment offset
+            state.replication_offset
+          end
+
+        # Update state with new offset BEFORE processing commands
+        # This is critical because process_commands may send REPLCONF ACK
+        # which must report the correct offset including the current data
+        state_with_offset = %{
+          state
+          | replica_parser: new_replica_parser,
+            replication_offset: new_offset
+        }
 
         # Process commands through callback
-        case process_commands(commands, state) do
-          {:ok, new_state_with_commands} ->
-            new_state = %{
-              new_state_with_commands
-              | replica_parser: new_replica_parser,
-                replication_offset: new_offset
-            }
-
-            {:noreply, new_state}
-
-          {:error, reason} ->
-            {:stop, {:callback_failed, reason}, state}
-        end
-
-      {:ok, commands} ->
-        # Parser finished (should not happen in normal replication)
-        # Update replication offset by data size
-        new_offset = state.replication_offset + byte_size(data)
-
-        # Process final commands
-        case process_commands(commands, state) do
-          {:ok, new_state_with_commands} ->
-            new_state = %{new_state_with_commands | replication_offset: new_offset}
-            Logger.warning("Replica parser finished unexpectedly")
+        case process_commands(commands, state_with_offset) do
+          {:ok, new_state} ->
             {:noreply, new_state}
 
           {:error, reason} ->
@@ -899,7 +860,10 @@ defmodule Vdr.RedisStream.Replica do
 
         # Regular commands - invoke callback
         _ ->
-          result = state.callback_module.handle_command(state.callback_state, db, command)
+          result =
+          CommandFilter.apply(state.command_filter, command, fn command ->
+            state.callback_module.handle_command(state.callback_state, db, command)
+          end)
 
           case result do
             {:ok, new_callback_state} ->
@@ -994,7 +958,7 @@ defmodule Vdr.RedisStream.Replica do
                     buffer_size: byte_size(rest)
                 }
 
-                {:ok, :fullresync, replication_id, offset, new_state}
+                {:ok, {:fullresync, replication_id, offset, new_state}}
 
               _ ->
                 :incomplete
@@ -1011,7 +975,7 @@ defmodule Vdr.RedisStream.Replica do
                     buffer_size: byte_size(rest)
                 }
 
-                {:ok, :continue, new_state}
+                {:ok, {:continue, new_state}}
 
               _ ->
                 :incomplete

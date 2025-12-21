@@ -28,6 +28,9 @@ dc-restart:
 dc-clean:
     cd test/assets && docker compose down -v
 
+dc-logs:
+    cd test/assets && docker compose logs -f
+
 default_bm_scenario := 'hashes_100k'
 
 # Run benchmarks

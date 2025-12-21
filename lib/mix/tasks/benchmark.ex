@@ -86,7 +86,7 @@ defmodule Mix.Tasks.Benchmark do
   end
 
   defp run_benchmarks(scenario_filter) do
-    Logger.configure(level: :warning)
+    Logger.configure(level: :info)
     Mix.shell().info("=== Veidrodelis Replication Lag Benchmark ===")
     Mix.shell().info("")
 
@@ -190,7 +190,8 @@ defmodule Mix.Tasks.Benchmark do
     case Veidrodelis.start_link(
            id: @vdr_id,
            host: @redis_host,
-           port: @redis_port
+           port: @redis_port,
+           command_filter: LagTracker.command_filter()
          ) do
       {:ok, pid} ->
         # Wait for replication to start

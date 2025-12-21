@@ -8,18 +8,21 @@ defmodule Vdr.Benchmark.Scenarios.HashCommands do
   """
   def scenarios do
     [
-      extreme_intensity()
+      %{
+        name: "hashes_100k",
+        duration_seconds: 120,
+        intensity: 100_000,
+        command_fn: &generate_command/0
+      },
+      %{
+        name: "hashes_50k",
+        duration_seconds: 60,
+        intensity: 50_000,
+        command_fn: &generate_command/0
+      }
     ]
   end
 
-  defp extreme_intensity do
-    %{
-      name: "hashes_100k",
-      duration_seconds: 120,
-      intensity: 100_000,
-      command_fn: &generate_command/0
-    }
-  end
 
   # Alternates between HSET and HDEL commands
   defp generate_command do

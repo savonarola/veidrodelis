@@ -27,6 +27,12 @@ defmodule Veidrodelis.IntegrationTest do
   defmodule CollectorCallback do
     @behaviour Vdr.RedisStream.Callback
 
+
+    @impl true
+    def handle_replication_start(state) do
+      {:ok, state}
+    end
+
     @impl true
     def handle_command(state, db, command) do
       commands = Map.get(state, :commands, [])

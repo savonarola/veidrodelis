@@ -15,7 +15,7 @@ defmodule Vdr.RedisNif do
 
   # Replica Parser NIFs
   @doc false
-  def replica_create(), do: :erlang.nif_error(:nif_not_loaded)
+  def do_replica_create(_skip_rdb), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc false
   def replica_data(_parser, _chunk), do: :erlang.nif_error(:nif_not_loaded)

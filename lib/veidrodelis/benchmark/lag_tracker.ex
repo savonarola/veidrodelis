@@ -10,6 +10,9 @@ defmodule Vdr.Benchmark.LagTracker do
 
   use GenServer
 
+  alias Vdr.RedisStream.CommandFilter
+  alias Vdr.Command
+
   require Logger
 
   defstruct [
@@ -34,6 +37,21 @@ defmodule Vdr.Benchmark.LagTracker do
   """
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
+  end
+
+  def command_filter() do
+    %CommandFilter{
+      pre_handle: fn command ->
+        case command do
+          %Command.LPush{key: "lagmon", values: values} ->
+            receive_time = integer_to_binary(System.system_time(:microsecond))
+            modified_values = Enum.map(values, fn value -> <<value::binary, "-", receive_time::binary>> end)
+            {:ok, nil, %Command.LPush{key: "lagmon", values: modified_values}}
+          _other_command ->
+            {:ok, nil, command}
+        end
+      end
+    }
   end
 
   @doc """
@@ -134,20 +152,48 @@ defmodule Vdr.Benchmark.LagTracker do
           # No entries yet
           []
 
-        decoded_entries ->
-          decoded_entries = Enum.reverse(decoded_entries)
-          [{_, start_time} | _] = decoded_entries
+        binary_entries ->
+          # Parse entries in format "sent_timestamp-receive_timestamp"
+          parsed_entries =
+            binary_entries
+            |> Enum.map(&parse_lag_entry/1)
+            |> Enum.reject(&is_nil/1)
+            |> Enum.reverse()
 
-          decoded_entries
-          |> Enum.map(fn {received_ts_system, sent_ts_system} ->
-            lag_us = received_ts_system - sent_ts_system
-            {sent_ts_system - start_time, lag_us}
-          end)
+          case parsed_entries do
+            [] ->
+              []
+
+            [{_, start_time} | _] = decoded_entries ->
+              decoded_entries
+              |> Enum.map(fn {received_ts_system, sent_ts_system} ->
+                lag_us = received_ts_system - sent_ts_system
+                {sent_ts_system - start_time, lag_us}
+              end)
+          end
       end
     rescue
       _e ->
         # Silently handle errors (e.g., store not yet initialized)
         []
     end
+  end
+
+  # Parse a lag entry in format "sent_timestamp-receive_timestamp"
+  defp parse_lag_entry(binary) when is_binary(binary) do
+    case String.split(binary, "-", parts: 2) do
+      [sent_str, received_str] ->
+        {String.to_integer(received_str), String.to_integer(sent_str)}
+
+      _ ->
+        nil
+    end
+  end
+
+  defp parse_lag_entry(_), do: nil
+
+  # Helper to convert integer to binary string
+  defp integer_to_binary(int) when is_integer(int) do
+    Integer.to_string(int)
   end
 end

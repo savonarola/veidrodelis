@@ -57,12 +57,16 @@ impl UnwindSafe for ReplicaParser {}
 impl Resource for ReplicaParser {}
 
 impl ReplicaParser {
-    fn new(pid: LocalPid) -> Self {
+    fn new(pid: LocalPid, skip_rdb: bool) -> Self {
         ReplicaParser {
             pid,
             state: RefCell::new(ParserState {
                 buffer: BytesMut::new(),
-                state: ReplicaState::WaitingRdb,
+                state: if skip_rdb {
+                    ReplicaState::Streaming
+                } else {
+                    ReplicaState::WaitingRdb
+                },
                 current_db: 0,
                 rdb_parser: None,
                 rdb_bulk_size: None,
@@ -318,10 +322,13 @@ fn find_crlf_from(data: &[u8]) -> Option<usize> {
 
 /// Create a new replica parser
 ///
+/// Arguments:
+/// - skip_rdb: if true, starts in streaming mode without expecting RDB
+///
 /// Returns a resource arc to the parser
-#[rustler::nif(name = "replica_create")]
-fn create_parser(env: Env) -> ResourceArc<ReplicaParser> {
-    ResourceArc::new(ReplicaParser::new(env.pid()))
+#[rustler::nif(name = "do_replica_create")]
+fn create_parser(env: Env, skip_rdb: bool) -> ResourceArc<ReplicaParser> {
+    ResourceArc::new(ReplicaParser::new(env.pid(), skip_rdb))
 }
 
 /// Feed data to the replica parser

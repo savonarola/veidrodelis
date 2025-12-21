@@ -153,5 +153,5 @@ defmodule Vdr.RedisStream.Callback do
   """
   @callback handle_destroy(state :: term()) :: :ok | {:error, term()}
 
-  @optional_callbacks handle_replication_start: 1, handle_destroy: 1, handle_call: 2
+  @optional_callbacks handle_destroy: 1, handle_call: 2
 end

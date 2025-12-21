@@ -56,7 +56,8 @@ defmodule Vdr.MapProj do
         :ssl_opts,
         :reconnect,
         :reconnect_delay_ms,
-        :max_reconnect_delay_ms
+        :max_reconnect_delay_ms,
+        :command_filter
       ])
 
     initial_state = %{}

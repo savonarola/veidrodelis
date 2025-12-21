@@ -47,18 +47,35 @@ defmodule Vdr.ReplicaParser do
   @doc """
   Create a new streaming replica parser.
 
+  ## Options
+
+    * `:rdb` - Boolean, default `true`. If `false`, the parser starts in streaming mode
+      without expecting RDB data. Use `rdb: false` for partial resync scenarios where
+      no RDB snapshot will be transferred.
+
   ## Returns
 
   A parser resource that can be used with `data/2`.
 
-  ## Example
+  ## Examples
 
+      # Standard mode - expects RDB followed by command stream
       parser = Vdr.ReplicaParser.create()
       {:ok, commands, parser} = Vdr.ReplicaParser.data(parser, chunk)
+
+      # Streaming mode - no RDB expected (for partial resync)
+      parser = Vdr.ReplicaParser.create(rdb: false)
+      {:ok, commands, parser} = Vdr.ReplicaParser.data(parser, chunk)
   """
-  @spec create() :: reference()
-  def create() do
-    Vdr.RedisNif.replica_create()
+  @spec create(keyword()) :: reference()
+  def create(opts \\ []) do
+    # Extract rdb option (default: true)
+    rdb = Keyword.get(opts, :rdb, true)
+
+    # skip_rdb is the inverse of rdb
+    skip_rdb = not rdb
+
+    Vdr.RedisNif.do_replica_create(skip_rdb)
   end
 
   @doc """

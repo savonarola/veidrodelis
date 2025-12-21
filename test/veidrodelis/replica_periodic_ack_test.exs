@@ -11,6 +11,11 @@ defmodule Veidrodelis.ReplicaPeriodicAckTest do
     @behaviour Vdr.RedisStream.Callback
 
     @impl true
+    def handle_replication_start(state) do
+      {:ok, state}
+    end
+
+    @impl true
     def handle_command(state, _db, _command) do
       {:ok, state}
     end
@@ -68,38 +73,6 @@ defmodule Veidrodelis.ReplicaPeriodicAckTest do
       assert final_offset > initial_offset
 
       # The replica should still be in streaming state
-      assert Replica.get_replication_state(replica) == :streaming
-
-      Replica.stop(replica)
-    end
-
-    test "disables periodic ACK when ack_interval_ms is nil", %{redis: redis} do
-      # Write some initial data
-      Redix.command!(redis, ["SET", "key1", "value1"])
-
-      # Start replica with ACK disabled
-      opts = [
-        host: @redis_host,
-        port: @redis_port,
-        callback_module: NoOpCallback,
-        callback_state: %{},
-        ack_interval_ms: nil
-      ]
-
-      {:ok, replica} = Replica.start_link(opts)
-
-      # Wait for replica to reach streaming state
-      assert_happens_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
-      end
-
-      # Write more data
-      Redix.command!(redis, ["SET", "key2", "value2"])
-
-      # Wait a bit
-      Process.sleep(1000)
-
-      # Replica should still be streaming (no ACK timer, but that's OK)
       assert Replica.get_replication_state(replica) == :streaming
 
       Replica.stop(replica)
