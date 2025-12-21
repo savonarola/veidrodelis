@@ -33,8 +33,9 @@ defmodule Vdr.ReplicaParserIntegrationTest do
       {:ok, _, parser} = Vdr.ReplicaParser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
 
       # Two SET commands
-      cmds = "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n" <>
-             "*3\r\n$3\r\nSET\r\n$4\r\nkey2\r\n$6\r\nvalue2\r\n"
+      cmds =
+        "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n" <>
+          "*3\r\n$3\r\nSET\r\n$4\r\nkey2\r\n$6\r\nvalue2\r\n"
 
       {:ok, commands, _parser} = Vdr.ReplicaParser.data(parser, cmds)
 
@@ -82,21 +83,25 @@ defmodule Vdr.ReplicaParserIntegrationTest do
       chunks = for <<chunk::binary-size(chunk_size) <- rdb_data>>, do: chunk
       # Get remaining bytes if any
       remainder_size = rem(byte_size(rdb_data), chunk_size)
-      chunks = if remainder_size > 0 do
-        chunks ++ [binary_part(rdb_data, byte_size(rdb_data) - remainder_size, remainder_size)]
-      else
-        chunks
-      end
 
-      {final_parser, all_commands} = Enum.reduce(chunks, {parser, []}, fn chunk, {p, cmds} ->
-        case Vdr.ReplicaParser.data(p, chunk) do
-          {:ok, new_cmds, new_parser} ->
-            {new_parser, cmds ++ new_cmds}
-          {:ok, new_cmds} ->
-            # Finished
-            {p, cmds ++ new_cmds}
+      chunks =
+        if remainder_size > 0 do
+          chunks ++ [binary_part(rdb_data, byte_size(rdb_data) - remainder_size, remainder_size)]
+        else
+          chunks
         end
-      end)
+
+      {final_parser, all_commands} =
+        Enum.reduce(chunks, {parser, []}, fn chunk, {p, cmds} ->
+          case Vdr.ReplicaParser.data(p, chunk) do
+            {:ok, new_cmds, new_parser} ->
+              {new_parser, cmds ++ new_cmds}
+
+            {:ok, new_cmds} ->
+              # Finished
+              {p, cmds ++ new_cmds}
+          end
+        end)
 
       # Should have transitioned to streaming mode after RDB
       assert is_reference(final_parser)
@@ -119,10 +124,12 @@ defmodule Vdr.ReplicaParserIntegrationTest do
       assert length(commands1) > 0
 
       # Verify we got SET commands from RDB
-      set_commands = Enum.filter(commands1, fn
-        {_db, %Command.Set{}} -> true
-        _ -> false
-      end)
+      set_commands =
+        Enum.filter(commands1, fn
+          {_db, %Command.Set{}} -> true
+          _ -> false
+        end)
+
       assert length(set_commands) > 0
 
       # Now feed streaming commands
@@ -158,8 +165,8 @@ defmodule Vdr.ReplicaParserIntegrationTest do
       # Feed multiple RESP commands at once
       commands_data =
         "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n" <>
-        "*3\r\n$3\r\nSET\r\n$4\r\nkey2\r\n$6\r\nvalue2\r\n" <>
-        "*4\r\n$5\r\nRPUSH\r\n$6\r\nmylist\r\n$5\r\nitem1\r\n$5\r\nitem2\r\n"
+          "*3\r\n$3\r\nSET\r\n$4\r\nkey2\r\n$6\r\nvalue2\r\n" <>
+          "*4\r\n$5\r\nRPUSH\r\n$6\r\nmylist\r\n$5\r\nitem1\r\n$5\r\nitem2\r\n"
 
       {:ok, commands, parser} = Vdr.ReplicaParser.data(parser, commands_data)
 
@@ -169,7 +176,11 @@ defmodule Vdr.ReplicaParserIntegrationTest do
       # Verify command types
       assert match?({0, %Command.Set{key: "key1", value: "value1"}}, Enum.at(commands, 0))
       assert match?({0, %Command.Set{key: "key2", value: "value2"}}, Enum.at(commands, 1))
-      assert match?({0, %Command.RPush{key: "mylist", values: ["item1", "item2"]}}, Enum.at(commands, 2))
+
+      assert match?(
+               {0, %Command.RPush{key: "mylist", values: ["item1", "item2"]}},
+               Enum.at(commands, 2)
+             )
 
       assert is_reference(parser)
     end
@@ -179,7 +190,9 @@ defmodule Vdr.ReplicaParserIntegrationTest do
 
       # Feed RDB first
       rdb_data = build_minimal_rdb()
-      {:ok, _commands, parser} = Vdr.ReplicaParser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
+
+      {:ok, _commands, parser} =
+        Vdr.ReplicaParser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
 
       # SELECT command should be filtered out but db should change
       select_cmd = "*2\r\n$6\r\nSELECT\r\n$1\r\n3\r\n"
@@ -199,14 +212,17 @@ defmodule Vdr.ReplicaParserIntegrationTest do
 
       # Feed RDB first
       rdb_data = build_minimal_rdb()
-      {:ok, _commands, parser} = Vdr.ReplicaParser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
+
+      {:ok, _commands, parser} =
+        Vdr.ReplicaParser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
 
       # PING and REPLCONF should be filtered
       ping_cmd = "*1\r\n$4\r\nPING\r\n"
       replconf_cmd = "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n"
       set_cmd = "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n"
 
-      {:ok, commands, parser} = Vdr.ReplicaParser.data(parser, ping_cmd <> replconf_cmd <> set_cmd)
+      {:ok, commands, parser} =
+        Vdr.ReplicaParser.data(parser, ping_cmd <> replconf_cmd <> set_cmd)
 
       # Should only have SET command
       assert length(commands) == 1
@@ -220,34 +236,43 @@ defmodule Vdr.ReplicaParserIntegrationTest do
 
       # Build full data
       rdb_data = build_minimal_rdb()
-      full_data = "$#{byte_size(rdb_data)}\r\n" <> rdb_data <>
-                  "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n"
+
+      full_data =
+        "$#{byte_size(rdb_data)}\r\n" <>
+          rdb_data <>
+          "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n"
 
       # Feed in tiny chunks
       chunk_size = 5
-      {_final_parser, all_commands} = Enum.reduce(0..(div(byte_size(full_data), chunk_size)), {parser, []}, fn i, {p, cmds} ->
-        offset = i * chunk_size
-        remaining = byte_size(full_data) - offset
-        size = min(chunk_size, remaining)
 
-        if size > 0 do
-          chunk = binary_part(full_data, offset, size)
-          case Vdr.ReplicaParser.data(p, chunk) do
-            {:ok, new_cmds, new_parser} ->
-              {new_parser, cmds ++ new_cmds}
-            {:ok, new_cmds} ->
-              {p, cmds ++ new_cmds}
+      {_final_parser, all_commands} =
+        Enum.reduce(0..div(byte_size(full_data), chunk_size), {parser, []}, fn i, {p, cmds} ->
+          offset = i * chunk_size
+          remaining = byte_size(full_data) - offset
+          size = min(chunk_size, remaining)
+
+          if size > 0 do
+            chunk = binary_part(full_data, offset, size)
+
+            case Vdr.ReplicaParser.data(p, chunk) do
+              {:ok, new_cmds, new_parser} ->
+                {new_parser, cmds ++ new_cmds}
+
+              {:ok, new_cmds} ->
+                {p, cmds ++ new_cmds}
+            end
+          else
+            {p, cmds}
           end
-        else
-          {p, cmds}
-        end
-      end)
+        end)
 
       # Should still parse correctly
-      set_commands = Enum.filter(all_commands, fn
-        {_db, %Command.Set{}} -> true
-        _ -> false
-      end)
+      set_commands =
+        Enum.filter(all_commands, fn
+          {_db, %Command.Set{}} -> true
+          _ -> false
+        end)
+
       assert length(set_commands) >= 1
     end
   end

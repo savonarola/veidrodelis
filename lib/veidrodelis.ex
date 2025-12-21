@@ -9,30 +9,13 @@ defmodule Veidrodelis do
 
     * Type-aware key routing
     * Automatic key type conflict resolution
-    * Pluggable decoder modules for custom data transformations
     * Map-based stores for strings, sets, hashes, sorted sets, and lists
-
-  ## Decoder Behaviour
-
-  Implement the `Veidrodelis` behaviour to define how keys and values are decoded:
-
-      defmodule MyDecoder do
-        @behaviour Veidrodelis
-
-        @impl true
-        def decode_key(key), do: key
-
-        @impl true
-        def decode_string_value(_key, value), do: Jason.decode!(value)
-
-        # Implement other callbacks...
-      end
+    * Raw binary storage for keys and values
 
   ## Usage
 
       # Start a Veidrodelis instance
       {:ok, pid} = Veidrodelis.start_link(
-        decoder: MyDecoder,
         host: "localhost",
         port: 6379
       )
@@ -47,61 +30,6 @@ defmodule Veidrodelis do
   @type value :: binary()
   @type db :: non_neg_integer()
 
-  # Behaviour callbacks for decoders
-
-  @doc """
-  Decodes a key from its binary representation.
-
-  This function decodes keys identically regardless of the Redis data type.
-  If a key is "user:123", it will decode to the same value whether it's
-  used for a string, set, hash, or sorted set.
-
-  ## Example
-
-      def decode_key(key), do: key  # Identity decoder
-      def decode_key(key), do: String.to_atom(key)  # Convert to atom
-      def decode_key(<<"prefix:", rest::binary>>), do: rest  # Strip prefix
-  """
-  @callback decode_key(key()) :: any()
-
-  @doc """
-  Decodes a string value given the decoded key.
-  """
-  @callback decode_string_value(any(), value()) :: term()
-
-  @doc """
-  Decodes a set member given the decoded key.
-  """
-  @callback decode_set_entry(any(), value()) :: term()
-
-  @doc """
-  Decodes a hash field key given the decoded hash key.
-  """
-  @callback decode_hash_hkey(any(), value()) :: any()
-
-  @doc """
-  Decodes a hash entry value given the decoded hash key and field key.
-  """
-  @callback decode_hash_entry(any(), any(), value()) :: term()
-
-  @doc """
-  Decodes a sorted set member given the decoded key.
-  """
-  @callback decode_zset_entry(any(), value()) :: term()
-
-  @doc """
-  Decodes a list element given the decoded key.
-  """
-  @callback decode_list_entry(any(), value()) :: term()
-
-  @optional_callbacks decode_key: 1,
-                      decode_string_value: 2,
-                      decode_set_entry: 2,
-                      decode_hash_hkey: 2,
-                      decode_hash_entry: 3,
-                      decode_zset_entry: 2,
-                      decode_list_entry: 2
-
   # Public API
 
   @doc """
@@ -109,7 +37,6 @@ defmodule Veidrodelis do
 
   ## Options
 
-    * `:decoder` - Required. Module implementing the Veidrodelis decoder behaviour
     * `:host` - Redis host (default: "localhost")
     * `:port` - Redis port (default: 6379)
     * `:username` - Redis username for ACL authentication (default: nil)
@@ -128,7 +55,6 @@ defmodule Veidrodelis do
   ## Example
 
       opts = [
-        decoder: MyDecoder,
         host: "localhost",
         port: 6379
       ]
@@ -166,22 +92,11 @@ defmodule Veidrodelis do
   # Redis accessor functions
 
   @doc """
-  Gets the raw (binary) value of a string key.
+  Gets the value of a string key.
   """
   @spec get(pid(), db(), key()) :: binary() | nil
   def get(pid, db, key) do
     case Vdr.RedisStream.Replica.call(pid, {:get, db, key}) do
-      {:ok, value} -> value
-      {:error, _} -> nil
-    end
-  end
-
-  @doc """
-  Gets the decoded value of a string key.
-  """
-  @spec get_decoded(pid(), db(), key()) :: any()
-  def get_decoded(pid, db, key) do
-    case Vdr.RedisStream.Replica.call(pid, {:get_decoded, db, key}) do
       {:ok, value} -> value
       {:error, _} -> nil
     end

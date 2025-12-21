@@ -8,42 +8,7 @@ defmodule VeidrodelisTest do
   @redis_host "localhost"
   @redis_port 16378
 
-  # Test decoder that transforms data in non-trivial ways
-  defmodule TestDecoder do
-    @behaviour Veidrodelis
-
-    # Key decoding: prefix all keys with "key:" regardless of type
-    # This decoder works identically for all Redis data types
-    @impl true
-    def decode_key(key), do: "key:#{key}"
-
-    # String value: wrap in tuple with metadata
-    @impl true
-    def decode_string_value(key, value), do: {:string_value, key, value}
-
-    # Set entry: wrap in tuple
-    @impl true
-    def decode_set_entry(_set_key, entry), do: {:set_entry, entry}
-
-    # Hash field key: wrap in tuple
-    @impl true
-    def decode_hash_hkey(_hash_key, hkey), do: {:hash_field, hkey}
-
-    # Hash entry: wrap with metadata
-    @impl true
-    def decode_hash_entry(_hash_key, hkey, value), do: {:hash_value, hkey, value}
-
-    # Zset entry: wrap in tuple
-    @impl true
-    def decode_zset_entry(_zset_key, entry), do: {:zset_entry, entry}
-
-    # List entry: wrap in tuple
-    @impl true
-    def decode_list_entry(_list_key, entry), do: {:list_entry, entry}
-  end
-
   @veidrodelis_base_opts [
-    decoder: TestDecoder,
     host: @redis_host,
     port: @redis_port
   ]
@@ -68,13 +33,13 @@ defmodule VeidrodelisTest do
     {:ok, redis: redis}
   end
 
-  describe "Veidrodelis with custom decoder" do
-    test "processes string commands with decoder", %{redis: redis} do
+  describe "Veidrodelis with raw binaries" do
+    test "processes string commands", %{redis: redis} do
       # Write data to Redis
       Redix.command!(redis, ["SET", "key1", "value1"])
       Redix.command!(redis, ["SET", "key2", "value2"])
 
-      # Start Veidrodelis instance with custom decoder
+      # Start Veidrodelis instance
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
@@ -82,12 +47,10 @@ defmodule VeidrodelisTest do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
-      # Verify decoded data in store
+      # Verify data in store
       wait_happens_within 100 do
-        Veidrodelis.get_decoded(pid, 0, "key:key1") ==
-          {:string_value, "key:key1", "value1"} &&
-          Veidrodelis.get_decoded(pid, 0, "key:key2") ==
-          {:string_value, "key:key2", "value2"} &&
+        Veidrodelis.get(pid, 0, "key1") == "value1" &&
+          Veidrodelis.get(pid, 0, "key2") == "value2" &&
           Redix.command!(redis, ["GET", "key1"]) == "value1" &&
           Redix.command!(redis, ["GET", "key2"]) == "value2"
       end
@@ -95,11 +58,11 @@ defmodule VeidrodelisTest do
       Veidrodelis.stop(pid)
     end
 
-    test "processes set commands with decoder", %{redis: redis} do
+    test "processes set commands", %{redis: redis} do
       # Write data to Redis
       Redix.command!(redis, ["SADD", "myset", "member1", "member2", "member3"])
 
-      # Start Veidrodelis instance with custom decoder
+      # Start Veidrodelis instance
       instance_id = :"test_sets_#{:erlang.unique_integer([:positive])}"
 
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
@@ -109,14 +72,15 @@ defmodule VeidrodelisTest do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
-      # Verify decoded data in store
+      # Verify data in store
       wait_happens_within 100 do
-        members = Veidrodelis.smembers(pid, 0, "key:myset")
+        members = Veidrodelis.smembers(pid, 0, "myset")
         redis_members = Redix.command!(redis, ["SMEMBERS", "myset"])
+
         length(members) == 3 &&
-          {:set_entry, "member1"} in members &&
-          {:set_entry, "member2"} in members &&
-          {:set_entry, "member3"} in members &&
+          "member1" in members &&
+          "member2" in members &&
+          "member3" in members &&
           length(redis_members) == 3 &&
           "member1" in redis_members &&
           "member2" in redis_members &&
@@ -126,11 +90,11 @@ defmodule VeidrodelisTest do
       Veidrodelis.stop(pid)
     end
 
-    test "processes list commands with decoder", %{redis: redis} do
+    test "processes list commands", %{redis: redis} do
       # Write data to Redis
       Redix.command!(redis, ["RPUSH", "mylist", "item1", "item2", "item3"])
 
-      # Start Veidrodelis instance with custom decoder
+      # Start Veidrodelis instance
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
@@ -138,27 +102,24 @@ defmodule VeidrodelisTest do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
-      # Verify decoded data in store
+      # Verify data in store
       wait_happens_within 100 do
-        elements = Veidrodelis.lrange(pid, 0, "key:mylist", 0, -1)
+        elements = Veidrodelis.lrange(pid, 0, "mylist", 0, -1)
         redis_elements = Redix.command!(redis, ["LRANGE", "mylist", "0", "-1"])
+
         length(elements) == 3 &&
-          elements == [
-            {:list_entry, "item1"},
-            {:list_entry, "item2"},
-            {:list_entry, "item3"}
-          ] &&
+          elements == ["item1", "item2", "item3"] &&
           redis_elements == ["item1", "item2", "item3"]
       end
 
       Veidrodelis.stop(pid)
     end
 
-    test "processes hash commands with decoder", %{redis: redis} do
+    test "processes hash commands", %{redis: redis} do
       # Write data to Redis
       Redix.command!(redis, ["HSET", "myhash", "field1", "value1", "field2", "value2"])
 
-      # Start Veidrodelis instance with custom decoder
+      # Start Veidrodelis instance
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
@@ -166,12 +127,13 @@ defmodule VeidrodelisTest do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
-      # Verify decoded data in store (pass decoded field key)
+      # Verify data in store
       wait_happens_within 100 do
-        value1 = Veidrodelis.hget(pid, 0, "key:myhash", {:hash_field, "field1"})
-        value2 = Veidrodelis.hget(pid, 0, "key:myhash", {:hash_field, "field2"})
-        value1 == {:hash_value, {:hash_field, "field1"}, "value1"} &&
-          value2 == {:hash_value, {:hash_field, "field2"}, "value2"} &&
+        value1 = Veidrodelis.hget(pid, 0, "myhash", "field1")
+        value2 = Veidrodelis.hget(pid, 0, "myhash", "field2")
+
+        value1 == "value1" &&
+          value2 == "value2" &&
           Redix.command!(redis, ["HGET", "myhash", "field1"]) == "value1" &&
           Redix.command!(redis, ["HGET", "myhash", "field2"]) == "value2"
       end
@@ -179,7 +141,7 @@ defmodule VeidrodelisTest do
       Veidrodelis.stop(pid)
     end
 
-    test "processes zset commands with decoder", %{redis: redis} do
+    test "processes zset commands", %{redis: redis} do
       # Write data to Redis
       Redix.command!(redis, [
         "ZADD",
@@ -192,7 +154,7 @@ defmodule VeidrodelisTest do
         "member3"
       ])
 
-      # Start Veidrodelis instance with custom decoder
+      # Start Veidrodelis instance
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
@@ -200,14 +162,14 @@ defmodule VeidrodelisTest do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
-      # Verify decoded data in store (zrange returns tuples with scores)
+      # Verify data in store (zrange returns tuples with scores)
       assert_happens_within 1000 do
-        members_with_scores = Veidrodelis.zrange(pid, 0, "key:myzset", 0, -1)
+        members_with_scores = Veidrodelis.zrange(pid, 0, "myzset", 0, -1)
 
         members_with_scores == [
-          {{:zset_entry, "member1"}, 1.0},
-          {{:zset_entry, "member2"}, 2.5},
-          {{:zset_entry, "member3"}, 3.0}
+          {"member1", 1.0},
+          {"member2", 2.5},
+          {"member3", 3.0}
         ]
       end
 
@@ -218,7 +180,7 @@ defmodule VeidrodelisTest do
       Veidrodelis.stop(pid)
     end
 
-    test "processes streaming commands with decoder", %{redis: redis} do
+    test "processes streaming commands", %{redis: redis} do
       # Start Veidrodelis FIRST (before writing data)
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
@@ -233,17 +195,16 @@ defmodule VeidrodelisTest do
 
       # Wait for commands to replicate
       assert_happens_within 1000 do
-        Veidrodelis.get_decoded(pid, 0, "key:stream_key") != nil &&
-          Veidrodelis.scard(pid, 0, "key:stream_set") == 2
+        Veidrodelis.get(pid, 0, "stream_key") != nil &&
+          Veidrodelis.scard(pid, 0, "stream_set") == 2
       end
 
       # Verify the data
-      assert Veidrodelis.get_decoded(pid, 0, "key:stream_key") ==
-               {:string_value, "key:stream_key", "stream_value"}
+      assert Veidrodelis.get(pid, 0, "stream_key") == "stream_value"
 
-      members = Veidrodelis.smembers(pid, 0, "key:stream_set")
-      assert {:set_entry, "s1"} in members
-      assert {:set_entry, "s2"} in members
+      members = Veidrodelis.smembers(pid, 0, "stream_set")
+      assert "s1" in members
+      assert "s2" in members
 
       Veidrodelis.stop(pid)
     end
@@ -262,8 +223,7 @@ defmodule VeidrodelisTest do
 
       # Wait for it to replicate
       wait_happens_within 500 do
-        Veidrodelis.get_decoded(pid, 0, "key:typekey") ==
-          {:string_value, "key:typekey", "string_value"}
+        Veidrodelis.get(pid, 0, "typekey") == "string_value"
       end
 
       # Change to a list
@@ -272,10 +232,10 @@ defmodule VeidrodelisTest do
 
       # Wait for it to replicate
       wait_happens_within 500 do
-        Veidrodelis.get_decoded(pid, 0, "key:typekey") == nil &&
-          Veidrodelis.lrange(pid, 0, "key:typekey", 0, -1) == [
-            {:list_entry, "list_item1"},
-            {:list_entry, "list_item2"}
+        Veidrodelis.get(pid, 0, "typekey") == nil &&
+          Veidrodelis.lrange(pid, 0, "typekey", 0, -1) == [
+            "list_item1",
+            "list_item2"
           ]
       end
 
@@ -285,8 +245,8 @@ defmodule VeidrodelisTest do
 
       # Wait for it to replicate
       wait_happens_within 500 do
-        Veidrodelis.llen(pid, 0, "key:typekey") == 0 &&
-          Veidrodelis.scard(pid, 0, "key:typekey") == 2
+        Veidrodelis.llen(pid, 0, "typekey") == 0 &&
+          Veidrodelis.scard(pid, 0, "typekey") == 2
       end
 
       # Verify Redis has the current data
@@ -318,10 +278,8 @@ defmodule VeidrodelisTest do
 
       # Verify data in both databases
       wait_happens_within 100 do
-        Veidrodelis.get_decoded(pid, 0, "key:db0_key") ==
-          {:string_value, "key:db0_key", "db0_value"} &&
-          Veidrodelis.get_decoded(pid, 1, "key:db1_key") ==
-          {:string_value, "key:db1_key", "db1_value"}
+        Veidrodelis.get(pid, 0, "db0_key") == "db0_value" &&
+          Veidrodelis.get(pid, 1, "db1_key") == "db1_value"
       end
 
       # Verify Redis data
@@ -353,10 +311,11 @@ defmodule VeidrodelisTest do
 
       # Verify intersection result (only 'c' is in all three sets)
       wait_happens_within 100 do
-        result_members = Veidrodelis.smembers(pid, 0, "key:result_inter")
-        set1_members = Veidrodelis.smembers(pid, 0, "key:set1")
+        result_members = Veidrodelis.smembers(pid, 0, "result_inter")
+        set1_members = Veidrodelis.smembers(pid, 0, "set1")
+
         length(result_members) == 1 &&
-          {:set_entry, "c"} in result_members &&
+          "c" in result_members &&
           length(set1_members) == 4
       end
 
@@ -382,13 +341,14 @@ defmodule VeidrodelisTest do
 
       # Verify union result (should have all unique elements: 1,2,3,4,5)
       wait_happens_within 100 do
-        result_members = Veidrodelis.smembers(pid, 0, "key:result_union")
+        result_members = Veidrodelis.smembers(pid, 0, "result_union")
+
         length(result_members) == 5 &&
-          {:set_entry, "1"} in result_members &&
-          {:set_entry, "2"} in result_members &&
-          {:set_entry, "3"} in result_members &&
-          {:set_entry, "4"} in result_members &&
-          {:set_entry, "5"} in result_members
+          "1" in result_members &&
+          "2" in result_members &&
+          "3" in result_members &&
+          "4" in result_members &&
+          "5" in result_members
       end
 
       Veidrodelis.stop(pid)
@@ -413,10 +373,11 @@ defmodule VeidrodelisTest do
 
       # Verify difference result (should have: a, e)
       wait_happens_within 100 do
-        result_members = Veidrodelis.smembers(pid, 0, "key:result_diff")
+        result_members = Veidrodelis.smembers(pid, 0, "result_diff")
+
         length(result_members) == 2 &&
-          {:set_entry, "a"} in result_members &&
-          {:set_entry, "e"} in result_members
+          "a" in result_members &&
+          "e" in result_members
       end
 
       Veidrodelis.stop(pid)
@@ -453,12 +414,13 @@ defmodule VeidrodelisTest do
       # member3: 3*2 + 0*3 = 6
       # member4: 0*2 + 4*3 = 12
       assert_happens_within 1000 do
-        result = Veidrodelis.zrange(pid, 0, "key:result_weighted_union", 0, -1)
+        result = Veidrodelis.zrange(pid, 0, "result_weighted_union", 0, -1)
+
         result == [
-          {{:zset_entry, "member3"}, 6.0},
-          {{:zset_entry, "member1"}, 8.0},
-          {{:zset_entry, "member4"}, 12.0},
-          {{:zset_entry, "member2"}, 13.0}
+          {"member3", 6.0},
+          {"member1", 8.0},
+          {"member4", 12.0},
+          {"member2", 13.0}
         ]
       end
 
@@ -493,10 +455,11 @@ defmodule VeidrodelisTest do
       # alice: min(10, 15) = 10
       # bob: min(20, 25) = 20
       wait_happens_within 100 do
-        result = Veidrodelis.zrange(pid, 0, "key:result_inter_min", 0, -1)
+        result = Veidrodelis.zrange(pid, 0, "result_inter_min", 0, -1)
+
         result == [
-          {{:zset_entry, "alice"}, 10.0},
-          {{:zset_entry, "bob"}, 20.0}
+          {"alice", 10.0},
+          {"bob", 20.0}
         ]
       end
 
@@ -531,10 +494,11 @@ defmodule VeidrodelisTest do
       # task1: max(5, 7) = 7
       # task2: max(8, 3) = 8
       wait_happens_within 100 do
-        result = Veidrodelis.zrange(pid, 0, "key:result_inter_max", 0, -1)
+        result = Veidrodelis.zrange(pid, 0, "result_inter_max", 0, -1)
+
         result == [
-          {{:zset_entry, "task1"}, 7.0},
-          {{:zset_entry, "task2"}, 8.0}
+          {"task1", 7.0},
+          {"task2", 8.0}
         ]
       end
 
@@ -576,16 +540,16 @@ defmodule VeidrodelisTest do
       # product2: 9.0*0.5 + 6.5*0.3 + 0*0.2 = 4.5 + 1.95 + 0 = 6.45
       # product3: 0*0.5 + 0*0.3 + 8.0*0.2 = 0 + 0 + 1.6 = 1.6
       wait_happens_within 100 do
-        result = Veidrodelis.zrange(pid, 0, "key:combined_rating", 0, -1)
+        result = Veidrodelis.zrange(pid, 0, "combined_rating", 0, -1)
+
         result == [
-          {{:zset_entry, "product3"}, 1.6},
-          {{:zset_entry, "product2"}, 6.45},
-          {{:zset_entry, "product1"}, 8.25}
+          {"product3", 1.6},
+          {"product2", 6.45},
+          {"product1", 8.25}
         ]
       end
 
       Veidrodelis.stop(pid)
     end
-
   end
 end

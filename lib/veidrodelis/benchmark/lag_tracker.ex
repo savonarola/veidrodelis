@@ -108,11 +108,13 @@ defmodule Vdr.Benchmark.LagTracker do
 
     try do
       # Push timestamp to lagmon list
-      res = Redix.command!(state.redis_conn, [
-        "LPUSH",
-        state.tracker_key,
-        Integer.to_string(timestamp_us)
-      ])
+      res =
+        Redix.command!(state.redis_conn, [
+          "LPUSH",
+          state.tracker_key,
+          Integer.to_string(timestamp_us)
+        ])
+
       Logger.debug("inject_timestamp LPUSH result: #{inspect(res)}")
     rescue
       e ->
@@ -135,6 +137,7 @@ defmodule Vdr.Benchmark.LagTracker do
         decoded_entries ->
           decoded_entries = Enum.reverse(decoded_entries)
           [{_, start_time} | _] = decoded_entries
+
           decoded_entries
           |> Enum.map(fn {received_ts_system, sent_ts_system} ->
             lag_us = received_ts_system - sent_ts_system

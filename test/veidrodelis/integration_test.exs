@@ -49,30 +49,6 @@ defmodule Veidrodelis.IntegrationTest do
   end
 
   # Simple identity decoder for high-level testing
-  defmodule IdentityDecoder do
-    @behaviour Veidrodelis
-
-    @impl true
-    def decode_key(key), do: key
-
-    @impl true
-    def decode_string_value(_key, value), do: value
-
-    @impl true
-    def decode_set_entry(_set_key, entry), do: entry
-
-    @impl true
-    def decode_hash_hkey(_hash_key, hkey), do: hkey
-
-    @impl true
-    def decode_hash_entry(_hash_key, _hkey, value), do: value
-
-    @impl true
-    def decode_zset_entry(_zset_key, entry), do: entry
-
-    @impl true
-    def decode_list_entry(_list_key, entry), do: entry
-  end
 
   @redis_host "localhost"
   @redis_port 16378
@@ -148,6 +124,7 @@ defmodule Veidrodelis.IntegrationTest do
 
     # ===== Sorted Set Commands =====
     Redix.command!(redis, ["ZADD", "myzset", "1.0", "member1", "2.5", "member2", "3.7", "member3"])
+
     Redix.command!(redis, ["ZADD", "zset_a", "1", "a", "2", "b", "3", "c"])
     Redix.command!(redis, ["ZADD", "zset_b", "2", "b", "3", "c", "4", "d"])
     Redix.command!(redis, ["ZUNIONSTORE", "zset_union", "2", "zset_a", "zset_b"])
@@ -159,13 +136,38 @@ defmodule Veidrodelis.IntegrationTest do
     Redix.command!(redis, ["ZPOPMIN", "pop_zset", "1"])
     Redix.command!(redis, ["ZADD", "remrange_zset", "1", "a", "2", "b", "3", "c", "4", "d"])
     Redix.command!(redis, ["ZREMRANGEBYRANK", "remrange_zset", "0", "1"])
-    Redix.command!(redis, ["ZADD", "remrange_score_zset", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+
+    Redix.command!(redis, [
+      "ZADD",
+      "remrange_score_zset",
+      "1",
+      "a",
+      "2",
+      "b",
+      "3",
+      "c",
+      "4",
+      "d",
+      "5",
+      "e"
+    ])
+
     Redix.command!(redis, ["ZREMRANGEBYSCORE", "remrange_score_zset", "2", "4"])
     Redix.command!(redis, ["ZADD", "remrange_lex_zset", "0", "a", "0", "b", "0", "c", "0", "d"])
     Redix.command!(redis, ["ZREMRANGEBYLEX", "remrange_lex_zset", "[a", "[c"])
 
     # ===== Hash Commands =====
-    Redix.command!(redis, ["HSET", "myhash", "field1", "value1", "field2", "value2", "field3", "value3"])
+    Redix.command!(redis, [
+      "HSET",
+      "myhash",
+      "field1",
+      "value1",
+      "field2",
+      "value2",
+      "field3",
+      "value3"
+    ])
+
     Redix.command!(redis, ["HSET", "hash_for_del", "f1", "v1", "f2", "v2"])
     Redix.command!(redis, ["HDEL", "hash_for_del", "f2"])
 
@@ -232,11 +234,15 @@ defmodule Veidrodelis.IntegrationTest do
     assert command_in_list(%Command.ZAdd{key: "myzset"}, commands), "Missing ZADD myzset"
 
     # Sorted set operations create result keys, but in RDB they're saved as ZADDs
-    assert command_in_list(%Command.ZAdd{key: "zset_union"}, commands), "Missing zset_union result"
-    assert command_in_list(%Command.ZAdd{key: "zset_inter"}, commands), "Missing zset_inter result"
+    assert command_in_list(%Command.ZAdd{key: "zset_union"}, commands),
+           "Missing zset_union result"
+
+    assert command_in_list(%Command.ZAdd{key: "zset_inter"}, commands),
+           "Missing zset_inter result"
 
     # Hash commands - final state
     assert command_in_list(%Command.HSet{key: "myhash"}, commands), "Missing HSET myhash"
+
     assert command_in_list(%Command.HSet{key: "hash_for_del"}, commands),
            "Missing HSET hash_for_del"
 
@@ -244,7 +250,8 @@ defmodule Veidrodelis.IntegrationTest do
     assert command_in_list(%Command.PExpireAt{key: "expire_key"}, commands), "Missing PEXPIREAT"
 
     # Key management - Renamed keys
-    assert command_in_list(%Command.Set{key: "new_name"}, commands), "Missing renamed key new_name"
+    assert command_in_list(%Command.Set{key: "new_name"}, commands),
+           "Missing renamed key new_name"
 
     assert command_in_list(%Command.Set{key: "renamenx_new"}, commands),
            "Missing renamenx key renamenx_new"
@@ -329,6 +336,7 @@ defmodule Veidrodelis.IntegrationTest do
       Process.sleep(100)
 
       Logger.info("=== [Replica] Phase 2: Starting replica and waiting for RDB sync ===")
+
       opts = [
         host: @redis_host,
         port: @redis_port,
@@ -387,7 +395,6 @@ defmodule Veidrodelis.IntegrationTest do
       Logger.info("=== [Veidrodelis] Phase 2: Starting Veidrodelis and waiting for RDB sync ===")
 
       opts = [
-        decoder: IdentityDecoder,
         host: @redis_host,
         port: @redis_port
       ]
@@ -404,18 +411,18 @@ defmodule Veidrodelis.IntegrationTest do
       Process.sleep(200)
 
       # String values
-      assert Veidrodelis.get_decoded(vdr, 0, "simple_key") == "simple_value"
-      assert Veidrodelis.get_decoded(vdr, 0, "mkey1") == "mval1"
-      assert Veidrodelis.get_decoded(vdr, 0, "mkey2") == "mval2"
-      assert Veidrodelis.get_decoded(vdr, 0, "append_key") == "initial_appended"
-      assert Veidrodelis.get_decoded(vdr, 0, "new_name") == "rename_value"
-      assert Veidrodelis.get_decoded(vdr, 0, "renamenx_new") == "value"
-      assert Veidrodelis.get_decoded(vdr, 0, "expire_key") == "will_expire"
+      assert Veidrodelis.get(vdr, 0, "simple_key") == "simple_value"
+      assert Veidrodelis.get(vdr, 0, "mkey1") == "mval1"
+      assert Veidrodelis.get(vdr, 0, "mkey2") == "mval2"
+      assert Veidrodelis.get(vdr, 0, "append_key") == "initial_appended"
+      assert Veidrodelis.get(vdr, 0, "new_name") == "rename_value"
+      assert Veidrodelis.get(vdr, 0, "renamenx_new") == "value"
+      assert Veidrodelis.get(vdr, 0, "expire_key") == "will_expire"
 
       # Deleted keys should not exist
-      assert Veidrodelis.get_decoded(vdr, 0, "delete_key1") == nil
-      assert Veidrodelis.get_decoded(vdr, 0, "delete_key2") == nil
-      assert Veidrodelis.get_decoded(vdr, 0, "old_name") == nil
+      assert Veidrodelis.get(vdr, 0, "delete_key1") == nil
+      assert Veidrodelis.get(vdr, 0, "delete_key2") == nil
+      assert Veidrodelis.get(vdr, 0, "old_name") == nil
 
       # List values
       assert Veidrodelis.llen(vdr, 0, "mylist") == 4
@@ -485,7 +492,7 @@ defmodule Veidrodelis.IntegrationTest do
 
       # Wait for streaming replication
       assert_happens_within 3000 do
-        Veidrodelis.get_decoded(vdr, 1, "simple_key") == "simple_value" &&
+        Veidrodelis.get(vdr, 1, "simple_key") == "simple_value" &&
           Veidrodelis.llen(vdr, 1, "mylist") == 4 &&
           Veidrodelis.scard(vdr, 1, "myset") == 3 &&
           Veidrodelis.hlen(vdr, 1, "myhash") == 3 &&
@@ -495,9 +502,9 @@ defmodule Veidrodelis.IntegrationTest do
       Logger.info("=== [Veidrodelis] Phase 5: Verifying streaming data via query API ===")
 
       # String values
-      assert Veidrodelis.get_decoded(vdr, 1, "simple_key") == "simple_value"
-      assert Veidrodelis.get_decoded(vdr, 1, "mkey1") == "mval1"
-      assert Veidrodelis.get_decoded(vdr, 1, "append_key") == "initial_appended"
+      assert Veidrodelis.get(vdr, 1, "simple_key") == "simple_value"
+      assert Veidrodelis.get(vdr, 1, "mkey1") == "mval1"
+      assert Veidrodelis.get(vdr, 1, "append_key") == "initial_appended"
 
       # List values
       assert Veidrodelis.llen(vdr, 1, "mylist") == 4

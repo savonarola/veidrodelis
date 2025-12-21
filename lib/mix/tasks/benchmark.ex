@@ -40,7 +40,7 @@ defmodule Mix.Tasks.Benchmark do
 
   use Mix.Task
 
-  alias Vdr.Benchmark.{PassthroughDecoder, LagTracker, ScenarioRunner}
+  alias Vdr.Benchmark.{LagTracker, ScenarioRunner}
   alias Vdr.Benchmark.Scenarios.{StringCommands, HashCommands, ListCommands, SetCommands}
 
   @redis_host "localhost"
@@ -189,7 +189,6 @@ defmodule Mix.Tasks.Benchmark do
 
     case Veidrodelis.start_link(
            id: @vdr_id,
-           decoder: PassthroughDecoder,
            host: @redis_host,
            port: @redis_port
          ) do

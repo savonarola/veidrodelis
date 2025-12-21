@@ -101,7 +101,7 @@ defmodule Vdr.ReplicaParser do
       end
   """
   @spec data(reference(), binary()) ::
-    {:ok, list()} | {:ok, list(), reference()} | {:error, term()}
+          {:ok, list()} | {:ok, list(), reference()} | {:error, term()}
   def data(parser, chunk) when is_reference(parser) and is_binary(chunk) do
     case Vdr.RedisNif.replica_data(parser, chunk) do
       {:ok, raw_commands} when is_list(raw_commands) ->
@@ -124,190 +124,193 @@ defmodule Vdr.ReplicaParser do
     Enum.map(raw_commands, &convert_command/1)
   end
 
-  defp convert_command({db, name, args}) when is_integer(db) and is_binary(name) and is_list(args) do
-    command = case name do
-      # String commands
-      "SET" when length(args) >= 2 ->
-        [key, value | _rest] = args
-        %Command.Set{key: key, value: value}
+  defp convert_command({db, name, args})
+       when is_integer(db) and is_binary(name) and is_list(args) do
+    command =
+      case name do
+        # String commands
+        "SET" when length(args) >= 2 ->
+          [key, value | _rest] = args
+          %Command.Set{key: key, value: value}
 
-      "MSET" when length(args) >= 2 ->
-        pairs = parse_pairs(args, [])
-        %Command.MSet{pairs: pairs}
+        "MSET" when length(args) >= 2 ->
+          pairs = parse_pairs(args, [])
+          %Command.MSet{pairs: pairs}
 
-      "APPEND" when length(args) == 2 ->
-        [key, value] = args
-        %Command.Append{key: key, value: value}
+        "APPEND" when length(args) == 2 ->
+          [key, value] = args
+          %Command.Append{key: key, value: value}
 
-      "SETRANGE" when length(args) == 3 ->
-        [key, offset_str, value] = args
-        offset = String.to_integer(offset_str)
-        %Command.SetRange{key: key, offset: offset, value: value}
+        "SETRANGE" when length(args) == 3 ->
+          [key, offset_str, value] = args
+          offset = String.to_integer(offset_str)
+          %Command.SetRange{key: key, offset: offset, value: value}
 
-      "SETBIT" when length(args) == 3 ->
-        [key, offset_str, value_str] = args
-        offset = String.to_integer(offset_str)
-        value = String.to_integer(value_str)
-        %Command.SetBit{key: key, offset: offset, value: value}
+        "SETBIT" when length(args) == 3 ->
+          [key, offset_str, value_str] = args
+          offset = String.to_integer(offset_str)
+          value = String.to_integer(value_str)
+          %Command.SetBit{key: key, offset: offset, value: value}
 
-      # List commands
-      "RPUSH" ->
-        [key | values] = args
-        %Command.RPush{key: key, values: values}
+        # List commands
+        "RPUSH" ->
+          [key | values] = args
+          %Command.RPush{key: key, values: values}
 
-      "LPUSH" ->
-        [key | values] = args
-        %Command.LPush{key: key, values: values}
+        "LPUSH" ->
+          [key | values] = args
+          %Command.LPush{key: key, values: values}
 
-      "LPUSHX" ->
-        [key | values] = args
-        %Command.LPushX{key: key, values: values}
+        "LPUSHX" ->
+          [key | values] = args
+          %Command.LPushX{key: key, values: values}
 
-      "RPUSHX" ->
-        [key | values] = args
-        %Command.RPushX{key: key, values: values}
+        "RPUSHX" ->
+          [key | values] = args
+          %Command.RPushX{key: key, values: values}
 
-      "LPOP" when length(args) >= 1 ->
-        [key | _rest] = args
-        %Command.LPop{key: key}
+        "LPOP" when length(args) >= 1 ->
+          [key | _rest] = args
+          %Command.LPop{key: key}
 
-      "RPOP" when length(args) >= 1 ->
-        [key | _rest] = args
-        %Command.RPop{key: key}
+        "RPOP" when length(args) >= 1 ->
+          [key | _rest] = args
+          %Command.RPop{key: key}
 
-      "LREM" when length(args) == 3 ->
-        [key, count_str, value] = args
-        count = String.to_integer(count_str)
-        %Command.LRem{key: key, count: count, value: value}
+        "LREM" when length(args) == 3 ->
+          [key, count_str, value] = args
+          count = String.to_integer(count_str)
+          %Command.LRem{key: key, count: count, value: value}
 
-      "LTRIM" when length(args) == 3 ->
-        [key, start_str, stop_str] = args
-        start = String.to_integer(start_str)
-        stop = String.to_integer(stop_str)
-        %Command.LTrim{key: key, start: start, stop: stop}
+        "LTRIM" when length(args) == 3 ->
+          [key, start_str, stop_str] = args
+          start = String.to_integer(start_str)
+          stop = String.to_integer(stop_str)
+          %Command.LTrim{key: key, start: start, stop: stop}
 
-      "LSET" when length(args) == 3 ->
-        [key, index_str, value] = args
-        index = String.to_integer(index_str)
-        %Command.LSet{key: key, index: index, value: value}
+        "LSET" when length(args) == 3 ->
+          [key, index_str, value] = args
+          index = String.to_integer(index_str)
+          %Command.LSet{key: key, index: index, value: value}
 
-      "LINSERT" when length(args) == 4 ->
-        [key, before_after_str, pivot, element] = args
-        before_after = if String.upcase(before_after_str) == "BEFORE", do: :before, else: :after
-        %Command.LInsert{key: key, before_after: before_after, pivot: pivot, element: element}
+        "LINSERT" when length(args) == 4 ->
+          [key, before_after_str, pivot, element] = args
+          before_after = if String.upcase(before_after_str) == "BEFORE", do: :before, else: :after
+          %Command.LInsert{key: key, before_after: before_after, pivot: pivot, element: element}
 
-      "RPOPLPUSH" when length(args) == 2 ->
-        [source, destination] = args
-        %Command.RPopLPush{source: source, destination: destination}
+        "RPOPLPUSH" when length(args) == 2 ->
+          [source, destination] = args
+          %Command.RPopLPush{source: source, destination: destination}
 
-      # Set commands
-      "SADD" ->
-        [key | members] = args
-        %Command.SAdd{key: key, members: members}
+        # Set commands
+        "SADD" ->
+          [key | members] = args
+          %Command.SAdd{key: key, members: members}
 
-      "SREM" ->
-        [key | members] = args
-        %Command.SRem{key: key, members: members}
+        "SREM" ->
+          [key | members] = args
+          %Command.SRem{key: key, members: members}
 
-      "SMOVE" when length(args) == 3 ->
-        [source, destination, member] = args
-        %Command.SMove{source: source, destination: destination, member: member}
+        "SMOVE" when length(args) == 3 ->
+          [source, destination, member] = args
+          %Command.SMove{source: source, destination: destination, member: member}
 
-      "SINTERSTORE" when length(args) >= 2 ->
-        [destination, _numkeys | keys] = args
-        %Command.SInterStore{destination: destination, keys: keys}
+        "SINTERSTORE" when length(args) >= 2 ->
+          [destination, _numkeys | keys] = args
+          %Command.SInterStore{destination: destination, keys: keys}
 
-      "SUNIONSTORE" when length(args) >= 2 ->
-        [destination, _numkeys | keys] = args
-        %Command.SUnionStore{destination: destination, keys: keys}
+        "SUNIONSTORE" when length(args) >= 2 ->
+          [destination, _numkeys | keys] = args
+          %Command.SUnionStore{destination: destination, keys: keys}
 
-      "SDIFFSTORE" when length(args) >= 2 ->
-        [destination, _numkeys | keys] = args
-        %Command.SDiffStore{destination: destination, keys: keys}
+        "SDIFFSTORE" when length(args) >= 2 ->
+          [destination, _numkeys | keys] = args
+          %Command.SDiffStore{destination: destination, keys: keys}
 
-      # Sorted set commands
-      "ZADD" ->
-        [key | score_member_pairs] = args
-        members = parse_zadd_args(score_member_pairs, [])
-        %Command.ZAdd{key: key, members: members}
+        # Sorted set commands
+        "ZADD" ->
+          [key | score_member_pairs] = args
+          members = parse_zadd_args(score_member_pairs, [])
+          %Command.ZAdd{key: key, members: members}
 
-      "ZUNIONSTORE" when length(args) >= 2 ->
-        parse_zunionstore(args)
+        "ZUNIONSTORE" when length(args) >= 2 ->
+          parse_zunionstore(args)
 
-      "ZINTERSTORE" when length(args) >= 2 ->
-        parse_zinterstore(args)
+        "ZINTERSTORE" when length(args) >= 2 ->
+          parse_zinterstore(args)
 
-      "ZREM" ->
-        [key | members] = args
-        %Command.ZRem{key: key, members: members}
+        "ZREM" ->
+          [key | members] = args
+          %Command.ZRem{key: key, members: members}
 
-      "ZPOPMAX" ->
-        [key | rest] = args
-        count = if rest == [], do: 1, else: String.to_integer(List.first(rest))
-        %Command.ZPopMax{key: key, count: count}
+        "ZPOPMAX" ->
+          [key | rest] = args
+          count = if rest == [], do: 1, else: String.to_integer(List.first(rest))
+          %Command.ZPopMax{key: key, count: count}
 
-      "ZPOPMIN" ->
-        [key | rest] = args
-        count = if rest == [], do: 1, else: String.to_integer(List.first(rest))
-        %Command.ZPopMin{key: key, count: count}
+        "ZPOPMIN" ->
+          [key | rest] = args
+          count = if rest == [], do: 1, else: String.to_integer(List.first(rest))
+          %Command.ZPopMin{key: key, count: count}
 
-      "ZREMRANGEBYRANK" when length(args) == 3 ->
-        [key, start_str, stop_str] = args
-        start = String.to_integer(start_str)
-        stop = String.to_integer(stop_str)
-        %Command.ZRemRangeByRank{key: key, start: start, stop: stop}
+        "ZREMRANGEBYRANK" when length(args) == 3 ->
+          [key, start_str, stop_str] = args
+          start = String.to_integer(start_str)
+          stop = String.to_integer(stop_str)
+          %Command.ZRemRangeByRank{key: key, start: start, stop: stop}
 
-      "ZREMRANGEBYSCORE" when length(args) == 3 ->
-        [key, min, max] = args
-        %Command.ZRemRangeByScore{key: key, min: min, max: max}
+        "ZREMRANGEBYSCORE" when length(args) == 3 ->
+          [key, min, max] = args
+          %Command.ZRemRangeByScore{key: key, min: min, max: max}
 
-      "ZREMRANGEBYLEX" when length(args) == 3 ->
-        [key, min, max] = args
-        %Command.ZRemRangeByLex{key: key, min: min, max: max}
+        "ZREMRANGEBYLEX" when length(args) == 3 ->
+          [key, min, max] = args
+          %Command.ZRemRangeByLex{key: key, min: min, max: max}
 
-      # Hash commands
-      "HSET" ->
-        [key | field_value_pairs] = args
-        fields = parse_hset_args(field_value_pairs, [])
-        %Command.HSet{key: key, fields: fields}
+        # Hash commands
+        "HSET" ->
+          [key | field_value_pairs] = args
+          fields = parse_hset_args(field_value_pairs, [])
+          %Command.HSet{key: key, fields: fields}
 
-      "HDEL" ->
-        [key | fields] = args
-        %Command.HDel{key: key, fields: fields}
+        "HDEL" ->
+          [key | fields] = args
+          %Command.HDel{key: key, fields: fields}
 
-      # Key management
-      "DEL" when length(args) >= 1 ->
-        %Command.Del{keys: args}
+        # Key management
+        "DEL" when length(args) >= 1 ->
+          %Command.Del{keys: args}
 
-      "RENAME" when length(args) == 2 ->
-        [key, newkey] = args
-        %Command.Rename{key: key, newkey: newkey}
+        "RENAME" when length(args) == 2 ->
+          [key, newkey] = args
+          %Command.Rename{key: key, newkey: newkey}
 
-      "RENAMENX" when length(args) == 2 ->
-        [key, newkey] = args
-        %Command.RenameNX{key: key, newkey: newkey}
+        "RENAMENX" when length(args) == 2 ->
+          [key, newkey] = args
+          %Command.RenameNX{key: key, newkey: newkey}
 
-      "MOVE" when length(args) == 2 ->
-        [key, db_str] = args
-        db = String.to_integer(db_str)
-        %Command.Move{key: key, db: db}
+        "MOVE" when length(args) == 2 ->
+          [key, db_str] = args
+          db = String.to_integer(db_str)
+          %Command.Move{key: key, db: db}
 
-      # Expiration
-      "PEXPIREAT" when length(args) == 2 ->
-        [key, timestamp_str] = args
-        timestamp_ms = String.to_integer(timestamp_str)
-        %Command.PExpireAt{key: key, timestamp_ms: timestamp_ms}
+        # Expiration
+        "PEXPIREAT" when length(args) == 2 ->
+          [key, timestamp_str] = args
+          timestamp_ms = String.to_integer(timestamp_str)
+          %Command.PExpireAt{key: key, timestamp_ms: timestamp_ms}
 
-      _ ->
-        # Return generic command for unknown or malformed commands
-        %Command.Generic{args: [name | args]}
-    end
+        _ ->
+          # Return generic command for unknown or malformed commands
+          %Command.Generic{args: [name | args]}
+      end
 
     {db, command}
   end
 
   # Parse MSET arguments: [key, value, key, value, ...]
   defp parse_pairs([], acc), do: Enum.reverse(acc)
+
   defp parse_pairs([key, value | rest], acc) do
     parse_pairs(rest, [{key, value} | acc])
   end
@@ -317,14 +320,26 @@ defmodule Vdr.ReplicaParser do
     numkeys = String.to_integer(numkeys_str)
     {keys, rest} = Enum.split(rest, numkeys)
     {weights, aggregate} = parse_zstore_options(rest)
-    %Command.ZUnionStore{destination: destination, keys: keys, weights: weights, aggregate: aggregate}
+
+    %Command.ZUnionStore{
+      destination: destination,
+      keys: keys,
+      weights: weights,
+      aggregate: aggregate
+    }
   end
 
   defp parse_zinterstore([destination, numkeys_str | rest]) do
     numkeys = String.to_integer(numkeys_str)
     {keys, rest} = Enum.split(rest, numkeys)
     {weights, aggregate} = parse_zstore_options(rest)
-    %Command.ZInterStore{destination: destination, keys: keys, weights: weights, aggregate: aggregate}
+
+    %Command.ZInterStore{
+      destination: destination,
+      keys: keys,
+      weights: weights,
+      aggregate: aggregate
+    }
   end
 
   defp parse_zstore_options(args) do
@@ -332,26 +347,32 @@ defmodule Vdr.ReplicaParser do
   end
 
   defp parse_zstore_options([], weights, aggregate), do: {weights, aggregate}
+
   defp parse_zstore_options(["WEIGHTS" | rest], _weights, aggregate) do
     {weight_strs, rest} = Enum.split_while(rest, fn arg -> arg not in ["AGGREGATE"] end)
     weights = Enum.map(weight_strs, &parse_float/1)
     parse_zstore_options(rest, weights, aggregate)
   end
+
   defp parse_zstore_options(["AGGREGATE", agg_str | rest], weights, _aggregate) do
-    aggregate = case String.upcase(agg_str) do
-      "SUM" -> :sum
-      "MIN" -> :min
-      "MAX" -> :max
-      _ -> :sum
-    end
+    aggregate =
+      case String.upcase(agg_str) do
+        "SUM" -> :sum
+        "MIN" -> :min
+        "MAX" -> :max
+        _ -> :sum
+      end
+
     parse_zstore_options(rest, weights, aggregate)
   end
+
   defp parse_zstore_options([_ | rest], weights, aggregate) do
     parse_zstore_options(rest, weights, aggregate)
   end
 
   # Parse ZADD arguments: [score, member, score, member, ...]
   defp parse_zadd_args([], acc), do: Enum.reverse(acc)
+
   defp parse_zadd_args([score_bin, member | rest], acc) do
     score = parse_float(score_bin)
     parse_zadd_args(rest, [{score, member} | acc])
@@ -359,13 +380,16 @@ defmodule Vdr.ReplicaParser do
 
   # Parse HSET arguments: [field, value, field, value, ...]
   defp parse_hset_args([], acc), do: Enum.reverse(acc)
+
   defp parse_hset_args([field, value | rest], acc) do
     parse_hset_args(rest, [{field, value} | acc])
   end
 
   defp parse_float(bin) when is_binary(bin) do
     case Float.parse(bin) do
-      {float, _} -> float
+      {float, _} ->
+        float
+
       :error ->
         # Try as integer
         case Integer.parse(bin) do

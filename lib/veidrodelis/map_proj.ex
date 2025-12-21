@@ -4,6 +4,7 @@ defmodule Vdr.MapProj do
 
   This module provides the core implementation for processing Redis replication streams
   with automatic key type tracking and routing to specialized stores, all using pure Elixir maps.
+  All keys and values are stored as raw binaries.
   """
 
   require Logger
@@ -13,28 +14,12 @@ defmodule Vdr.MapProj do
   alias Vdr.Command
   alias Vdr.MapProj.{Strings, Lists, Sets, Hashes, ZSets, Common}
 
-  defstruct [
-    :decoder,
-    :strings_config,
-    :sets_config,
-    :hashes_config,
-    :zsets_config,
-    :lists_config,
-    :decode_key,
-    :store
-  ]
+  defstruct [:store]
 
   @type key :: binary()
   @type value :: binary()
 
   @type t :: %__MODULE__{
-          decoder: module(),
-          strings_config: Strings.t(),
-          sets_config: Sets.t(),
-          hashes_config: Hashes.t(),
-          zsets_config: ZSets.t(),
-          lists_config: Lists.t(),
-          decode_key: function(),
           store: map()
         }
 
@@ -45,7 +30,6 @@ defmodule Vdr.MapProj do
 
   ## Options
 
-    * `:decoder` - Required. Module implementing the Veidrodelis decoder behaviour
     * `:host` - Redis host (default: "localhost")
     * `:port` - Redis port (default: 6379)
     * `:username` - Redis username for ACL authentication (default: nil)
@@ -62,8 +46,6 @@ defmodule Vdr.MapProj do
     * `{:error, reason}` - Failed to start
   """
   def start_link(opts) do
-    decoder = Keyword.fetch!(opts, :decoder)
-
     redis_opts =
       Keyword.take(opts, [
         :host,
@@ -77,7 +59,7 @@ defmodule Vdr.MapProj do
         :max_reconnect_delay_ms
       ])
 
-    initial_state = %{decoder: decoder}
+    initial_state = %{}
 
     replica_opts =
       [
@@ -126,10 +108,6 @@ defmodule Vdr.MapProj do
     case message do
       {:get, db, key} ->
         result = Strings.get(state.store, db, key)
-        {:reply, result, state}
-
-      {:get_decoded, db, key} ->
-        result = Strings.get_decoded(state.store, db, key)
         {:reply, result, state}
 
       {:llen, db, key} ->
@@ -201,276 +179,207 @@ defmodule Vdr.MapProj do
 
   # Private functions
 
-  defp initialize_state(%{decoder: decoder}) do
-    decode_key_fun = get_decode_key_fun(decoder)
-
-    # Create store configs with decode functions
-    strings_config = Strings.new(decode_string_value_fun(decoder))
-    sets_config = Sets.new(decode_set_entry_fun(decoder))
-
-    hashes_config =
-      Hashes.new(
-        decode_hash_hkey_fun(decoder),
-        decode_hash_entry_fun(decoder)
-      )
-
-    zsets_config = ZSets.new(decode_zset_entry_fun(decoder))
-    lists_config = Lists.new(decode_list_entry_fun(decoder))
-
+  defp initialize_state(_init_opts) do
     state = %__MODULE__{
-      decoder: decoder,
-      strings_config: strings_config,
-      sets_config: sets_config,
-      hashes_config: hashes_config,
-      zsets_config: zsets_config,
-      lists_config: lists_config,
-      decode_key: decode_key_fun,
       store: %{}
     }
 
     {:ok, state}
   end
 
-  defp reinitialize_state(%__MODULE__{decoder: decoder}) do
-    initialize_state(%{decoder: decoder})
+  defp reinitialize_state(%__MODULE__{}) do
+    initialize_state(%{})
   end
 
   # Command handlers
 
-  defp do_handle_command(state, db, %Command.Set{key: raw_key, value: raw_value}) do
-    decoded_key = state.decode_key.(raw_key)
-    Strings.set(state.store, state.strings_config, db, decoded_key, raw_value)
+  defp do_handle_command(state, db, %Command.Set{key: key, value: value}) do
+    Strings.set(state.store, db, key, value)
   end
 
   defp do_handle_command(state, db, %Command.MSet{pairs: pairs}) do
-    decoded_pairs =
-      Enum.map(pairs, fn {raw_key, raw_value} ->
-        {state.decode_key.(raw_key), raw_value}
-      end)
-
-    Strings.mset(state.store, state.strings_config, db, decoded_pairs)
+    Strings.mset(state.store, db, pairs)
   end
 
-  defp do_handle_command(state, db, %Command.Append{key: raw_key, value: raw_value}) do
-    decoded_key = state.decode_key.(raw_key)
-    Strings.append(state.store, state.strings_config, db, decoded_key, raw_value)
+  defp do_handle_command(state, db, %Command.Append{key: key, value: value}) do
+    Strings.append(state.store, db, key, value)
   end
 
   defp do_handle_command(state, db, %Command.SetRange{
-         key: raw_key,
+         key: key,
          offset: offset,
-         value: raw_value
+         value: value
        }) do
-    decoded_key = state.decode_key.(raw_key)
-    Strings.setrange(state.store, state.strings_config, db, decoded_key, offset, raw_value)
+    Strings.setrange(state.store, db, key, offset, value)
   end
 
-  defp do_handle_command(state, db, %Command.SetBit{key: raw_key, offset: offset, value: bit}) do
-    decoded_key = state.decode_key.(raw_key)
-    Strings.setbit(state.store, state.strings_config, db, decoded_key, offset, bit)
+  defp do_handle_command(state, db, %Command.SetBit{key: key, offset: offset, value: bit}) do
+    Strings.setbit(state.store, db, key, offset, bit)
   end
 
   # List commands
-  defp do_handle_command(state, db, %Command.RPush{key: raw_key, values: values}) do
-    decoded_key = state.decode_key.(raw_key)
-    Lists.rpush(state.store, state.lists_config, db, decoded_key, values)
+  defp do_handle_command(state, db, %Command.RPush{key: key, values: values}) do
+    Lists.rpush(state.store, db, key, values)
   end
 
-  defp do_handle_command(state, db, %Command.LPush{key: raw_key, values: values}) do
-    decoded_key = state.decode_key.(raw_key)
-    Lists.lpush(state.store, state.lists_config, db, decoded_key, values)
+  defp do_handle_command(state, db, %Command.LPush{key: key, values: values}) do
+    Lists.lpush(state.store, db, key, values)
   end
 
-  defp do_handle_command(state, db, %Command.RPushX{key: raw_key, values: values}) do
-    decoded_key = state.decode_key.(raw_key)
-    Lists.rpushx(state.store, state.lists_config, db, decoded_key, values)
+  defp do_handle_command(state, db, %Command.RPushX{key: key, values: values}) do
+    Lists.rpushx(state.store, db, key, values)
   end
 
-  defp do_handle_command(state, db, %Command.LPushX{key: raw_key, values: values}) do
-    decoded_key = state.decode_key.(raw_key)
-    Lists.lpushx(state.store, state.lists_config, db, decoded_key, values)
+  defp do_handle_command(state, db, %Command.LPushX{key: key, values: values}) do
+    Lists.lpushx(state.store, db, key, values)
   end
 
-  defp do_handle_command(state, db, %Command.LPop{key: raw_key}) do
-    decoded_key = state.decode_key.(raw_key)
-    Lists.lpop(state.store, db, decoded_key)
+  defp do_handle_command(state, db, %Command.LPop{key: key}) do
+    Lists.lpop(state.store, db, key)
   end
 
-  defp do_handle_command(state, db, %Command.RPop{key: raw_key}) do
-    decoded_key = state.decode_key.(raw_key)
-    Lists.rpop(state.store, db, decoded_key)
+  defp do_handle_command(state, db, %Command.RPop{key: key}) do
+    Lists.rpop(state.store, db, key)
   end
 
-  defp do_handle_command(state, db, %Command.LRem{key: raw_key, count: count, value: value}) do
-    decoded_key = state.decode_key.(raw_key)
-    Lists.lrem(state.store, state.lists_config, db, decoded_key, count, value)
+  defp do_handle_command(state, db, %Command.LRem{key: key, count: count, value: value}) do
+    Lists.lrem(state.store, db, key, count, value)
   end
 
   defp do_handle_command(state, db, %Command.LTrim{
-         key: raw_key,
+         key: key,
          start: start_idx,
          stop: stop_idx
        }) do
-    decoded_key = state.decode_key.(raw_key)
-    Lists.ltrim(state.store, db, decoded_key, start_idx, stop_idx)
+    Lists.ltrim(state.store, db, key, start_idx, stop_idx)
   end
 
-  defp do_handle_command(state, db, %Command.LSet{key: raw_key, index: index, value: value}) do
-    decoded_key = state.decode_key.(raw_key)
-    Lists.lset(state.store, state.lists_config, db, decoded_key, index, value)
+  defp do_handle_command(state, db, %Command.LSet{key: key, index: index, value: value}) do
+    Lists.lset(state.store, db, key, index, value)
   end
 
   defp do_handle_command(
-        state,
-        db,
-        %Command.LInsert{key: raw_key, before_after: position, pivot: pivot, element: element}
-      ) do
-    decoded_key = state.decode_key.(raw_key)
-    Lists.linsert(state.store, state.lists_config, db, decoded_key, position, pivot, element)
+         state,
+         db,
+         %Command.LInsert{key: key, before_after: position, pivot: pivot, element: element}
+       ) do
+    Lists.linsert(state.store, db, key, position, pivot, element)
   end
 
   defp do_handle_command(state, db, %Command.RPopLPush{
-         source: raw_source,
-         destination: raw_dest
+         source: source,
+         destination: dest
        }) do
-    decoded_source = state.decode_key.(raw_source)
-    decoded_dest = state.decode_key.(raw_dest)
-    Lists.rpoplpush(state.store, db, decoded_source, decoded_dest)
+    Lists.rpoplpush(state.store, db, source, dest)
   end
 
-  defp do_handle_command(state, db, %Command.SAdd{key: raw_key, members: members}) do
-    decoded_key = state.decode_key.(raw_key)
-    Sets.sadd(state.store, state.sets_config, db, decoded_key, members)
+  defp do_handle_command(state, db, %Command.SAdd{key: key, members: members}) do
+    Sets.sadd(state.store, db, key, members)
   end
 
-  defp do_handle_command(state, db, %Command.SRem{key: raw_key, members: members}) do
-    decoded_key = state.decode_key.(raw_key)
-    Sets.srem(state.store, state.sets_config, db, decoded_key, members)
+  defp do_handle_command(state, db, %Command.SRem{key: key, members: members}) do
+    Sets.srem(state.store, db, key, members)
   end
 
   defp do_handle_command(state, db, %Command.SMove{
-         source: raw_source,
-         destination: raw_dest,
+         source: source,
+         destination: dest,
          member: member
        }) do
-    decoded_source = state.decode_key.(raw_source)
-    decoded_dest = state.decode_key.(raw_dest)
-    Sets.smove(state.store, state.sets_config, db, decoded_source, decoded_dest, member)
+    Sets.smove(state.store, db, source, dest, member)
   end
 
-  defp do_handle_command(state, db, %Command.SInterStore{destination: raw_dest, keys: raw_keys}) do
-    decoded_dest = state.decode_key.(raw_dest)
-    decoded_keys = Enum.map(raw_keys, &state.decode_key.(&1))
-    Sets.sinterstore(state.store, state.sets_config, db, decoded_dest, decoded_keys)
+  defp do_handle_command(state, db, %Command.SInterStore{destination: dest, keys: keys}) do
+    Sets.sinterstore(state.store, db, dest, keys)
   end
 
-  defp do_handle_command(state, db, %Command.SUnionStore{destination: raw_dest, keys: raw_keys}) do
-    decoded_dest = state.decode_key.(raw_dest)
-    decoded_keys = Enum.map(raw_keys, &state.decode_key.(&1))
-    Sets.sunionstore(state.store, state.sets_config, db, decoded_dest, decoded_keys)
+  defp do_handle_command(state, db, %Command.SUnionStore{destination: dest, keys: keys}) do
+    Sets.sunionstore(state.store, db, dest, keys)
   end
 
-  defp do_handle_command(state, db, %Command.SDiffStore{destination: raw_dest, keys: raw_keys}) do
-    decoded_dest = state.decode_key.(raw_dest)
-    decoded_keys = Enum.map(raw_keys, &state.decode_key.(&1))
-    Sets.sdiffstore(state.store, state.sets_config, db, decoded_dest, decoded_keys)
+  defp do_handle_command(state, db, %Command.SDiffStore{destination: dest, keys: keys}) do
+    Sets.sdiffstore(state.store, db, dest, keys)
   end
 
-  defp do_handle_command(state, db, %Command.HSet{key: raw_key, fields: field_values}) do
-    decoded_key = state.decode_key.(raw_key)
-    Hashes.hset(state.store, state.hashes_config, db, decoded_key, field_values)
+  defp do_handle_command(state, db, %Command.HSet{key: key, fields: field_values}) do
+    Hashes.hset(state.store, db, key, field_values)
   end
 
-  defp do_handle_command(state, db, %Command.HDel{key: raw_key, fields: fields}) do
-    decoded_key = state.decode_key.(raw_key)
-    Hashes.hdel(state.store, state.hashes_config, db, decoded_key, fields)
+  defp do_handle_command(state, db, %Command.HDel{key: key, fields: fields}) do
+    Hashes.hdel(state.store, db, key, fields)
   end
 
-  defp do_handle_command(state, db, %Command.ZAdd{key: raw_key, members: members}) do
-    decoded_key = state.decode_key.(raw_key)
-    ZSets.zadd(state.store, state.zsets_config, db, decoded_key, members)
+  defp do_handle_command(state, db, %Command.ZAdd{key: key, members: members}) do
+    ZSets.zadd(state.store, db, key, members)
   end
 
-  defp do_handle_command(state, db, %Command.ZRem{key: raw_key, members: members}) do
-    decoded_key = state.decode_key.(raw_key)
-    ZSets.zrem(state.store, state.zsets_config, db, decoded_key, members)
+  defp do_handle_command(state, db, %Command.ZRem{key: key, members: members}) do
+    ZSets.zrem(state.store, db, key, members)
   end
 
-  defp do_handle_command(state, db, %Command.ZPopMax{key: raw_key, count: count}) do
-    decoded_key = state.decode_key.(raw_key)
-    {new_store, _popped} = ZSets.zpopmax(state.store, db, decoded_key, count)
+  defp do_handle_command(state, db, %Command.ZPopMax{key: key, count: count}) do
+    {new_store, _popped} = ZSets.zpopmax(state.store, db, key, count)
     new_store
   end
 
-  defp do_handle_command(state, db, %Command.ZPopMin{key: raw_key, count: count}) do
-    decoded_key = state.decode_key.(raw_key)
-    {new_store, _popped} = ZSets.zpopmin(state.store, db, decoded_key, count)
+  defp do_handle_command(state, db, %Command.ZPopMin{key: key, count: count}) do
+    {new_store, _popped} = ZSets.zpopmin(state.store, db, key, count)
     new_store
   end
 
   defp do_handle_command(state, db, %Command.ZRemRangeByRank{
-         key: raw_key,
+         key: key,
          start: start_idx,
          stop: stop_idx
        }) do
-    decoded_key = state.decode_key.(raw_key)
-    ZSets.zremrangebyrank(state.store, db, decoded_key, start_idx, stop_idx)
+    ZSets.zremrangebyrank(state.store, db, key, start_idx, stop_idx)
   end
 
-  defp do_handle_command(state, db, %Command.ZRemRangeByScore{key: raw_key, min: min, max: max}) do
-    decoded_key = state.decode_key.(raw_key)
+  defp do_handle_command(state, db, %Command.ZRemRangeByScore{key: key, min: min, max: max}) do
     min_score = parse_score(min)
     max_score = parse_score(max)
-    ZSets.zremrangebyscore(state.store, db, decoded_key, min_score, max_score)
+    ZSets.zremrangebyscore(state.store, db, key, min_score, max_score)
   end
 
-  defp do_handle_command(state, db, %Command.ZRemRangeByLex{key: raw_key, min: min, max: max}) do
-    decoded_key = state.decode_key.(raw_key)
-    ZSets.zremrangebylex(state.store, db, decoded_key, min, max)
+  defp do_handle_command(state, db, %Command.ZRemRangeByLex{key: key, min: min, max: max}) do
+    ZSets.zremrangebylex(state.store, db, key, min, max)
   end
 
   defp do_handle_command(state, db, %Command.ZUnionStore{
-         destination: raw_dest,
-         keys: raw_keys,
+         destination: dest,
+         keys: keys,
          weights: weights,
          aggregate: aggregate
        }) do
-    decoded_dest = state.decode_key.(raw_dest)
-    decoded_keys = Enum.map(raw_keys, &state.decode_key.(&1))
-
     ZSets.zunionstore(
       state.store,
       db,
-      decoded_dest,
-      decoded_keys,
+      dest,
+      keys,
       weights || [],
       aggregate || :sum
     )
   end
 
   defp do_handle_command(state, db, %Command.ZInterStore{
-         destination: raw_dest,
-         keys: raw_keys,
+         destination: dest,
+         keys: keys,
          weights: weights,
          aggregate: aggregate
        }) do
-    decoded_dest = state.decode_key.(raw_dest)
-    decoded_keys = Enum.map(raw_keys, &state.decode_key.(&1))
-
     ZSets.zinterstore(
       state.store,
       db,
-      decoded_dest,
-      decoded_keys,
+      dest,
+      keys,
       weights || [],
       aggregate || :sum
     )
   end
 
   defp do_handle_command(state, db, %Command.Del{keys: keys}) do
-    Enum.reduce(keys, state.store, fn raw_key, store ->
-      decoded_key = state.decode_key.(raw_key)
-      Common.del(store, db, decoded_key)
+    Enum.reduce(keys, state.store, fn key, store ->
+      Common.del(store, db, key)
     end)
   end
 
@@ -490,74 +399,5 @@ defmodule Vdr.MapProj do
       {score, _} -> score
       :error -> 0.0
     end
-  end
-
-  # Decoder wrapper functions
-
-  defp get_decode_key_fun(decoder) do
-    if eager_function_exported?(decoder, :decode_key, 1) do
-      &decoder.decode_key/1
-    else
-      &identity/1
-    end
-  end
-
-  defp decode_string_value_fun(decoder) do
-    if eager_function_exported?(decoder, :decode_string_value, 2) do
-      &decoder.decode_string_value/2
-    else
-      &identity2/2
-    end
-  end
-
-  defp decode_set_entry_fun(decoder) do
-    if eager_function_exported?(decoder, :decode_set_entry, 2) do
-      &decoder.decode_set_entry/2
-    else
-      &identity2/2
-    end
-  end
-
-  defp decode_hash_hkey_fun(decoder) do
-    if eager_function_exported?(decoder, :decode_hash_hkey, 2) do
-      &decoder.decode_hash_hkey/2
-    else
-      &identity2/2
-    end
-  end
-
-  defp decode_hash_entry_fun(decoder) do
-    if eager_function_exported?(decoder, :decode_hash_entry, 3) do
-      &decoder.decode_hash_entry/3
-    else
-      &identity3/3
-    end
-  end
-
-  defp decode_zset_entry_fun(decoder) do
-    if eager_function_exported?(decoder, :decode_zset_entry, 2) do
-      &decoder.decode_zset_entry/2
-    else
-      &identity2/2
-    end
-  end
-
-  defp decode_list_entry_fun(decoder) do
-    if eager_function_exported?(decoder, :decode_list_entry, 2) do
-      &decoder.decode_list_entry/2
-    else
-      &identity2/2
-    end
-  end
-
-  defp identity(a), do: a
-
-  defp identity2(_a, b), do: b
-
-  defp identity3(_a, _b, c), do: c
-
-  defp eager_function_exported?(module, function, arity) do
-    Code.ensure_loaded!(module)
-    function_exported?(module, function, arity)
   end
 end

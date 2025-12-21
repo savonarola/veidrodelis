@@ -2,76 +2,36 @@ defmodule Vdr.MapProj.Hashes do
   @moduledoc """
   Hash store operations for MapProj.
 
-  Stores hash values in a map structure.
-  Each hash is stored as `%Hash{entries: %{hkey => {raw, decoded}}}`.
+  Stores hash values in a map structure using raw binaries.
+  Each hash is stored as a map of binary field => binary value.
   """
-
-  defmodule Hash do
-    @moduledoc false
-    defstruct [:entries]
-
-    @type entry :: {raw :: binary(), decoded :: any()}
-
-    @type t :: %__MODULE__{
-            entries: %{any() => entry()}
-          }
-  end
-
-  defstruct [:decode_hkey_fun, :decode_fun]
-
-  @type t :: %__MODULE__{
-          decode_hkey_fun: decode_hkey_fun(),
-          decode_fun: decode_fun()
-        }
 
   @type db :: non_neg_integer()
-  @type key :: any()
-  @type hkey :: any()
+  @type key :: binary()
   @type field :: binary()
   @type value :: binary()
-  @type decode_hkey_fun :: (key(), field() -> hkey())
-  @type decode_fun :: (key(), hkey(), value() -> any())
-  @type store :: %{db() => %{key() => Hash.t()}}
-
-  @doc """
-  Creates a new hash store configuration with the given decode functions.
-  """
-  @spec new(decode_hkey_fun(), decode_fun()) :: t()
-  def new(decode_hkey_fun, decode_fun)
-      when is_function(decode_hkey_fun, 2) and is_function(decode_fun, 3) do
-    %__MODULE__{decode_hkey_fun: decode_hkey_fun, decode_fun: decode_fun}
-  end
+  @type store :: %{db() => %{key() => %{field() => value()}}}
 
   @doc """
   Sets one or more field-value pairs in a hash.
   Returns the updated store.
   """
-  @spec hset(store(), t(), db(), key(), [{field(), value()}]) :: store()
-  def hset(
-        store,
-        %__MODULE__{decode_hkey_fun: decode_hkey_fun, decode_fun: decode_fun},
-        db,
-        key,
-        field_values
-      )
-      when is_list(field_values) do
+  @spec hset(store(), db(), key(), [{field(), value()}]) :: store()
+  def hset(store, db, key, field_values) when is_list(field_values) do
     db_map = Map.get(store, db, %{})
 
     entries =
       case Map.get(db_map, key) do
         nil -> %{}
-        %Hash{entries: e} -> e
+        entries when is_map(entries) -> entries
       end
 
     new_entries =
       Enum.reduce(field_values, entries, fn {field, value}, acc ->
-        decoded_hkey = decode_hkey_fun.(key, field)
-        decoded_value = decode_fun.(key, decoded_hkey, value)
-        Map.put(acc, decoded_hkey, {value, decoded_value})
+        Map.put(acc, field, value)
       end)
 
-    hash_entry = %Hash{entries: new_entries}
-    new_db_map = Map.put(db_map, key, hash_entry)
+    new_db_map = Map.put(db_map, key, new_entries)
     Map.put(store, db, new_db_map)
   end
 
@@ -79,20 +39,18 @@ defmodule Vdr.MapProj.Hashes do
   Removes one or more fields from a hash.
   Returns the updated store.
   """
-  @spec hdel(store(), t(), db(), key(), [field()]) :: store()
-  def hdel(store, %__MODULE__{decode_hkey_fun: decode_hkey_fun}, db, key, fields)
-      when is_list(fields) do
+  @spec hdel(store(), db(), key(), [field()]) :: store()
+  def hdel(store, db, key, fields) when is_list(fields) do
     db_map = Map.get(store, db, %{})
 
     case Map.get(db_map, key) do
       nil ->
         store
 
-      %Hash{entries: entries} ->
+      entries when is_map(entries) ->
         new_entries =
           Enum.reduce(fields, entries, fn field, acc ->
-            decoded_hkey = decode_hkey_fun.(key, field)
-            Map.delete(acc, decoded_hkey)
+            Map.delete(acc, field)
           end)
 
         store_entries(store, db, key, new_entries)
@@ -100,104 +58,90 @@ defmodule Vdr.MapProj.Hashes do
   end
 
   @doc """
-  Gets the decoded value associated with a field in a hash.
-  Note: This requires the decoded hkey value.
+  Gets the value associated with a field in a hash.
   """
-  @spec hget(store(), db(), key(), hkey()) :: any() | nil
-  def hget(store, db, key, decoded_hkey) do
+  @spec hget(store(), db(), key(), field()) :: value() | nil
+  def hget(store, db, key, field) do
     db_map = Map.get(store, db, %{})
 
     case Map.get(db_map, key) do
-      nil -> nil
-      %Hash{entries: entries} ->
-        case Map.get(entries, decoded_hkey) do
-          nil -> nil
-          {_raw, decoded} -> decoded
-        end
-      _ -> nil
-    end
-  end
+      nil ->
+        nil
 
-  @doc """
-  Gets the original (binary) value associated with a field in a hash.
-  Note: This requires the decoded hkey value.
-  """
-  @spec hget_original(store(), db(), key(), hkey()) :: value() | nil
-  def hget_original(store, db, key, decoded_hkey) do
-    db_map = Map.get(store, db, %{})
+      entries when is_map(entries) ->
+        Map.get(entries, field)
 
-    case Map.get(db_map, key) do
-      nil -> nil
-      %Hash{entries: entries} ->
-        case Map.get(entries, decoded_hkey) do
-          nil -> nil
-          {raw, _decoded} -> raw
-        end
-      _ -> nil
+      _ ->
+        nil
     end
   end
 
   @doc """
   Checks if a field exists in a hash.
-  Note: This requires the decoded hkey value.
   """
-  @spec hexists(store(), db(), key(), hkey()) :: boolean()
-  def hexists(store, db, key, decoded_hkey) do
+  @spec hexists(store(), db(), key(), field()) :: boolean()
+  def hexists(store, db, key, field) do
     db_map = Map.get(store, db, %{})
 
     case Map.get(db_map, key) do
       nil -> false
-      %Hash{entries: entries} -> Map.has_key?(entries, decoded_hkey)
+      entries when is_map(entries) -> Map.has_key?(entries, field)
       _ -> false
     end
   end
 
   @doc """
   Gets all field-value pairs from a hash.
-  Returns a list of tuples `{decoded_hkey, decoded_value}`.
+  Returns a list of tuples {field, value}.
   """
-  @spec hgetall(store(), db(), key()) :: [{hkey(), any()}]
+  @spec hgetall(store(), db(), key()) :: [{field(), value()}]
   def hgetall(store, db, key) do
     db_map = Map.get(store, db, %{})
 
     case Map.get(db_map, key) do
-      nil -> []
-      %Hash{entries: entries} ->
-        Enum.map(entries, fn {hkey, {_raw, decoded}} ->
-          {hkey, decoded}
-        end)
-      _ -> []
+      nil ->
+        []
+
+      entries when is_map(entries) ->
+        Map.to_list(entries)
+
+      _ ->
+        []
     end
   end
 
   @doc """
   Gets all fields from a hash.
-  Returns a list of decoded hkeys.
+  Returns a list of binary fields.
   """
-  @spec hkeys(store(), db(), key()) :: [hkey()]
+  @spec hkeys(store(), db(), key()) :: [field()]
   def hkeys(store, db, key) do
     db_map = Map.get(store, db, %{})
 
     case Map.get(db_map, key) do
       nil -> []
-      %Hash{entries: entries} -> Map.keys(entries)
+      entries when is_map(entries) -> Map.keys(entries)
       _ -> []
     end
   end
 
   @doc """
   Gets all values from a hash.
-  Returns a list of decoded values.
+  Returns a list of binary values.
   """
-  @spec hvals(store(), db(), key()) :: [any()]
+  @spec hvals(store(), db(), key()) :: [value()]
   def hvals(store, db, key) do
     db_map = Map.get(store, db, %{})
 
     case Map.get(db_map, key) do
-      nil -> []
-      %Hash{entries: entries} ->
-        Enum.map(entries, fn {_hkey, {_raw, decoded}} -> decoded end)
-      _ -> []
+      nil ->
+        []
+
+      entries when is_map(entries) ->
+        Map.values(entries)
+
+      _ ->
+        []
     end
   end
 
@@ -210,7 +154,7 @@ defmodule Vdr.MapProj.Hashes do
 
     case Map.get(db_map, key) do
       nil -> 0
-      %Hash{entries: entries} -> map_size(entries)
+      entries when is_map(entries) -> map_size(entries)
       _ -> 0
     end
   end
@@ -218,10 +162,11 @@ defmodule Vdr.MapProj.Hashes do
   @doc """
   Creates a stream of hash entries matching the filter function.
 
-  The filter function receives `{hkey, {raw, decoded}}` and returns true/false.
-  Returns matching entries as `{{db, key, :hset, hkey}, {raw, decoded}}` for compatibility.
+  The filter function receives {field, value} and returns true/false.
+  Returns matching entries as {{db, key, :hset, field}, value} for compatibility.
   """
-  @spec select_stream(store(), db(), key(), ({hkey(), {binary(), any()}} -> boolean())) :: Enumerable.t()
+  @spec select_stream(store(), db(), key(), ({field(), value()} -> boolean())) ::
+          Enumerable.t()
   def select_stream(store, db, key, filter_fun) when is_function(filter_fun, 1) do
     db_map = Map.get(store, db, %{})
 
@@ -229,11 +174,11 @@ defmodule Vdr.MapProj.Hashes do
       nil ->
         Stream.filter([], fn _ -> true end)
 
-      %Hash{entries: entries} ->
+      entries when is_map(entries) ->
         entries
         |> Stream.filter(filter_fun)
-        |> Stream.map(fn {hkey, {raw, decoded}} ->
-          {{db, key, :hset, hkey}, {raw, decoded}}
+        |> Stream.map(fn {field, value} ->
+          {{db, key, :hset, field}, value}
         end)
     end
   end
@@ -241,10 +186,11 @@ defmodule Vdr.MapProj.Hashes do
   @doc """
   Creates a reverse stream of hash entries matching the filter function.
 
-  The filter function receives `{hkey, {raw, decoded}}` and returns true/false.
-  Returns matching entries in reverse order as `{{db, key, :hset, hkey}, {raw, decoded}}`.
+  The filter function receives {field, value} and returns true/false.
+  Returns matching entries in reverse order as {{db, key, :hset, field}, value}.
   """
-  @spec select_rev_stream(store(), db(), key(), ({hkey(), {binary(), any()}} -> boolean())) :: Enumerable.t()
+  @spec select_rev_stream(store(), db(), key(), ({field(), value()} -> boolean())) ::
+          Enumerable.t()
   def select_rev_stream(store, db, key, filter_fun) when is_function(filter_fun, 1) do
     db_map = Map.get(store, db, %{})
 
@@ -252,33 +198,34 @@ defmodule Vdr.MapProj.Hashes do
       nil ->
         Stream.filter([], fn _ -> true end)
 
-      %Hash{entries: entries} ->
+      entries when is_map(entries) ->
         entries
         |> Enum.to_list()
         |> Enum.reverse()
         |> Stream.filter(filter_fun)
-        |> Stream.map(fn {hkey, {raw, decoded}} ->
-          {{db, key, :hset, hkey}, {raw, decoded}}
+        |> Stream.map(fn {field, value} ->
+          {{db, key, :hset, field}, value}
         end)
     end
   end
 
   # Private helpers
 
-  @spec store_entries(store(), db(), key(), %{hkey() => {binary(), any()}}) :: store()
+  @spec store_entries(store(), db(), key(), %{field() => value()}) :: store()
   defp store_entries(store, db, key, entries) do
     if map_size(entries) == 0 do
       # Remove the key when the hash is empty
       case Map.get(store, db) do
-        nil -> store
+        nil ->
+          store
+
         db_map ->
           new_db_map = Map.delete(db_map, key)
           Map.put(store, db, new_db_map)
       end
     else
       db_map = Map.get(store, db, %{})
-      hash_entry = %Hash{entries: entries}
-      new_db_map = Map.put(db_map, key, hash_entry)
+      new_db_map = Map.put(db_map, key, entries)
       Map.put(store, db, new_db_map)
     end
   end

@@ -77,9 +77,10 @@ defmodule Vdr.ReplicaParserTest do
       parser = Vdr.ReplicaParser.create()
 
       # Try to use it in a different process
-      task = Task.async(fn ->
-        Vdr.ReplicaParser.data(parser, <<>>)
-      end)
+      task =
+        Task.async(fn ->
+          Vdr.ReplicaParser.data(parser, <<>>)
+        end)
 
       result = Task.await(task)
 
@@ -123,10 +124,11 @@ defmodule Vdr.ReplicaParserTest do
       case Vdr.ReplicaParser.data(parser, <<>>) do
         {:ok, [_ | _] = commands, _} ->
           # Check if any SET commands were returned
-          set_commands = Enum.filter(commands, fn
-            {_db, %Command.Set{}} -> true
-            _ -> false
-          end)
+          set_commands =
+            Enum.filter(commands, fn
+              {_db, %Command.Set{}} -> true
+              _ -> false
+            end)
 
           Enum.each(set_commands, fn {db, %Command.Set{key: key, value: value}} ->
             assert is_integer(db)

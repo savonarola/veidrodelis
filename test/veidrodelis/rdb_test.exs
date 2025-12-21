@@ -8,7 +8,10 @@ defmodule Vdr.RDBTest do
   """
 
   # Helper function to process commands and collect data
-  defp process_commands(commands, state \\ %{strings: [], sets: [], zsets: [], lists: [], hashes: []}) do
+  defp process_commands(
+         commands,
+         state \\ %{strings: [], sets: [], zsets: [], lists: [], hashes: []}
+       ) do
     Enum.reduce(commands, state, fn {db, command}, acc ->
       process_command(command, acc, db)
     end)
@@ -72,6 +75,7 @@ defmodule Vdr.RDBTest do
           {:error, reason} ->
             flunk("RDB parse error: #{inspect(reason)}")
         end
+
       {:error, reason} ->
         flunk("RDB read error: #{inspect(reason)}")
     end
@@ -397,9 +401,11 @@ defmodule Vdr.RDBTest do
         {:ok, _commands} ->
           # EOF reached, this is correct
           assert true
+
         {:ok, _commands, _parser} ->
           # Should not happen with minimal RDB that has immediate EOF
           flunk("Expected EOF to be reached")
+
         {:error, reason} ->
           flunk("Unexpected error: #{inspect(reason)}")
       end
@@ -417,9 +423,11 @@ defmodule Vdr.RDBTest do
         {:ok, commands, _parser} ->
           # Parser is waiting for checksum, not finished
           assert commands == []
+
         {:ok, _commands} ->
           # Should NOT finish without checksum
           flunk("Parser should not finish without checksum")
+
         {:error, _reason} ->
           # Also acceptable - could error immediately
           assert true
@@ -438,9 +446,11 @@ defmodule Vdr.RDBTest do
         {:ok, commands, _parser} ->
           # Parser is waiting for remaining checksum bytes
           assert commands == []
+
         {:ok, _commands} ->
           # Should NOT finish with partial checksum
           flunk("Parser should not finish with incomplete checksum")
+
         {:error, _reason} ->
           # Also acceptable
           assert true
@@ -458,28 +468,28 @@ defmodule Vdr.RDBTest do
 
       # Feed all chunks and accumulate commands
       assert {all_commands, :finished} =
-        Enum.reduce(chunks, {[], parser}, fn chunk, {commands_acc, current_parser} ->
-          # Skip if already finished
-          if current_parser == :finished do
-            {commands_acc, :finished}
-          else
-            case Vdr.RDB.data(current_parser, chunk) do
-              {:ok, commands} when is_list(commands) ->
-                # Parsing finished (2-tuple), accumulate final commands
-                {commands_acc ++ commands, :finished}
+               Enum.reduce(chunks, {[], parser}, fn chunk, {commands_acc, current_parser} ->
+                 # Skip if already finished
+                 if current_parser == :finished do
+                   {commands_acc, :finished}
+                 else
+                   case Vdr.RDB.data(current_parser, chunk) do
+                     {:ok, commands} when is_list(commands) ->
+                       # Parsing finished (2-tuple), accumulate final commands
+                       {commands_acc ++ commands, :finished}
 
-              {:ok, commands, new_parser} ->
-                # Parsing continues (3-tuple)
-                {commands_acc ++ commands, new_parser}
+                     {:ok, commands, new_parser} ->
+                       # Parsing continues (3-tuple)
+                       {commands_acc ++ commands, new_parser}
 
-              {:error, :already_finished} ->
-                {commands_acc, :finished}
+                     {:error, :already_finished} ->
+                       {commands_acc, :finished}
 
-              {:error, _reason} ->
-                {commands_acc, current_parser}
-            end
-          end
-        end)
+                     {:error, _reason} ->
+                       {commands_acc, current_parser}
+                   end
+                 end
+               end)
 
       # Verify all data was parsed correctly
       state = process_commands(all_commands, %{strings: [], lists: [], hashes: []})
@@ -502,6 +512,7 @@ defmodule Vdr.RDBTest do
 
   defp do_split_chunks(binary, mean_chunk_size, acc) do
     chunk_size = :rand.uniform(mean_chunk_size * 2)
+
     if chunk_size > byte_size(binary) do
       Enum.reverse([binary | acc])
     else

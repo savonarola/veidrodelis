@@ -2,86 +2,54 @@ defmodule Vdr.MapProj.Lists do
   @moduledoc """
   List store operations for MapProj.
 
-  Stores list values in a map structure.
-  Each list is stored as `%List{entries: list()}`.
+  Stores list values in a map structure using raw binaries.
+  Each list is stored as a plain Elixir list of binary elements.
   """
-
-  defmodule List do
-    @moduledoc false
-    defstruct [:entries]
-
-    @type t :: %__MODULE__{
-            entries: list()
-          }
-  end
-
-  defstruct [:decode_fun]
-
-  @type t :: %__MODULE__{
-          decode_fun: decode_fun()
-        }
 
   @type db :: non_neg_integer()
-  @type key :: any()
+  @type key :: binary()
   @type element :: binary()
-  @type decode_fun :: (key(), element() -> any())
-  @type store :: %{db() => %{key() => List.t()}}
+  @type store :: %{db() => %{key() => list()}}
   @type position :: :before | :after
-
-  @doc """
-  Creates a new list store configuration with the given decode function.
-  """
-  @spec new(decode_fun()) :: t()
-  def new(decode_fun) when is_function(decode_fun, 2) do
-    %__MODULE__{decode_fun: decode_fun}
-  end
 
   @doc """
   Insert all values at the head of the list (left side).
   Returns the updated store.
   """
-  @spec lpush(store(), t(), db(), key(), [element()]) :: store()
-  def lpush(store, %__MODULE__{decode_fun: decode_fun}, db, key, values)
-      when is_list(values) do
+  @spec lpush(store(), db(), key(), [element()]) :: store()
+  def lpush(store, db, key, values) when is_list(values) do
     db_map = Map.get(store, db, %{})
     list = get_entries(db_map, key)
 
-    decoded_values = Enum.map(values, fn val -> decode_fun.(key, val) end)
-    new_entries = Enum.reverse(decoded_values) ++ list
+    new_entries = Enum.reverse(values) ++ list
 
-    list_entry = %List{entries: new_entries}
-    new_db_map = Map.put(db_map, key, list_entry)
-    Map.put(store, db, new_db_map)
+    store_entries(store, db, key, new_entries)
   end
 
   @doc """
   Insert all values at the tail of the list (right side).
   Returns the updated store.
   """
-  @spec rpush(store(), t(), db(), key(), [element()]) :: store()
-  def rpush(store, %__MODULE__{decode_fun: decode_fun}, db, key, values)
-      when is_list(values) do
+  @spec rpush(store(), db(), key(), [element()]) :: store()
+  def rpush(store, db, key, values) when is_list(values) do
     db_map = Map.get(store, db, %{})
     list = get_entries(db_map, key)
 
-    decoded_values = Enum.map(values, fn val -> decode_fun.(key, val) end)
-    new_entries = list ++ decoded_values
+    new_entries = list ++ values
 
-    list_entry = %List{entries: new_entries}
-    new_db_map = Map.put(db_map, key, list_entry)
-    Map.put(store, db, new_db_map)
+    store_entries(store, db, key, new_entries)
   end
 
   @doc """
   Insert values at the head, only if the key exists.
   Returns the updated store.
   """
-  @spec lpushx(store(), t(), db(), key(), [element()]) :: store()
-  def lpushx(store, config, db, key, values) when is_list(values) do
+  @spec lpushx(store(), db(), key(), [element()]) :: store()
+  def lpushx(store, db, key, values) when is_list(values) do
     db_map = Map.get(store, db, %{})
 
     if Map.has_key?(db_map, key) do
-      lpush(store, config, db, key, values)
+      lpush(store, db, key, values)
     else
       store
     end
@@ -91,12 +59,12 @@ defmodule Vdr.MapProj.Lists do
   Insert values at the tail, only if the key exists.
   Returns the updated store.
   """
-  @spec rpushx(store(), t(), db(), key(), [element()]) :: store()
-  def rpushx(store, config, db, key, values) when is_list(values) do
+  @spec rpushx(store(), db(), key(), [element()]) :: store()
+  def rpushx(store, db, key, values) when is_list(values) do
     db_map = Map.get(store, db, %{})
 
     if Map.has_key?(db_map, key) do
-      rpush(store, config, db, key, values)
+      rpush(store, db, key, values)
     else
       store
     end
@@ -141,22 +109,24 @@ defmodule Vdr.MapProj.Lists do
   Remove the first count occurrences of element from the list.
   Returns the updated store.
   """
-  @spec lrem(store(), t(), db(), key(), integer(), element()) :: store()
-  def lrem(store, %__MODULE__{decode_fun: decode_fun}, db, key, count, element) do
+  @spec lrem(store(), db(), key(), integer(), element()) :: store()
+  def lrem(store, db, key, count, element) do
     db_map = Map.get(store, db, %{})
     list = get_entries(db_map, key)
-    decoded_element = decode_fun.(key, element)
 
     new_list =
       cond do
         count > 0 ->
-          remove_n_from_head(list, decoded_element, count)
+          remove_n_from_head(list, element, count)
 
         count < 0 ->
-          list |> Enum.reverse() |> remove_n_from_head(decoded_element, abs(count)) |> Enum.reverse()
+          list
+          |> Enum.reverse()
+          |> remove_n_from_head(element, abs(count))
+          |> Enum.reverse()
 
         count == 0 ->
-          Enum.reject(list, fn elem -> elem == decoded_element end)
+          Enum.reject(list, fn elem -> elem == element end)
       end
 
     store_entries(store, db, key, new_list)
@@ -189,8 +159,8 @@ defmodule Vdr.MapProj.Lists do
   Set the list element at index to value.
   Returns the updated store.
   """
-  @spec lset(store(), t(), db(), key(), integer(), element()) :: store()
-  def lset(store, %__MODULE__{decode_fun: decode_fun}, db, key, index, value) do
+  @spec lset(store(), db(), key(), integer(), element()) :: store()
+  def lset(store, db, key, index, value) do
     db_map = Map.get(store, db, %{})
     list = get_entries(db_map, key)
     len = length(list)
@@ -198,8 +168,7 @@ defmodule Vdr.MapProj.Lists do
     pos = if index < 0, do: len + index, else: index
 
     if pos >= 0 and pos < len do
-      decoded = decode_fun.(key, value)
-      new_list = Elixir.List.replace_at(list, pos, decoded)
+      new_list = Elixir.List.replace_at(list, pos, value)
       store_entries(store, db, key, new_list)
     else
       store
@@ -210,21 +179,19 @@ defmodule Vdr.MapProj.Lists do
   Insert value before or after the pivot element.
   Returns the updated store.
   """
-  @spec linsert(store(), t(), db(), key(), position(), element(), element()) :: store()
-  def linsert(store, %__MODULE__{decode_fun: decode_fun}, db, key, position, pivot, value)
+  @spec linsert(store(), db(), key(), position(), element(), element()) :: store()
+  def linsert(store, db, key, position, pivot, value)
       when position in [:before, :after] do
     db_map = Map.get(store, db, %{})
     list = get_entries(db_map, key)
-    decoded_pivot = decode_fun.(key, pivot)
 
-    case Enum.find_index(list, fn elem -> elem == decoded_pivot end) do
+    case Enum.find_index(list, fn elem -> elem == pivot end) do
       nil ->
         store
 
       pivot_idx ->
-        decoded_value = decode_fun.(key, value)
         insert_idx = if position == :before, do: pivot_idx, else: pivot_idx + 1
-        new_list = Elixir.List.insert_at(list, insert_idx, decoded_value)
+        new_list = Elixir.List.insert_at(list, insert_idx, value)
         store_entries(store, db, key, new_list)
     end
   end
@@ -258,9 +225,9 @@ defmodule Vdr.MapProj.Lists do
   @doc """
   Get a range of elements from the list.
   Both start and stop are inclusive and support negative indices.
-  Returns decoded values.
+  Returns binary values.
   """
-  @spec lrange(store(), db(), key(), integer(), integer()) :: [any()]
+  @spec lrange(store(), db(), key(), integer(), integer()) :: [binary()]
   def lrange(store, db, key, start_idx, stop_idx) do
     db_map = Map.get(store, db, %{})
     list = get_entries(db_map, key)
@@ -288,20 +255,22 @@ defmodule Vdr.MapProj.Lists do
 
   # Private helpers
 
-  @spec get_entries(%{key() => List.t()}, key()) :: [any()]
+  @spec get_entries(%{key() => list()}, key()) :: [binary()]
   defp get_entries(db_map, key) do
     case Map.get(db_map, key) do
       nil -> []
-      %List{entries: entries} -> entries
+      list when is_list(list) -> list
       _ -> []
     end
   end
 
-  @spec store_entries(store(), db(), key(), [any()]) :: store()
+  @spec store_entries(store(), db(), key(), [binary()]) :: store()
   defp store_entries(store, db, key, []) do
     # Remove the key when the list is empty
     case Map.get(store, db) do
-      nil -> store
+      nil ->
+        store
+
       db_map ->
         new_db_map = Map.delete(db_map, key)
         Map.put(store, db, new_db_map)
@@ -310,12 +279,11 @@ defmodule Vdr.MapProj.Lists do
 
   defp store_entries(store, db, key, entries) when is_list(entries) do
     db_map = Map.get(store, db, %{})
-    list_entry = %List{entries: entries}
-    new_db_map = Map.put(db_map, key, list_entry)
+    new_db_map = Map.put(db_map, key, entries)
     Map.put(store, db, new_db_map)
   end
 
-  @spec remove_n_from_head([any()], any(), non_neg_integer()) :: [any()]
+  @spec remove_n_from_head([binary()], binary(), non_neg_integer()) :: [binary()]
   defp remove_n_from_head(list, _element, 0), do: list
   defp remove_n_from_head([], _element, _count), do: []
 

@@ -14,7 +14,9 @@ defmodule Vdr.MapProj.Common do
   @spec del(store(), db(), key()) :: store()
   def del(store, db, key) do
     case Map.get(store, db) do
-      nil -> store
+      nil ->
+        store
+
       db_map ->
         new_db_map = Map.delete(db_map, key)
         Map.put(store, db, new_db_map)

@@ -55,7 +55,7 @@ defmodule Vdr.RDB do
       end
   """
   @spec data(reference(), binary()) ::
-    {:ok, list()} | {:ok, list(), reference()} | {:error, term()}
+          {:ok, list()} | {:ok, list(), reference()} | {:error, term()}
   def data(parser, chunk) when is_reference(parser) and is_binary(chunk) do
     case Vdr.RedisNif.rdb_data(parser, chunk) do
       {:ok, raw_commands} when is_list(raw_commands) ->
@@ -78,41 +78,44 @@ defmodule Vdr.RDB do
     Enum.map(raw_commands, &convert_command/1)
   end
 
-  defp convert_command({db, name, args}) when is_integer(db) and is_binary(name) and is_list(args) do
-    command = case name do
-      # String commands
-      "SET" when length(args) >= 2 ->
-        [key, value | _rest] = args
-        %Command.Set{key: key, value: value}
+  defp convert_command({db, name, args})
+       when is_integer(db) and is_binary(name) and is_list(args) do
+    command =
+      case name do
+        # String commands
+        "SET" when length(args) >= 2 ->
+          [key, value | _rest] = args
+          %Command.Set{key: key, value: value}
 
-      "RPUSH" ->
-        [key | values] = args
-        %Command.RPush{key: key, values: values}
+        "RPUSH" ->
+          [key | values] = args
+          %Command.RPush{key: key, values: values}
 
-      "SADD" ->
-        [key | members] = args
-        %Command.SAdd{key: key, members: members}
+        "SADD" ->
+          [key | members] = args
+          %Command.SAdd{key: key, members: members}
 
-      "ZADD" ->
-        [key | score_member_pairs] = args
-        members = parse_zadd_args(score_member_pairs, [])
-        %Command.ZAdd{key: key, members: members}
+        "ZADD" ->
+          [key | score_member_pairs] = args
+          members = parse_zadd_args(score_member_pairs, [])
+          %Command.ZAdd{key: key, members: members}
 
-      "HSET" ->
-        [key | field_value_pairs] = args
-        fields = parse_hset_args(field_value_pairs, [])
-        %Command.HSet{key: key, fields: fields}
+        "HSET" ->
+          [key | field_value_pairs] = args
+          fields = parse_hset_args(field_value_pairs, [])
+          %Command.HSet{key: key, fields: fields}
 
-      "PEXPIREAT" ->
-        [key | [expire_ms]] = args
-        %Command.PExpireAt{key: key, timestamp_ms: expire_ms}
-    end
+        "PEXPIREAT" ->
+          [key | [expire_ms]] = args
+          %Command.PExpireAt{key: key, timestamp_ms: expire_ms}
+      end
 
     {db, command}
   end
 
   # Parse ZADD arguments: [score, member, score, member, ...]
   defp parse_zadd_args([], acc), do: Enum.reverse(acc)
+
   defp parse_zadd_args([score_bin, member | rest], acc) do
     score = parse_float(score_bin)
     parse_zadd_args(rest, [{score, member} | acc])
@@ -120,13 +123,16 @@ defmodule Vdr.RDB do
 
   # Parse HSET arguments: [field, value, field, value, ...]
   defp parse_hset_args([], acc), do: Enum.reverse(acc)
+
   defp parse_hset_args([field, value | rest], acc) do
     parse_hset_args(rest, [{field, value} | acc])
   end
 
   defp parse_float(bin) when is_binary(bin) do
     case Float.parse(bin) do
-      {float, _} -> float
+      {float, _} ->
+        float
+
       :error ->
         # Try as integer
         case Integer.parse(bin) do

@@ -287,17 +287,19 @@ defmodule Vdr.RedisStream.Replica do
 
   def handle_call(:get_replication_state, _from, state) do
     # If we're in :replication mode, check the parser state
-    reply_state = if state.state == :replication && state.replica_parser do
-      # Query the Rust parser's actual state
-      case Vdr.RedisNif.replica_state(state.replica_parser) do
-        :streaming -> :streaming
-        :reading_rdb -> :rdb_transfer
-        :waiting_rdb -> :rdb_transfer
-        _ -> state.state
+    reply_state =
+      if state.state == :replication && state.replica_parser do
+        # Query the Rust parser's actual state
+        case Vdr.RedisNif.replica_state(state.replica_parser) do
+          :streaming -> :streaming
+          :reading_rdb -> :rdb_transfer
+          :waiting_rdb -> :rdb_transfer
+          _ -> state.state
+        end
+      else
+        state.state
       end
-    else
-      state.state
-    end
+
     {:reply, reply_state, state}
   end
 
@@ -826,7 +828,6 @@ defmodule Vdr.RedisStream.Replica do
             {:stop, {:partial_resync_init_failed, reason}, new_state}
         end
 
-
       :incomplete ->
         {:noreply, state}
 
@@ -887,7 +888,6 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   defp process_commands([{db, command} | rest], state) do
-
     # Handle special commands
     result =
       case command do
@@ -925,7 +925,6 @@ defmodule Vdr.RedisStream.Replica do
   defp buffer_to_binary(state) do
     state.buffer |> Enum.reverse() |> :erlang.iolist_to_binary()
   end
-
 
   defp peek_bytes(state, n) when state.buffer_size >= n do
     binary = buffer_to_binary(state)

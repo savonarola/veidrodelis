@@ -2,56 +2,26 @@ defmodule Vdr.MapProj.Strings do
   @moduledoc """
   String store operations for MapProj.
 
-  Stores string values in a map structure with decoded values.
-  Each string is stored as `%String{raw: binary(), decoded: any()}`.
+  Stores string values in a map structure as raw binaries.
   """
 
   import Bitwise
 
-  defmodule String do
-    @moduledoc false
-    defstruct [:raw, :decoded]
-
-    @type t :: %__MODULE__{
-            raw: binary(),
-            decoded: any()
-          }
-  end
-
-  defstruct [:decode_fun]
-
-  @type t :: %__MODULE__{
-          decode_fun: decode_fun()
-        }
-
   @type db :: non_neg_integer()
-  @type key :: any()
+  @type key :: binary()
   @type value :: binary()
-  @type decode_fun :: (key(), value() -> any())
-  @type store :: %{db() => %{key() => String.t()}}
+  @type store :: %{db() => %{key() => value()}}
   @type bitop ::
           :AND | :OR | :XOR | :NOT | :DIFF | :DIFF1 | :ANDOR | :ONE
-
-  @doc """
-  Creates a new string store configuration with the given decode function.
-  """
-  @spec new(decode_fun()) :: t()
-  def new(decode_fun) when is_function(decode_fun, 2) do
-    %__MODULE__{decode_fun: decode_fun}
-  end
 
   @doc """
   Sets the value for a key in the specified database.
   Returns the updated store.
   """
-  @spec set(store(), t(), db(), key(), value()) :: store()
-  def set(store, %__MODULE__{decode_fun: decode_fun}, db, key, value)
-      when is_binary(value) do
-    decoded = decode_fun.(key, value)
-    string_entry = %String{raw: value, decoded: decoded}
-
+  @spec set(store(), db(), key(), value()) :: store()
+  def set(store, db, key, value) when is_binary(value) do
     db_map = Map.get(store, db, %{})
-    new_db_map = Map.put(db_map, key, string_entry)
+    new_db_map = Map.put(db_map, key, value)
     Map.put(store, db, new_db_map)
   end
 
@@ -59,17 +29,10 @@ defmodule Vdr.MapProj.Strings do
   Sets multiple key-value pairs at once.
   Returns the updated store.
   """
-  @spec mset(store(), t(), db(), [{key(), value()}]) :: store()
-  def mset(store, %__MODULE__{decode_fun: decode_fun}, db, pairs) do
+  @spec mset(store(), db(), [{key(), value()}]) :: store()
+  def mset(store, db, pairs) do
     db_map = Map.get(store, db, %{})
-
-    new_db_map =
-      Enum.reduce(pairs, db_map, fn {key, value}, acc ->
-        decoded = decode_fun.(key, value)
-        string_entry = %String{raw: value, decoded: decoded}
-        Map.put(acc, key, string_entry)
-      end)
-
+    new_db_map = Enum.reduce(pairs, db_map, fn {key, value}, acc -> Map.put(acc, key, value) end)
     Map.put(store, db, new_db_map)
   end
 
@@ -78,20 +41,17 @@ defmodule Vdr.MapProj.Strings do
   If the key doesn't exist, it's created with the data as value.
   Returns the updated store.
   """
-  @spec append(store(), t(), db(), key(), value()) :: store()
-  def append(store, %__MODULE__{decode_fun: decode_fun} = config, db, key, data)
-      when is_binary(data) do
+  @spec append(store(), db(), key(), value()) :: store()
+  def append(store, db, key, data) when is_binary(data) do
     db_map = Map.get(store, db, %{})
 
     case Map.get(db_map, key) do
       nil ->
-        set(store, config, db, key, data)
+        set(store, db, key, data)
 
-      %String{raw: orig_value} ->
+      orig_value when is_binary(orig_value) ->
         new_value = orig_value <> data
-        new_decoded = decode_fun.(key, new_value)
-        string_entry = %String{raw: new_value, decoded: new_decoded}
-        new_db_map = Map.put(db_map, key, string_entry)
+        new_db_map = Map.put(db_map, key, new_value)
         Map.put(store, db, new_db_map)
     end
   end
@@ -101,15 +61,15 @@ defmodule Vdr.MapProj.Strings do
   Pads with zero bytes if needed.
   Returns the updated store.
   """
-  @spec setrange(store(), t(), db(), key(), non_neg_integer(), value()) :: store()
-  def setrange(store, %__MODULE__{decode_fun: decode_fun}, db, key, offset, value)
+  @spec setrange(store(), db(), key(), non_neg_integer(), value()) :: store()
+  def setrange(store, db, key, offset, value)
       when is_integer(offset) and offset >= 0 and is_binary(value) do
     db_map = Map.get(store, db, %{})
 
     orig_value =
       case Map.get(db_map, key) do
         nil -> ""
-        %String{raw: val} -> val
+        val when is_binary(val) -> val
       end
 
     # Pad with zero bytes if offset is beyond current length
@@ -122,7 +82,6 @@ defmodule Vdr.MapProj.Strings do
 
     # Replace substring at offset
     prefix = binary_part(padded, 0, offset)
-
     suffix_start = min(offset + byte_size(value), byte_size(padded))
 
     suffix =
@@ -133,10 +92,7 @@ defmodule Vdr.MapProj.Strings do
       end
 
     new_value = prefix <> value <> suffix
-
-    new_decoded = decode_fun.(key, new_value)
-    string_entry = %String{raw: new_value, decoded: new_decoded}
-    new_db_map = Map.put(db_map, key, string_entry)
+    new_db_map = Map.put(db_map, key, new_value)
     Map.put(store, db, new_db_map)
   end
 
@@ -145,15 +101,15 @@ defmodule Vdr.MapProj.Strings do
   Bits are numbered from 0, with bit 0 being the most significant bit of the first byte.
   Returns the updated store.
   """
-  @spec setbit(store(), t(), db(), key(), non_neg_integer(), 0 | 1) :: store()
-  def setbit(store, %__MODULE__{decode_fun: decode_fun}, db, key, offset, bit)
+  @spec setbit(store(), db(), key(), non_neg_integer(), 0 | 1) :: store()
+  def setbit(store, db, key, offset, bit)
       when is_integer(offset) and offset >= 0 and bit in [0, 1] do
     db_map = Map.get(store, db, %{})
 
     orig_value =
       case Map.get(db_map, key) do
         nil -> ""
-        %String{raw: val} -> val
+        val when is_binary(val) -> val
       end
 
     byte_offset = div(offset, 8)
@@ -191,10 +147,7 @@ defmodule Vdr.MapProj.Strings do
       end
 
     new_value = prefix <> <<new_byte>> <> suffix
-
-    new_decoded = decode_fun.(key, new_value)
-    string_entry = %String{raw: new_value, decoded: new_decoded}
-    new_db_map = Map.put(db_map, key, string_entry)
+    new_db_map = Map.put(db_map, key, new_value)
     Map.put(store, db, new_db_map)
   end
 
@@ -212,24 +165,23 @@ defmodule Vdr.MapProj.Strings do
   - `:ANDOR` - Set bit if set in X AND in any Y (X AND (Y1 OR Y2 OR ...))
   - `:ONE` - Set bit if set in EXACTLY one source bitmap
   """
-  @spec bitop(store(), t(), bitop(), db(), key(), [key()]) :: store()
-  def bitop(store, config, op, db, dest_key, source_keys)
+  @spec bitop(store(), bitop(), db(), key(), [key()]) :: store()
+  def bitop(store, op, db, dest_key, source_keys)
 
-  def bitop(store, %__MODULE__{} = config, :NOT, db, dest_key, [source_key]) do
+  def bitop(store, :NOT, db, dest_key, [source_key]) do
     db_map = Map.get(store, db, %{})
 
     value =
       case Map.get(db_map, source_key) do
         nil -> ""
-        %String{raw: val} -> val
+        val when is_binary(val) -> val
       end
 
     result = invert_binary(value)
-    store_result(store, config, db, dest_key, result)
+    store_result(store, db, dest_key, result)
   end
 
-  def bitop(store, %__MODULE__{} = config, op, db, dest_key, source_keys)
-      when is_list(source_keys) do
+  def bitop(store, op, db, dest_key, source_keys) when is_list(source_keys) do
     db_map = Map.get(store, db, %{})
 
     # Get all source values
@@ -237,7 +189,7 @@ defmodule Vdr.MapProj.Strings do
       Enum.map(source_keys, fn key ->
         case Map.get(db_map, key) do
           nil -> ""
-          %String{raw: val} -> val
+          val when is_binary(val) -> val
         end
       end)
 
@@ -263,38 +215,23 @@ defmodule Vdr.MapProj.Strings do
           apply_bitop(op, padded)
       end
 
-    store_result(store, config, db, dest_key, result)
+    store_result(store, db, dest_key, result)
   end
 
   @doc """
-  Gets the original (binary) value for a key.
+  Gets the value for a key.
   Returns nil if the key doesn't exist.
   """
   @spec get(store(), db(), key()) :: value() | nil
   def get(store, db, key) do
     case Map.get(store, db) do
-      nil -> nil
-      db_map ->
-        case Map.get(db_map, key) do
-          nil -> nil
-          %String{raw: value} -> value
-          _ -> nil
-        end
-    end
-  end
+      nil ->
+        nil
 
-  @doc """
-  Gets the decoded value for a key.
-  Returns nil if the key doesn't exist.
-  """
-  @spec get_decoded(store(), db(), key()) :: any()
-  def get_decoded(store, db, key) do
-    case Map.get(store, db) do
-      nil -> nil
       db_map ->
         case Map.get(db_map, key) do
           nil -> nil
-          %String{decoded: decoded} -> decoded
+          value when is_binary(value) -> value
           _ -> nil
         end
     end
@@ -302,13 +239,10 @@ defmodule Vdr.MapProj.Strings do
 
   # Private helpers
 
-  @spec store_result(store(), t(), db(), key(), binary()) :: store()
-  defp store_result(store, %__MODULE__{decode_fun: decode_fun}, db, dest_key, result) do
-    decoded = decode_fun.(dest_key, result)
-    string_entry = %String{raw: result, decoded: decoded}
-
+  @spec store_result(store(), db(), key(), binary()) :: store()
+  defp store_result(store, db, dest_key, result) do
     db_map = Map.get(store, db, %{})
-    new_db_map = Map.put(db_map, dest_key, string_entry)
+    new_db_map = Map.put(db_map, dest_key, result)
     Map.put(store, db, new_db_map)
   end
 

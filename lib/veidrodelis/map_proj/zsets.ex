@@ -2,9 +2,9 @@ defmodule Vdr.MapProj.ZSets do
   @moduledoc """
   Sorted set (zset) operations for MapProj.
 
-  Stores sorted set values using a dual structure:
-  - `entries`: gb_tree mapping decoded_member => score for member lookups
-  - `index`: gb_set of {score, decoded_member} for score-range queries
+  Stores sorted set values using a dual structure with raw binary members:
+  - `entries`: gb_tree mapping binary member => score for member lookups
+  - `index`: gb_set of {score, binary member} for score-range queries
 
   The dual structure allows efficient operations both by member and by score.
   """
@@ -19,35 +19,19 @@ defmodule Vdr.MapProj.ZSets do
           }
   end
 
-  defstruct [:decode_fun]
-
-  @type t :: %__MODULE__{
-          decode_fun: decode_fun()
-        }
-
   @type db :: non_neg_integer()
-  @type key :: any()
+  @type key :: binary()
   @type member :: binary()
   @type score :: float()
-  @type decode_fun :: (key(), member() -> any())
   @type store :: %{db() => %{key() => ZSet.t()}}
   @type aggregate :: :sum | :min | :max
-
-  @doc """
-  Creates a new sorted set store configuration with the given decode function.
-  """
-  @spec new(decode_fun()) :: t()
-  def new(decode_fun) when is_function(decode_fun, 2) do
-    %__MODULE__{decode_fun: decode_fun}
-  end
 
   @doc """
   Adds one or more members with scores to a sorted set.
   Returns the updated store.
   """
-  @spec zadd(store(), t(), db(), key(), [{score(), member()}]) :: store()
-  def zadd(store, %__MODULE__{decode_fun: decode_fun}, db, key, score_members)
-      when is_list(score_members) do
+  @spec zadd(store(), db(), key(), [{score(), member()}]) :: store()
+  def zadd(store, db, key, score_members) when is_list(score_members) do
     db_map = Map.get(store, db, %{})
 
     {entries, index} =
@@ -58,25 +42,23 @@ defmodule Vdr.MapProj.ZSets do
 
     {new_entries, new_index} =
       Enum.reduce(score_members, {entries, index}, fn {score, member}, {acc_entries, acc_index} ->
-        decoded_member = decode_fun.(key, member)
-
         # Check if member already exists and remove old score from index
         {acc_entries, acc_index} =
-          case :gb_trees.lookup(decoded_member, acc_entries) do
+          case :gb_trees.lookup(member, acc_entries) do
             :none ->
               {acc_entries, acc_index}
 
             {:value, old_score} ->
               # Remove old index entry
-              new_index = :gb_sets.del_element({old_score, decoded_member}, acc_index)
+              new_index = :gb_sets.del_element({old_score, member}, acc_index)
               # Remove old entry from tree (will be re-inserted with new score)
-              new_entries = :gb_trees.delete(decoded_member, acc_entries)
+              new_entries = :gb_trees.delete(member, acc_entries)
               {new_entries, new_index}
           end
 
         # Add new entries
-        new_entries = :gb_trees.insert(decoded_member, score, acc_entries)
-        new_index = :gb_sets.add_element({score, decoded_member}, acc_index)
+        new_entries = :gb_trees.insert(member, score, acc_entries)
+        new_index = :gb_sets.add_element({score, member}, acc_index)
         {new_entries, new_index}
       end)
 
@@ -89,18 +71,17 @@ defmodule Vdr.MapProj.ZSets do
   Adds a member with its final score to a sorted set.
   Returns the updated store.
   """
-  @spec zadd_final(store(), t(), db(), key(), score(), member()) :: store()
-  def zadd_final(store, config, db, key, final_score, member) do
-    zadd(store, config, db, key, [{final_score, member}])
+  @spec zadd_final(store(), db(), key(), score(), member()) :: store()
+  def zadd_final(store, db, key, final_score, member) do
+    zadd(store, db, key, [{final_score, member}])
   end
 
   @doc """
   Removes one or more members from a sorted set.
   Returns the updated store.
   """
-  @spec zrem(store(), t(), db(), key(), [member()]) :: store()
-  def zrem(store, %__MODULE__{decode_fun: decode_fun}, db, key, members)
-      when is_list(members) do
+  @spec zrem(store(), db(), key(), [member()]) :: store()
+  def zrem(store, db, key, members) when is_list(members) do
     db_map = Map.get(store, db, %{})
 
     case Map.get(db_map, key) do
@@ -110,15 +91,13 @@ defmodule Vdr.MapProj.ZSets do
       %ZSet{entries: entries, index: index} ->
         {new_entries, new_index} =
           Enum.reduce(members, {entries, index}, fn member, {acc_entries, acc_index} ->
-            decoded_member = decode_fun.(key, member)
-
-            case :gb_trees.lookup(decoded_member, acc_entries) do
+            case :gb_trees.lookup(member, acc_entries) do
               :none ->
                 {acc_entries, acc_index}
 
               {:value, score} ->
-                new_entries = :gb_trees.delete(decoded_member, acc_entries)
-                new_index = :gb_sets.del_element({score, decoded_member}, acc_index)
+                new_entries = :gb_trees.delete(member, acc_entries)
+                new_index = :gb_sets.del_element({score, member}, acc_index)
                 {new_entries, new_index}
             end
           end)
@@ -153,10 +132,10 @@ defmodule Vdr.MapProj.ZSets do
           end
 
         {new_entries, new_index} =
-          Enum.reduce(members_to_remove, {entries, index}, fn {decoded_member, score},
-                                                               {acc_entries, acc_index} ->
-            new_entries = :gb_trees.delete(decoded_member, acc_entries)
-            new_index = :gb_sets.del_element({score, decoded_member}, acc_index)
+          Enum.reduce(members_to_remove, {entries, index}, fn {member, score},
+                                                              {acc_entries, acc_index} ->
+            new_entries = :gb_trees.delete(member, acc_entries)
+            new_index = :gb_sets.del_element({score, member}, acc_index)
             {new_entries, new_index}
           end)
 
@@ -187,10 +166,10 @@ defmodule Vdr.MapProj.ZSets do
         members_to_remove = filter_by_score_iterator(:gb_sets.iterator(index), min, max, [])
 
         {new_entries, new_index} =
-          Enum.reduce(members_to_remove, {entries, index}, fn {decoded_member, score},
-                                                               {acc_entries, acc_index} ->
-            new_entries = :gb_trees.delete(decoded_member, acc_entries)
-            new_index = :gb_sets.del_element({score, decoded_member}, acc_index)
+          Enum.reduce(members_to_remove, {entries, index}, fn {member, score},
+                                                              {acc_entries, acc_index} ->
+            new_entries = :gb_trees.delete(member, acc_entries)
+            new_index = :gb_sets.del_element({score, member}, acc_index)
             {new_entries, new_index}
           end)
 
@@ -215,10 +194,10 @@ defmodule Vdr.MapProj.ZSets do
         members_to_remove = filter_by_lex_iterator(:gb_sets.iterator(index), min, max, [])
 
         {new_entries, new_index} =
-          Enum.reduce(members_to_remove, {entries, index}, fn {decoded_member, score},
-                                                               {acc_entries, acc_index} ->
-            new_entries = :gb_trees.delete(decoded_member, acc_entries)
-            new_index = :gb_sets.del_element({score, decoded_member}, acc_index)
+          Enum.reduce(members_to_remove, {entries, index}, fn {member, score},
+                                                              {acc_entries, acc_index} ->
+            new_entries = :gb_trees.delete(member, acc_entries)
+            new_index = :gb_sets.del_element({score, member}, acc_index)
             {new_entries, new_index}
           end)
 
@@ -230,7 +209,7 @@ defmodule Vdr.MapProj.ZSets do
   Removes and returns up to count members with the lowest scores.
   Returns {updated_store, popped_members}.
   """
-  @spec zpopmin(store(), db(), key(), pos_integer()) :: {store(), [{any(), score()}]}
+  @spec zpopmin(store(), db(), key(), pos_integer()) :: {store(), [{binary(), score()}]}
   def zpopmin(store, db, key, count \\ 1) do
     db_map = Map.get(store, db, %{})
 
@@ -243,10 +222,10 @@ defmodule Vdr.MapProj.ZSets do
         members_to_pop = take_from_iterator(:gb_sets.iterator(index), count, [])
 
         {new_entries, new_index} =
-          Enum.reduce(members_to_pop, {entries, index}, fn {decoded_member, score},
-                                                            {acc_entries, acc_index} ->
-            new_entries = :gb_trees.delete(decoded_member, acc_entries)
-            new_index = :gb_sets.del_element({score, decoded_member}, acc_index)
+          Enum.reduce(members_to_pop, {entries, index}, fn {member, score},
+                                                           {acc_entries, acc_index} ->
+            new_entries = :gb_trees.delete(member, acc_entries)
+            new_index = :gb_sets.del_element({score, member}, acc_index)
             {new_entries, new_index}
           end)
 
@@ -259,7 +238,7 @@ defmodule Vdr.MapProj.ZSets do
   Removes and returns up to count members with the highest scores.
   Returns {updated_store, popped_members}.
   """
-  @spec zpopmax(store(), db(), key(), pos_integer()) :: {store(), [{any(), score()}]}
+  @spec zpopmax(store(), db(), key(), pos_integer()) :: {store(), [{binary(), score()}]}
   def zpopmax(store, db, key, count \\ 1) do
     db_map = Map.get(store, db, %{})
 
@@ -277,10 +256,10 @@ defmodule Vdr.MapProj.ZSets do
           end
 
         {new_entries, new_index} =
-          Enum.reduce(members_to_pop, {entries, index}, fn {decoded_member, score},
-                                                            {acc_entries, acc_index} ->
-            new_entries = :gb_trees.delete(decoded_member, acc_entries)
-            new_index = :gb_sets.del_element({score, decoded_member}, acc_index)
+          Enum.reduce(members_to_pop, {entries, index}, fn {member, score},
+                                                           {acc_entries, acc_index} ->
+            new_entries = :gb_trees.delete(member, acc_entries)
+            new_index = :gb_sets.del_element({score, member}, acc_index)
             {new_entries, new_index}
           end)
 
@@ -309,18 +288,18 @@ defmodule Vdr.MapProj.ZSets do
           %ZSet{entries: entries} ->
             entries
             |> :gb_trees.to_list()
-            |> Enum.map(fn {decoded_member, score} -> {decoded_member, score * weight} end)
+            |> Enum.map(fn {member, score} -> {member, score * weight} end)
         end
       end)
 
     aggregated =
       member_scores
-      |> Enum.group_by(fn {decoded_member, _score} -> decoded_member end, fn {_, score} ->
+      |> Enum.group_by(fn {member, _score} -> member end, fn {_, score} ->
         score
       end)
-      |> Enum.map(fn {decoded_member, scores} ->
+      |> Enum.map(fn {member, scores} ->
         final_score = aggregate_scores(scores, aggregate)
-        {decoded_member, final_score}
+        {member, final_score}
       end)
 
     # Delete destination first
@@ -328,10 +307,10 @@ defmodule Vdr.MapProj.ZSets do
 
     # Build new entries and index
     {new_entries, new_index} =
-      Enum.reduce(aggregated, {:gb_trees.empty(), :gb_sets.new()}, fn {decoded_member, score},
-                                                                       {acc_entries, acc_index} ->
-        new_entries = :gb_trees.insert(decoded_member, score, acc_entries)
-        new_index = :gb_sets.add_element({score, decoded_member}, acc_index)
+      Enum.reduce(aggregated, {:gb_trees.empty(), :gb_sets.new()}, fn {member, score},
+                                                                      {acc_entries, acc_index} ->
+        new_entries = :gb_trees.insert(member, score, acc_entries)
+        new_index = :gb_sets.add_element({score, member}, acc_index)
         {new_entries, new_index}
       end)
 
@@ -364,7 +343,7 @@ defmodule Vdr.MapProj.ZSets do
             %ZSet{entries: entries} ->
               entries
               |> :gb_trees.to_list()
-              |> Map.new(fn {decoded_member, score} -> {decoded_member, score * weight} end)
+              |> Map.new(fn {member, score} -> {member, score * weight} end)
           end
         end)
 
@@ -372,13 +351,13 @@ defmodule Vdr.MapProj.ZSets do
 
       common_members =
         first_map
-        |> Enum.filter(fn {decoded_member, _score} ->
-          Enum.all?(rest_maps, fn map -> Map.has_key?(map, decoded_member) end)
+        |> Enum.filter(fn {member, _score} ->
+          Enum.all?(rest_maps, fn map -> Map.has_key?(map, member) end)
         end)
-        |> Enum.map(fn {decoded_member, _score} ->
-          scores = Enum.map(key_members, fn map -> Map.fetch!(map, decoded_member) end)
+        |> Enum.map(fn {member, _score} ->
+          scores = Enum.map(key_members, fn map -> Map.fetch!(map, member) end)
           final_score = aggregate_scores(scores, aggregate)
-          {decoded_member, final_score}
+          {member, final_score}
         end)
 
       # Build new entries and index
@@ -386,9 +365,9 @@ defmodule Vdr.MapProj.ZSets do
         Enum.reduce(
           common_members,
           {:gb_trees.empty(), :gb_sets.new()},
-          fn {decoded_member, score}, {acc_entries, acc_index} ->
-            new_entries = :gb_trees.insert(decoded_member, score, acc_entries)
-            new_index = :gb_sets.add_element({score, decoded_member}, acc_index)
+          fn {member, score}, {acc_entries, acc_index} ->
+            new_entries = :gb_trees.insert(member, score, acc_entries)
+            new_index = :gb_sets.add_element({score, member}, acc_index)
             {new_entries, new_index}
           end
         )
@@ -401,8 +380,8 @@ defmodule Vdr.MapProj.ZSets do
   Gets the score of a member in a sorted set.
   Returns nil if the member doesn't exist.
   """
-  @spec zscore(store(), db(), key(), any()) :: score() | nil
-  def zscore(store, db, key, decoded_member) do
+  @spec zscore(store(), db(), key(), binary()) :: score() | nil
+  def zscore(store, db, key, member) do
     case Map.get(store, db) do
       nil ->
         nil
@@ -413,7 +392,7 @@ defmodule Vdr.MapProj.ZSets do
             nil
 
           %ZSet{entries: entries} ->
-            case :gb_trees.lookup(decoded_member, entries) do
+            case :gb_trees.lookup(member, entries) do
               :none -> nil
               {:value, score} -> score
             end
@@ -444,9 +423,9 @@ defmodule Vdr.MapProj.ZSets do
 
   @doc """
   Returns members in a sorted set by rank range.
-  Returns a list of {decoded_member, score} tuples.
+  Returns a list of {binary member, score} tuples.
   """
-  @spec zrange(store(), db(), key(), integer(), integer()) :: [{any(), score()}]
+  @spec zrange(store(), db(), key(), integer(), integer()) :: [{binary(), score()}]
   def zrange(store, db, key, start, stop) do
     db_map = Map.get(store, db, %{})
 
@@ -473,7 +452,7 @@ defmodule Vdr.MapProj.ZSets do
 
   @doc """
   Returns members in a sorted set by score range.
-  Returns a list of {decoded_member, score} tuples.
+  Returns a list of {binary member, score} tuples.
   """
   @spec zrangebyscore(
           store(),
@@ -481,7 +460,7 @@ defmodule Vdr.MapProj.ZSets do
           key(),
           score() | :neg_inf | :pos_inf,
           score() | :neg_inf | :pos_inf
-        ) :: [{any(), score()}]
+        ) :: [{binary(), score()}]
   def zrangebyscore(store, db, key, min, max) do
     db_map = Map.get(store, db, %{})
 
@@ -496,7 +475,7 @@ defmodule Vdr.MapProj.ZSets do
   end
 
   @doc """
-  Creates a stream of {decoded_member, score} tuples for all sorted set members in score order.
+  Creates a stream of {binary member, score} tuples for all sorted set members in score order.
   """
   @spec select_stream(store(), db(), key()) :: Enumerable.t()
   def select_stream(store, db, key) do
@@ -514,8 +493,8 @@ defmodule Vdr.MapProj.ZSets do
               :none ->
                 {:halt, iter}
 
-              {{score, decoded_member}, next_iter} ->
-                {[{decoded_member, score}], next_iter}
+              {{score, member}, next_iter} ->
+                {[{member, score}], next_iter}
             end
           end,
           fn _iter -> :ok end
@@ -524,7 +503,7 @@ defmodule Vdr.MapProj.ZSets do
   end
 
   @doc """
-  Creates a reverse stream of {decoded_member, score} tuples for all sorted set members in reverse score order.
+  Creates a reverse stream of {binary member, score} tuples for all sorted set members in reverse score order.
   """
   @spec select_rev_stream(store(), db(), key()) :: Enumerable.t()
   def select_rev_stream(store, db, key) do
@@ -553,8 +532,8 @@ defmodule Vdr.MapProj.ZSets do
                 :none ->
                   {:halt, iter}
 
-                {{score, decoded_member}, next_iter} ->
-                  {[{decoded_member, score}], next_iter}
+                {{score, member}, next_iter} ->
+                  {[{member, score}], next_iter}
               end
           end,
           fn _iter -> :ok end
@@ -580,8 +559,8 @@ defmodule Vdr.MapProj.ZSets do
   end
 
   # Take up to count elements from an iterator, accumulating them in a list
-  @spec take_from_iterator(:gb_sets.iter(), non_neg_integer(), [{any(), score()}]) :: [
-          {any(), score()}
+  @spec take_from_iterator(:gb_sets.iter(), non_neg_integer(), [{binary(), score()}]) :: [
+          {binary(), score()}
         ]
   defp take_from_iterator(_iter, 0, acc), do: Enum.reverse(acc)
 
@@ -590,14 +569,14 @@ defmodule Vdr.MapProj.ZSets do
       :none ->
         Enum.reverse(acc)
 
-      {{score, decoded_member}, next_iter} ->
-        take_from_iterator(next_iter, count - 1, [{decoded_member, score} | acc])
+      {{score, member}, next_iter} ->
+        take_from_iterator(next_iter, count - 1, [{member, score} | acc])
     end
   end
 
   # Take elements from start_idx to stop_idx (inclusive) from an iterator
   @spec take_range_from_iterator(:gb_sets.iter(), non_neg_integer(), non_neg_integer()) :: [
-          {any(), score()}
+          {binary(), score()}
         ]
   defp take_range_from_iterator(iter, start_idx, stop_idx) do
     # Skip to start_idx
@@ -623,17 +602,17 @@ defmodule Vdr.MapProj.ZSets do
           :gb_sets.iter(),
           score() | :neg_inf | :pos_inf,
           score() | :neg_inf | :pos_inf,
-          [{any(), score()}]
-        ) :: [{any(), score()}]
+          [{binary(), score()}]
+        ) :: [{binary(), score()}]
   defp filter_by_score_iterator(iter, min, max, acc) do
     case :gb_sets.next(iter) do
       :none ->
         Enum.reverse(acc)
 
-      {{score, decoded_member}, next_iter} ->
+      {{score, member}, next_iter} ->
         new_acc =
           if score_in_range?(score, min, max) do
-            [{decoded_member, score} | acc]
+            [{member, score} | acc]
           else
             acc
           end
@@ -643,18 +622,18 @@ defmodule Vdr.MapProj.ZSets do
   end
 
   # Filter elements by lex range using an iterator
-  @spec filter_by_lex_iterator(:gb_sets.iter(), any(), any(), [{any(), score()}]) :: [
-          {any(), score()}
+  @spec filter_by_lex_iterator(:gb_sets.iter(), any(), any(), [{binary(), score()}]) :: [
+          {binary(), score()}
         ]
   defp filter_by_lex_iterator(iter, min, max, acc) do
     case :gb_sets.next(iter) do
       :none ->
         Enum.reverse(acc)
 
-      {{score, decoded_member}, next_iter} ->
+      {{score, member}, next_iter} ->
         new_acc =
-          if lex_in_range?(decoded_member, min, max) do
-            [{decoded_member, score} | acc]
+          if lex_in_range?(member, min, max) do
+            [{member, score} | acc]
           else
             acc
           end
