@@ -1,7 +1,7 @@
-defmodule Vdr.RDBTest do
+defmodule Vdr.RedisStream.RDBTest do
   use ExUnit.Case, async: true
 
-  alias Vdr.RedisCommand
+  alias Vdr.RedisStream.Command, as: RedisCommand
 
   @moduledoc """
   Tests for RDB parsing with various Redis data types.
@@ -61,9 +61,9 @@ defmodule Vdr.RDBTest do
 
     case File.read(dump_file) do
       {:ok, rdb_binary} ->
-        parser = Vdr.RDB.create()
+        parser = Vdr.RedisStream.RDB.create()
 
-        case Vdr.RDB.data(parser, rdb_binary) do
+        case Vdr.RedisStream.RDB.data(parser, rdb_binary) do
           {:ok, commands} when is_list(commands) ->
             # Parsing finished (2-tuple return)
             final_state = process_commands(commands)
@@ -281,9 +281,9 @@ defmodule Vdr.RDBTest do
       dump_file = Path.join([File.cwd!(), "test", "assets", "dump.rdb"])
       {:ok, rdb_binary} = File.read(dump_file)
 
-      parser = Vdr.RDB.create()
+      parser = Vdr.RedisStream.RDB.create()
 
-      case Vdr.RDB.data(parser, rdb_binary) do
+      case Vdr.RedisStream.RDB.data(parser, rdb_binary) do
         {:ok, commands} when is_list(commands) ->
           # Parsing finished (2-tuple)
           state = process_commands(commands, %{strings: []})
@@ -310,7 +310,7 @@ defmodule Vdr.RDBTest do
       # Split into chunks of 64 bytes
       chunks = split_into_chunks(rdb_binary, 128)
 
-      parser = Vdr.RDB.create()
+      parser = Vdr.RedisStream.RDB.create()
 
       # Feed all chunks and accumulate commands
       {all_commands, _final_result} =
@@ -319,7 +319,7 @@ defmodule Vdr.RDBTest do
           if current_parser == :finished do
             {commands_acc, :finished}
           else
-            case Vdr.RDB.data(current_parser, chunk) do
+            case Vdr.RedisStream.RDB.data(current_parser, chunk) do
               {:ok, commands} when is_list(commands) ->
                 # Parsing finished (2-tuple), accumulate final commands
                 {commands_acc ++ commands, :finished}
@@ -351,7 +351,7 @@ defmodule Vdr.RDBTest do
       chunks = split_into_chunks(rdb_binary, 32)
       chunk_sizes = Enum.map(chunks, &byte_size/1)
 
-      parser = Vdr.RDB.create()
+      parser = Vdr.RedisStream.RDB.create()
 
       # Feed all chunks and accumulate commands
       {all_commands, _final_result} =
@@ -360,7 +360,7 @@ defmodule Vdr.RDBTest do
           if current_parser == :finished do
             {commands_acc, :finished}
           else
-            case Vdr.RDB.data(current_parser, chunk) do
+            case Vdr.RedisStream.RDB.data(current_parser, chunk) do
               {:ok, commands} when is_list(commands) ->
                 # Parsing finished (2-tuple), accumulate final commands
                 {commands_acc ++ commands, :finished}
@@ -389,11 +389,11 @@ defmodule Vdr.RDBTest do
       # Create minimal valid RDB (header + EOF + 8-byte checksum)
       minimal_rdb = <<"REDIS", "0012", 255, 0, 0, 0, 0, 0, 0, 0, 0>>
 
-      parser = Vdr.RDB.create()
+      parser = Vdr.RedisStream.RDB.create()
 
       # First call should return empty commands (EOF reached)
       # With Rust implementation, when EOF is reached, parser is not returned
-      result = Vdr.RDB.data(parser, minimal_rdb)
+      result = Vdr.RedisStream.RDB.data(parser, minimal_rdb)
 
       # Should return {:ok, commands} without parser (indicating finished)
       case result do
@@ -414,8 +414,8 @@ defmodule Vdr.RDBTest do
       # Create invalid RDB (header + EOF but NO checksum)
       rdb_no_checksum = <<"REDIS", "0012", 255>>
 
-      parser = Vdr.RDB.create()
-      result = Vdr.RDB.data(parser, rdb_no_checksum)
+      parser = Vdr.RedisStream.RDB.create()
+      result = Vdr.RedisStream.RDB.data(parser, rdb_no_checksum)
 
       # Should return {:ok, [], parser} indicating more data needed (waiting for checksum)
       case result do
@@ -437,8 +437,8 @@ defmodule Vdr.RDBTest do
       # Create invalid RDB (header + EOF + only 4 bytes of checksum)
       rdb_partial_checksum = <<"REDIS", "0012", 255, 0, 0, 0, 0>>
 
-      parser = Vdr.RDB.create()
-      result = Vdr.RDB.data(parser, rdb_partial_checksum)
+      parser = Vdr.RedisStream.RDB.create()
+      result = Vdr.RedisStream.RDB.data(parser, rdb_partial_checksum)
 
       # Should return {:ok, [], parser} indicating more data needed
       case result do
@@ -463,7 +463,7 @@ defmodule Vdr.RDBTest do
       # Split into random-sized chunks
       chunks = split_into_random_chunks(rdb_binary, 32, 128)
 
-      parser = Vdr.RDB.create()
+      parser = Vdr.RedisStream.RDB.create()
 
       # Feed all chunks and accumulate commands
       assert {all_commands, :finished} =
@@ -472,7 +472,7 @@ defmodule Vdr.RDBTest do
                  if current_parser == :finished do
                    {commands_acc, :finished}
                  else
-                   case Vdr.RDB.data(current_parser, chunk) do
+                   case Vdr.RedisStream.RDB.data(current_parser, chunk) do
                      {:ok, commands} when is_list(commands) ->
                        # Parsing finished (2-tuple), accumulate final commands
                        {commands_acc ++ commands, :finished}

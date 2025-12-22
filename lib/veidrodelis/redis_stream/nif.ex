@@ -1,4 +1,4 @@
-defmodule Vdr.RedisNif do
+defmodule Vdr.RedisStream.Nif do
   @moduledoc false
 
   use Rustler,

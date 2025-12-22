@@ -1,7 +1,7 @@
-defmodule Vdr.ReplicaParserIntegrationTest do
+defmodule Vdr.RedisStream.ParserIntegrationTest do
   use ExUnit.Case, async: true
 
-  alias Vdr.RedisCommand
+  alias Vdr.RedisStream.Command, as: RedisCommand
 
   @moduledoc """
   Integration tests for replica parser with realistic data.
@@ -10,59 +10,63 @@ defmodule Vdr.ReplicaParserIntegrationTest do
 
   describe "simple RESP parsing" do
     test "parses a single SET command in streaming mode" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Feed minimal RDB first to get into streaming mode
       rdb_data = build_minimal_rdb()
       rdb_header = "$#{byte_size(rdb_data)}\r\n"
-      {:ok, _, parser} = Vdr.ReplicaParser.data(parser, rdb_header <> rdb_data)
+      {:ok, _, parser} = Vdr.RedisStream.Parser.data(parser, rdb_header <> rdb_data)
 
       # Single SET command
       cmd = "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n"
-      {:ok, commands, _parser} = Vdr.ReplicaParser.data(parser, cmd)
+      {:ok, commands, _parser} = Vdr.RedisStream.Parser.data(parser, cmd)
 
       assert length(commands) == 1
-      assert match?([{0, %RedisCommand.Set{key: "key1", value: "value1"}}], commands)
+      assert match?([{0, %RedisCommand.Set{key: "key1", value: "value1"}, _raw}], commands)
     end
 
     test "parses two SET commands in streaming mode" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Feed minimal RDB first
       rdb_data = build_minimal_rdb()
-      {:ok, _, parser} = Vdr.ReplicaParser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
+
+      {:ok, _, parser} =
+        Vdr.RedisStream.Parser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
 
       # Two SET commands
       cmds =
         "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n" <>
           "*3\r\n$3\r\nSET\r\n$4\r\nkey2\r\n$6\r\nvalue2\r\n"
 
-      {:ok, commands, _parser} = Vdr.ReplicaParser.data(parser, cmds)
+      {:ok, commands, _parser} = Vdr.RedisStream.Parser.data(parser, cmds)
 
       assert length(commands) == 2
 
       assert match?(
-               [{0, %RedisCommand.Set{key: "key1"}}, {0, %RedisCommand.Set{key: "key2"}}],
+               [{0, %RedisCommand.Set{key: "key1"}, _}, {0, %RedisCommand.Set{key: "key2"}, _}],
                commands
              )
     end
 
     test "parses RPUSH command in streaming mode" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Feed minimal RDB first
       rdb_data = build_minimal_rdb()
-      {:ok, _, parser} = Vdr.ReplicaParser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
+
+      {:ok, _, parser} =
+        Vdr.RedisStream.Parser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
 
       # RPUSH with 2 values: *4\r\n$6\r\nRPUSH\r\n$7\r\nmylist\r\n$5\r\nitem1\r\n$5\r\nitem2\r\n
       cmd = "*4\r\n$5\r\nRPUSH\r\n$6\r\nmylist\r\n$5\r\nitem1\r\n$5\r\nitem2\r\n"
 
-      {:ok, commands, _parser} = Vdr.ReplicaParser.data(parser, cmd)
+      {:ok, commands, _parser} = Vdr.RedisStream.Parser.data(parser, cmd)
 
       assert length(commands) == 1
 
       assert match?(
-               [{0, %RedisCommand.RPush{key: "mylist", values: ["item1", "item2"]}}],
+               [{0, %RedisCommand.RPush{key: "mylist", values: ["item1", "item2"]}, _}],
                commands
              )
     end
@@ -70,7 +74,7 @@ defmodule Vdr.ReplicaParserIntegrationTest do
 
   describe "RDB transfer integration" do
     test "parses RDB bulk string header and transitions to reading state" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Simulate PSYNC response followed by RDB bulk string header
       # $88\r\n (88 bytes of RDB data to follow)
@@ -82,7 +86,7 @@ defmodule Vdr.ReplicaParserIntegrationTest do
       rdb_data = build_minimal_rdb()
 
       # Feed header
-      {:ok, commands1, parser} = Vdr.ReplicaParser.data(parser, rdb_header)
+      {:ok, commands1, parser} = Vdr.RedisStream.Parser.data(parser, rdb_header)
       # Should return empty - just parsed header
       assert commands1 == []
 
@@ -101,7 +105,7 @@ defmodule Vdr.ReplicaParserIntegrationTest do
 
       {final_parser, all_commands} =
         Enum.reduce(chunks, {parser, []}, fn chunk, {p, cmds} ->
-          case Vdr.ReplicaParser.data(p, chunk) do
+          case Vdr.RedisStream.Parser.data(p, chunk) do
             {:ok, new_cmds, new_parser} ->
               {new_parser, cmds ++ new_cmds}
 
@@ -119,14 +123,14 @@ defmodule Vdr.ReplicaParserIntegrationTest do
     end
 
     test "parses RDB with data and then command stream" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Build an RDB file with actual data
       rdb_data = build_rdb_with_data()
       rdb_header = "$#{byte_size(rdb_data)}\r\n"
 
       # Feed RDB
-      {:ok, commands1, parser} = Vdr.ReplicaParser.data(parser, rdb_header <> rdb_data)
+      {:ok, commands1, parser} = Vdr.RedisStream.Parser.data(parser, rdb_header <> rdb_data)
 
       # Should have parsed commands from RDB
       assert length(commands1) > 0
@@ -134,7 +138,7 @@ defmodule Vdr.ReplicaParserIntegrationTest do
       # Verify we got SET commands from RDB
       set_commands =
         Enum.filter(commands1, fn
-          {_db, %RedisCommand.Set{}} -> true
+          {_db, %RedisCommand.Set{}, _raw} -> true
           _ -> false
         end)
 
@@ -143,32 +147,32 @@ defmodule Vdr.ReplicaParserIntegrationTest do
       # Now feed streaming commands
       # *3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n
       resp_cmd = "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n"
-      {:ok, commands2, parser} = Vdr.ReplicaParser.data(parser, resp_cmd)
+      {:ok, commands2, parser} = Vdr.RedisStream.Parser.data(parser, resp_cmd)
 
       # Should have parsed the SET command from stream
       assert length(commands2) == 1
-      assert match?([{0, %RedisCommand.Set{key: "key1", value: "value1"}}], commands2)
+      assert match?([{0, %RedisCommand.Set{key: "key1", value: "value1"}, _}], commands2)
 
       assert is_reference(parser)
     end
 
     test "handles leading newlines before RDB header" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Redis sends \n while preparing RDB
       data = "\n\n\n$88\r\n" <> build_minimal_rdb()
 
-      {:ok, _commands, parser} = Vdr.ReplicaParser.data(parser, data)
+      {:ok, _commands, parser} = Vdr.RedisStream.Parser.data(parser, data)
       assert is_reference(parser)
     end
 
     test "parses multiple commands in streaming mode" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Feed RDB first
       rdb_data = build_minimal_rdb()
       rdb_header = "$#{byte_size(rdb_data)}\r\n"
-      {:ok, _commands, parser} = Vdr.ReplicaParser.data(parser, rdb_header <> rdb_data)
+      {:ok, _commands, parser} = Vdr.RedisStream.Parser.data(parser, rdb_header <> rdb_data)
 
       # Feed multiple RESP commands at once
       commands_data =
@@ -176,17 +180,17 @@ defmodule Vdr.ReplicaParserIntegrationTest do
           "*3\r\n$3\r\nSET\r\n$4\r\nkey2\r\n$6\r\nvalue2\r\n" <>
           "*4\r\n$5\r\nRPUSH\r\n$6\r\nmylist\r\n$5\r\nitem1\r\n$5\r\nitem2\r\n"
 
-      {:ok, commands, parser} = Vdr.ReplicaParser.data(parser, commands_data)
+      {:ok, commands, parser} = Vdr.RedisStream.Parser.data(parser, commands_data)
 
       # Should have parsed 3 commands
       assert length(commands) == 3
 
       # Verify command types
-      assert match?({0, %RedisCommand.Set{key: "key1", value: "value1"}}, Enum.at(commands, 0))
-      assert match?({0, %RedisCommand.Set{key: "key2", value: "value2"}}, Enum.at(commands, 1))
+      assert match?({0, %RedisCommand.Set{key: "key1", value: "value1"}, _}, Enum.at(commands, 0))
+      assert match?({0, %RedisCommand.Set{key: "key2", value: "value2"}, _}, Enum.at(commands, 1))
 
       assert match?(
-               {0, %RedisCommand.RPush{key: "mylist", values: ["item1", "item2"]}},
+               {0, %RedisCommand.RPush{key: "mylist", values: ["item1", "item2"]}, _},
                Enum.at(commands, 2)
              )
 
@@ -194,35 +198,35 @@ defmodule Vdr.ReplicaParserIntegrationTest do
     end
 
     test "filters out SELECT commands and tracks database changes" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Feed RDB first
       rdb_data = build_minimal_rdb()
 
       {:ok, _commands, parser} =
-        Vdr.ReplicaParser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
+        Vdr.RedisStream.Parser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
 
       # SELECT command should be filtered out but db should change
       select_cmd = "*2\r\n$6\r\nSELECT\r\n$1\r\n3\r\n"
       set_cmd = "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n"
 
-      {:ok, commands, parser} = Vdr.ReplicaParser.data(parser, select_cmd <> set_cmd)
+      {:ok, commands, parser} = Vdr.RedisStream.Parser.data(parser, select_cmd <> set_cmd)
 
       # Should only have SET command, SELECT filtered out
       assert length(commands) == 1
-      assert match?([{3, %RedisCommand.Set{key: "key1", value: "value1"}}], commands)
+      assert match?([{3, %RedisCommand.Set{key: "key1", value: "value1"}, _}], commands)
 
       assert is_reference(parser)
     end
 
     test "filters out PING and REPLCONF commands" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Feed RDB first
       rdb_data = build_minimal_rdb()
 
       {:ok, _commands, parser} =
-        Vdr.ReplicaParser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
+        Vdr.RedisStream.Parser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
 
       # PING and REPLCONF should be filtered
       ping_cmd = "*1\r\n$4\r\nPING\r\n"
@@ -230,17 +234,17 @@ defmodule Vdr.ReplicaParserIntegrationTest do
       set_cmd = "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n"
 
       {:ok, commands, parser} =
-        Vdr.ReplicaParser.data(parser, ping_cmd <> replconf_cmd <> set_cmd)
+        Vdr.RedisStream.Parser.data(parser, ping_cmd <> replconf_cmd <> set_cmd)
 
       # Should only have SET command
       assert length(commands) == 1
-      assert match?([{0, %RedisCommand.Set{}}], commands)
+      assert match?([{0, %RedisCommand.Set{}, _}], commands)
 
       assert is_reference(parser)
     end
 
     test "handles chunked data correctly" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Build full data
       rdb_data = build_minimal_rdb()
@@ -262,7 +266,7 @@ defmodule Vdr.ReplicaParserIntegrationTest do
           if size > 0 do
             chunk = binary_part(full_data, offset, size)
 
-            case Vdr.ReplicaParser.data(p, chunk) do
+            case Vdr.RedisStream.Parser.data(p, chunk) do
               {:ok, new_cmds, new_parser} ->
                 {new_parser, cmds ++ new_cmds}
 
@@ -277,7 +281,7 @@ defmodule Vdr.ReplicaParserIntegrationTest do
       # Should still parse correctly
       set_commands =
         Enum.filter(all_commands, fn
-          {_db, %RedisCommand.Set{}} -> true
+          {_db, %RedisCommand.Set{}, _raw} -> true
           _ -> false
         end)
 

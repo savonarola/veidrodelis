@@ -1,7 +1,7 @@
-defmodule Vdr.RDB do
+defmodule Vdr.RedisStream.RDB do
   @moduledoc false
 
-  alias Vdr.RedisCommand
+  alias Vdr.RedisStream.Command, as: RedisCommand
 
   @doc """
   Create a new streaming RDB parser.
@@ -12,12 +12,12 @@ defmodule Vdr.RDB do
 
   ## Example
 
-      parser = Vdr.RDB.create()
-      {:ok, commands, parser} = Vdr.RDB.data(parser, chunk1)
+      parser = Vdr.RedisStream.RDB.create()
+      {:ok, commands, parser} = Vdr.RedisStream.RDB.data(parser, chunk1)
   """
   @spec create() :: reference()
   def create() do
-    Vdr.RedisNif.rdb_create()
+    Vdr.RedisStream.Nif.rdb_create()
   end
 
   @doc """
@@ -39,8 +39,8 @@ defmodule Vdr.RDB do
 
   ## Example
 
-      parser = Vdr.RDB.create()
-      case Vdr.RDB.data(parser, chunk) do
+      parser = Vdr.RedisStream.RDB.create()
+      case Vdr.RedisStream.RDB.data(parser, chunk) do
         {:ok, commands} ->
           # EOF reached
           process_final_commands(commands)
@@ -57,7 +57,7 @@ defmodule Vdr.RDB do
   @spec data(reference(), binary()) ::
           {:ok, list()} | {:ok, list(), reference()} | {:error, term()}
   def data(parser, chunk) when is_reference(parser) and is_binary(chunk) do
-    case Vdr.RedisNif.rdb_data(parser, chunk) do
+    case Vdr.RedisStream.Nif.rdb_data(parser, chunk) do
       {:ok, raw_commands} when is_list(raw_commands) ->
         # EOF reached, convert commands
         commands = convert_commands(raw_commands)

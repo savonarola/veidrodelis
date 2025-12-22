@@ -17,7 +17,7 @@ defmodule Veidrodelis.IntegrationTest do
   use ExUnit.Case, async: false
 
   alias Vdr.RedisStream.Replica
-  alias Vdr.RedisCommand
+  alias Vdr.RedisStream.Command, as: RedisCommand
   use CommandMatchers
   require Logger
 
@@ -33,7 +33,7 @@ defmodule Veidrodelis.IntegrationTest do
     end
 
     @impl true
-    def handle_command(state, db, command) do
+    def handle_command(state, %Vdr.RedisStream.ReplicaCommand{db: db, command: command}) do
       commands = Map.get(state, :commands, [])
       entry = {System.monotonic_time(), db, command}
       new_state = Map.put(state, :commands, [entry | commands])

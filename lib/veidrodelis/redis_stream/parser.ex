@@ -1,4 +1,4 @@
-defmodule Vdr.ReplicaParser do
+defmodule Vdr.RedisStream.Parser do
   @moduledoc """
   Redis replication stream parser implemented in Rust.
 
@@ -12,21 +12,21 @@ defmodule Vdr.ReplicaParser do
 
   ## Example - Basic Usage
 
-      alias Vdr.RedisCommand
+      alias Vdr.RedisStream.Command
 
       # Create parser
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Feed data chunks from replication stream
-      case Vdr.ReplicaParser.data(parser, chunk1) do
+      case Vdr.RedisStream.Parser.data(parser, chunk1) do
         {:ok, commands, parser} ->
           # Process commands from RDB or stream
-          Enum.each(commands, fn {db, command} ->
-            IO.inspect({db, command})
+          Enum.each(commands, fn {db, command, raw_command} ->
+            IO.inspect({db, command, raw_command})
           end)
 
           # Continue feeding more data
-          Vdr.ReplicaParser.data(parser, chunk2)
+          Vdr.RedisStream.Parser.data(parser, chunk2)
 
         {:ok, commands} ->
           # Parser finished (connection closed)
@@ -42,7 +42,7 @@ defmodule Vdr.ReplicaParser do
       # For normal use cases, use Vdr.RedisStream.Replica instead.
   """
 
-  alias Vdr.RedisCommand
+  alias Vdr.RedisStream.Command, as: RedisCommand
 
   @doc """
   Create a new streaming replica parser.
@@ -60,12 +60,12 @@ defmodule Vdr.ReplicaParser do
   ## Examples
 
       # Standard mode - expects RDB followed by command stream
-      parser = Vdr.ReplicaParser.create()
-      {:ok, commands, parser} = Vdr.ReplicaParser.data(parser, chunk)
+      parser = Vdr.RedisStream.Parser.create()
+      {:ok, commands, parser} = Vdr.RedisStream.Parser.data(parser, chunk)
 
       # Streaming mode - no RDB expected (for partial resync)
-      parser = Vdr.ReplicaParser.create(rdb: false)
-      {:ok, commands, parser} = Vdr.ReplicaParser.data(parser, chunk)
+      parser = Vdr.RedisStream.Parser.create(rdb: false)
+      {:ok, commands, parser} = Vdr.RedisStream.Parser.data(parser, chunk)
   """
   @spec create(keyword()) :: reference()
   def create(opts \\ []) do
@@ -75,7 +75,7 @@ defmodule Vdr.ReplicaParser do
     # skip_rdb is the inverse of rdb
     skip_rdb = not rdb
 
-    Vdr.RedisNif.do_replica_create(skip_rdb)
+    Vdr.RedisStream.Nif.do_replica_create(skip_rdb)
   end
 
   @doc """
@@ -97,13 +97,15 @@ defmodule Vdr.ReplicaParser do
     * `{:ok, commands, new_parser}` - Successfully processed chunk, returns parsed commands (may be empty)
     * `{:error, reason}` - Parsing failed
 
-  Commands are tuples: `{db, command_struct}` where `db` is the database number
-  and `command_struct` is a `Vdr.RedisCommand.*` struct.
+  Commands are tuples: `{db, command_struct, raw_command}` where:
+  - `db` is the database number
+  - `command_struct` is a parsed `Vdr.RedisStream.Command.*` struct
+  - `raw_command` is the raw `Vdr.RedisStream.Command.Generic` representation
 
   ## Example
 
-      parser = Vdr.ReplicaParser.create()
-      case Vdr.ReplicaParser.data(parser, chunk) do
+      parser = Vdr.RedisStream.Parser.create()
+      case Vdr.RedisStream.Parser.data(parser, chunk) do
         {:ok, commands, parser} ->
           # More data expected
           process_commands(commands)
@@ -120,7 +122,7 @@ defmodule Vdr.ReplicaParser do
   @spec data(reference(), binary()) ::
           {:ok, list()} | {:ok, list(), reference()} | {:error, term()}
   def data(parser, chunk) when is_reference(parser) and is_binary(chunk) do
-    case Vdr.RedisNif.replica_data(parser, chunk) do
+    case Vdr.RedisStream.Nif.replica_data(parser, chunk) do
       {:ok, raw_commands} when is_list(raw_commands) ->
         # Parser finished, convert commands
         commands = convert_commands(raw_commands)
@@ -143,6 +145,9 @@ defmodule Vdr.ReplicaParser do
 
   defp convert_command({db, name, args})
        when is_integer(db) and is_binary(name) and is_list(args) do
+    # Always create the raw generic command from original args
+    raw_command = %RedisCommand.Generic{args: [name | args]}
+
     command =
       case name do
         # String commands
@@ -324,11 +329,11 @@ defmodule Vdr.ReplicaParser do
           %RedisCommand.PExpireAt{key: key, timestamp_ms: timestamp_ms}
 
         _ ->
-          # Return generic command for unknown or malformed commands
-          %RedisCommand.Generic{args: [name | args]}
+          # Return raw generic command for unknown or malformed commands
+          raw_command
       end
 
-    {db, command}
+    {db, command, raw_command}
   end
 
   # Parse MSET arguments: [key, value, key, value, ...]

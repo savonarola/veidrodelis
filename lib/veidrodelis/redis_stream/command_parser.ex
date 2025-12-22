@@ -7,7 +7,7 @@ defmodule Vdr.RedisStream.CommandParser do
   zsets, and lists are used.
   """
 
-  alias Vdr.RedisCommand
+  alias Vdr.RedisStream.Command, as: RedisCommand
 
   @doc """
   Parse a Redis command represented as a list of binary arguments into a Command struct.

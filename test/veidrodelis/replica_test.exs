@@ -2,7 +2,7 @@ defmodule Veidrodelis.ReplicaTest do
   use ExUnit.Case, async: false
 
   alias Vdr.RedisStream.Replica
-  alias Vdr.RedisCommand
+  alias Vdr.RedisStream.Command, as: RedisCommand
   use CommandMatchers
   require Logger
 
@@ -16,7 +16,7 @@ defmodule Veidrodelis.ReplicaTest do
     end
 
     @impl true
-    def handle_command(state, db, command) do
+    def handle_command(state, %Vdr.RedisStream.ReplicaCommand{db: db, command: command}) do
       # Add command to the list with timestamp
       commands = Map.get(state, :commands, [])
       entry = {System.monotonic_time(), db, command}

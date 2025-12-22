@@ -1,37 +1,21 @@
 mod atoms;
+mod storage;
 
 use rustler::types::Binary;
 use rustler::{Encoder, Env, Resource, ResourceArc, Term};
-use std::collections::BTreeMap;
-use std::panic::{RefUnwindSafe, UnwindSafe};
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
-/// Inner storage structure guarded by mutex
-struct StorageInner {
-    map: BTreeMap<Vec<u8>, Vec<u8>>,
-}
+use storage::StorageInner;
 
-/// The term storage resource exposed to Elixir
-pub struct TStorage {
-    data: Arc<Mutex<StorageInner>>,
-}
-
-// Safety: TStorage is explicitly designed for concurrent access via Mutex
-unsafe impl Send for TStorage {}
-unsafe impl Sync for TStorage {}
-impl RefUnwindSafe for TStorage {}
-impl UnwindSafe for TStorage {}
+/// The term storage resource (wrapper around Mutex to satisfy orphan rule)
+pub struct TStorage(Mutex<StorageInner>);
 
 #[rustler::resource_impl(register = false)]
 impl Resource for TStorage {}
 
 #[rustler::nif(name = "create")]
 fn create_storage() -> ResourceArc<TStorage> {
-    ResourceArc::new(TStorage {
-        data: Arc::new(Mutex::new(StorageInner {
-            map: BTreeMap::new(),
-        })),
-    })
+    ResourceArc::new(TStorage(Mutex::new(StorageInner::new())))
 }
 
 #[rustler::nif(name = "set")]
@@ -42,15 +26,13 @@ fn set_value<'a>(
     value: Binary,
 ) -> Term<'a> {
     // Lock the storage to get mutable access
-    let mut inner = match storage.data.lock() {
+    let mut inner = match storage.0.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
 
-    // Insert the binary value into the map
-    inner
-        .map
-        .insert(key.as_slice().to_vec(), value.as_slice().to_vec());
+    // Set the value using encapsulated method
+    inner.set(key.as_slice(), value.as_slice());
 
     // Return :ok
     atoms::ok().encode(env)
@@ -59,13 +41,13 @@ fn set_value<'a>(
 #[rustler::nif(name = "get")]
 fn get_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, key: Binary) -> Term<'a> {
     // Lock the storage
-    let inner = match storage.data.lock() {
+    let inner = match storage.0.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
 
-    // Look up the key
-    match inner.map.get(key.as_slice()) {
+    // Get the value using encapsulated method
+    match inner.get(key.as_slice()) {
         Some(value) => {
             // Return the binary value
             let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
@@ -82,13 +64,13 @@ fn get_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, key: Binary) -> T
 #[rustler::nif(name = "del")]
 fn delete_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, key: Binary) -> Term<'a> {
     // Lock the storage
-    let mut inner = match storage.data.lock() {
+    let mut inner = match storage.0.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
 
-    // Remove the key (returns Option<Vec<u8>>, which we ignore)
-    let _removed = inner.map.remove(key.as_slice());
+    // Delete the key using encapsulated method
+    inner.del(key.as_slice());
 
     // Always return :ok
     atoms::ok().encode(env)
@@ -97,13 +79,13 @@ fn delete_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, key: Binary) -
 #[rustler::nif(name = "destroy")]
 fn destroy_storage<'a>(env: Env<'a>, storage: ResourceArc<TStorage>) -> Term<'a> {
     // Lock the storage
-    let mut inner = match storage.data.lock() {
+    let mut inner = match storage.0.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
 
-    // Clear all entries from the map
-    inner.map.clear();
+    // Clear all entries using encapsulated method
+    inner.clear();
 
     // Return :ok
     atoms::ok().encode(env)

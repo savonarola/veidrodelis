@@ -16,7 +16,7 @@ defmodule Vdr.RedisStream.Replica do
       defmodule MyCallback do
         @behaviour Veidrodelis.RedisStream.Callback
 
-        alias Vdr.RedisCommand
+        alias Vdr.RedisStream.Command, as: RedisCommand
 
         @impl true
         def handle_command(state, db, %RedisCommand.Set{key: key, value: value}) do
@@ -68,8 +68,9 @@ defmodule Vdr.RedisStream.Replica do
   use GenServer
   require Logger
 
-  alias Vdr.ReplicaParser
+  alias Vdr.RedisStream.Parser
   alias Vdr.RedisStream.CommandFilter
+  alias Vdr.RedisStream.Command, as: RedisCommand
 
   @default_port 6379
   @default_timeout 5000
@@ -401,7 +402,7 @@ defmodule Vdr.RedisStream.Replica do
   defp replication_state(state) do
     if state.state == :replication && state.replica_parser do
       # Query the Rust parser's actual state
-      case Vdr.RedisNif.replica_state(state.replica_parser) do
+      case Vdr.RedisStream.Nif.replica_state(state.replica_parser) do
         :streaming -> :streaming
         :reading_rdb -> :rdb_transfer
         :waiting_rdb -> :rdb_transfer
@@ -770,7 +771,7 @@ defmodule Vdr.RedisStream.Replica do
         Logger.info("handle_replication_start callback succeeded")
         # Create replica parser (handles both RDB and command streaming)
 
-        replica_parser = ReplicaParser.create()
+        replica_parser = Parser.create()
 
         new_state = %{
           state
@@ -792,7 +793,7 @@ defmodule Vdr.RedisStream.Replica do
     Logger.info("PSYNC: CONTINUE - partial resync accepted")
 
     # Create parser in streaming mode (no RDB expected)
-    replica_parser = ReplicaParser.create(rdb: false)
+    replica_parser = Parser.create(rdb: false)
 
     new_state = %{
       state
@@ -811,10 +812,10 @@ defmodule Vdr.RedisStream.Replica do
     # According to Redis replication protocol, the offset in FULLRESYNC represents
     # the logical position in the command stream. The RDB is sent "out of band" and
     # should not increment the offset. Only commands after the RDB increment the offset.
-    parser_state_before = Vdr.RedisNif.replica_state(state.replica_parser)
+    parser_state_before = Vdr.RedisStream.Nif.replica_state(state.replica_parser)
 
     # Feed data to replica parser (handles RDB and command stream automatically)
-    case ReplicaParser.data(state.replica_parser, data) do
+    case Parser.data(state.replica_parser, data) do
       {:ok, commands, new_replica_parser} ->
         # Parser returned commands and wants more data
         #
@@ -857,21 +858,29 @@ defmodule Vdr.RedisStream.Replica do
     {:ok, state}
   end
 
-  defp process_commands([{db, command} | rest], state) do
+  defp process_commands([{db, command, raw_command} | rest], state) do
     # Handle special commands
     result =
       case command do
         # PING - send ACK
-        %Vdr.RedisCommand.Set{key: "PING", value: ""} when db == 0 ->
+        %RedisCommand.Set{key: "PING", value: ""} when db == 0 ->
           Logger.debug("Received PING, sending REPLCONF ACK #{state.replication_offset}")
           send_replconf_ack(state)
           {:ok, state}
 
         # Regular commands - invoke callback
         _ ->
+          # Create ReplicaCommand struct
+          replica_command = %Vdr.RedisStream.ReplicaCommand{
+            db: db,
+            command: command,
+            raw_command: raw_command,
+            context: %{}
+          }
+
           result =
-            CommandFilter.apply(state.command_filter, command, fn command ->
-              state.callback_module.handle_command(state.callback_state, db, command)
+            CommandFilter.apply(state.command_filter, replica_command, fn replica_command ->
+              state.callback_module.handle_command(state.callback_state, replica_command)
             end)
 
           case result do

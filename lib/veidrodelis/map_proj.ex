@@ -11,7 +11,7 @@ defmodule Vdr.MapProj do
 
   @behaviour Vdr.RedisStream.Callback
 
-  alias Vdr.RedisCommand
+  alias Vdr.RedisStream.Command, as: RedisCommand
   alias Vdr.MapProj.{Strings, Lists, Sets, Hashes, ZSets, Common}
 
   defstruct [:store]
@@ -99,7 +99,10 @@ defmodule Vdr.MapProj do
   end
 
   @impl Vdr.RedisStream.Callback
-  def handle_command(%__MODULE__{} = state, db, command) do
+  def handle_command(%__MODULE__{} = state, %Vdr.RedisStream.ReplicaCommand{
+        db: db,
+        command: command
+      }) do
     new_store = do_handle_command(state, db, command)
     {:ok, %{state | store: new_store}}
   end

@@ -1,7 +1,7 @@
-defmodule Vdr.ReplicaParserTest do
+defmodule Vdr.RedisStream.ParserTest do
   use ExUnit.Case, async: true
 
-  alias Vdr.RedisCommand
+  alias Vdr.RedisStream.Command, as: RedisCommand
 
   @moduledoc """
   Smoke tests for Rust-based replica parser.
@@ -11,15 +11,15 @@ defmodule Vdr.ReplicaParserTest do
   describe "NIF loading" do
     test "replica_create/0 is available and callable" do
       # Should not raise nif_not_loaded error
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
       assert is_reference(parser)
     end
 
     test "replica_data/2 is available and callable" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Feed empty data - should succeed without raising nif_not_loaded error
-      result = Vdr.ReplicaParser.data(parser, <<>>)
+      result = Vdr.RedisStream.Parser.data(parser, <<>>)
 
       # Should return either {:ok, commands, parser} or {:ok, commands}
       assert match?({:ok, _, _}, result) or match?({:ok, _}, result)
@@ -28,14 +28,14 @@ defmodule Vdr.ReplicaParserTest do
 
   describe "basic functionality" do
     test "create returns a parser reference" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
       assert is_reference(parser)
     end
 
     test "data returns expected tuple format" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
-      result = Vdr.ReplicaParser.data(parser, <<>>)
+      result = Vdr.RedisStream.Parser.data(parser, <<>>)
 
       # Result should be one of:
       # - {:ok, commands, new_parser} - more data needed
@@ -55,10 +55,10 @@ defmodule Vdr.ReplicaParserTest do
     end
 
     test "feeding data to WaitingRdb state returns empty list" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # In the scaffolded version, WaitingRdb state returns empty list
-      result = Vdr.ReplicaParser.data(parser, <<>>)
+      result = Vdr.RedisStream.Parser.data(parser, <<>>)
 
       case result do
         {:ok, commands, _parser} ->
@@ -74,12 +74,12 @@ defmodule Vdr.ReplicaParserTest do
 
     test "parser ownership check - different process cannot use parser" do
       # Create parser in parent process
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Try to use it in a different process
       task =
         Task.async(fn ->
-          Vdr.ReplicaParser.data(parser, <<>>)
+          Vdr.RedisStream.Parser.data(parser, <<>>)
         end)
 
       result = Task.await(task)
@@ -89,10 +89,10 @@ defmodule Vdr.ReplicaParserTest do
     end
 
     test "feeding data returns commands in correct format" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # The scaffolded parser might return dummy commands
-      result = Vdr.ReplicaParser.data(parser, <<>>)
+      result = Vdr.RedisStream.Parser.data(parser, <<>>)
 
       case result do
         {:ok, commands, _} when is_list(commands) ->
@@ -117,11 +117,11 @@ defmodule Vdr.ReplicaParserTest do
 
   describe "command conversion" do
     test "converts SET commands correctly" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # In ReadingRdb state, the scaffolded parser returns a dummy SET command
       # We'll test this by examining any commands returned
-      case Vdr.ReplicaParser.data(parser, <<>>) do
+      case Vdr.RedisStream.Parser.data(parser, <<>>) do
         {:ok, [_ | _] = commands, _} ->
           # Check if any SET commands were returned
           set_commands =
@@ -149,17 +149,17 @@ defmodule Vdr.ReplicaParserTest do
 
       # This should either raise or return an error
       assert_raise ArgumentError, fn ->
-        Vdr.ReplicaParser.data(invalid_parser, <<>>)
+        Vdr.RedisStream.Parser.data(invalid_parser, <<>>)
       end
     end
 
     test "handles non-binary data" do
-      parser = Vdr.ReplicaParser.create()
+      parser = Vdr.RedisStream.Parser.create()
 
       # Should raise on non-binary input (charlist is not binary)
       # The guard clause causes FunctionClauseError
       assert_raise FunctionClauseError, fn ->
-        Vdr.ReplicaParser.data(parser, ~c"charlist")
+        Vdr.RedisStream.Parser.data(parser, ~c"charlist")
       end
     end
   end

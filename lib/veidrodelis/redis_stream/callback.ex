@@ -2,9 +2,10 @@ defmodule Vdr.RedisStream.Callback do
   @moduledoc """
   Behaviour for processing Redis commands as a stream.
 
-  Implement this behaviour to process Redis commands as they are parsed from an RDB file.
-  Each callback receives the current state, database number, and a command struct representing
-  the Redis write operation that would have created the data.
+  Implement this behaviour to process Redis commands as they are parsed from an RDB file
+  or received from a replication stream. Each callback receives the current state and a
+  `ReplicaCommand` struct containing the database number, parsed command, raw command,
+  and a context map.
 
   ## Command Structs
 
@@ -22,45 +23,46 @@ defmodule Vdr.RedisStream.Callback do
       defmodule MyCallback do
         @behaviour Vdr.RedisStream.Callback
 
-        alias Vdr.RedisCommand
+        alias Vdr.RedisStream.Command, as: RedisCommand
+        alias Vdr.RedisStream.ReplicaCommand
 
         @impl true
-        def handle_command(state, db, %RedisCommand.Set{key: key, value: value}) do
+        def handle_command(state, %ReplicaCommand{db: db, command: %RedisCommand.Set{key: key, value: value}}) do
           IO.puts("SET \#{key} = \#{value} in DB \#{db}")
           {:ok, state}
         end
 
-        def handle_command(state, db, %RedisCommand.RPush{key: key, value: value}) do
+        def handle_command(state, %ReplicaCommand{db: db, command: %RedisCommand.RPush{key: key, value: value}}) do
           IO.puts("RPUSH \#{key} \#{value} in DB \#{db}")
           {:ok, state}
         end
 
-        def handle_command(state, db, %RedisCommand.SAdd{key: key, member: member}) do
+        def handle_command(state, %ReplicaCommand{db: db, command: %RedisCommand.SAdd{key: key, member: member}}) do
           IO.puts("SADD \#{key} \#{member} in DB \#{db}")
           {:ok, state}
         end
 
-        def handle_command(state, db, %RedisCommand.ZAdd{key: key, score: score, member: member}) do
+        def handle_command(state, %ReplicaCommand{db: db, command: %RedisCommand.ZAdd{key: key, score: score, member: member}}) do
           IO.puts("ZADD \#{key} \#{score} \#{member} in DB \#{db}")
           {:ok, state}
         end
 
-        def handle_command(state, db, %RedisCommand.HSet{key: key, field: field, value: value}) do
+        def handle_command(state, %ReplicaCommand{db: db, command: %RedisCommand.HSet{key: key, field: field, value: value}}) do
           IO.puts("HSET \#{key} \#{field} \#{value} in DB \#{db}")
           {:ok, state}
         end
 
-        def handle_command(state, db, %RedisCommand.PExpireAt{key: key, timestamp_ms: timestamp_ms}) do
+        def handle_command(state, %ReplicaCommand{db: db, command: %RedisCommand.PExpireAt{key: key, timestamp_ms: timestamp_ms}}) do
           IO.puts("PEXPIREAT \#{key} \#{timestamp_ms} in DB \#{db}")
           {:ok, state}
         end
       end
 
       {:ok, rdb_binary} = File.read("dump.rdb")
-      {:ok, final_state} = Vdr.RDB.parse(rdb_binary, MyCallback, %{})
+      {:ok, final_state} = Vdr.RedisStream.RDB.parse(rdb_binary, MyCallback, %{})
   """
 
-  alias Vdr.RedisCommand
+  alias Vdr.RedisStream.ReplicaCommand
 
   @doc """
   Called when a full replication is about to start.
@@ -86,13 +88,16 @@ defmodule Vdr.RedisStream.Callback do
   @callback handle_replication_start(state :: term()) :: {:ok, term()} | {:error, term()}
 
   @doc """
-  Called when a Redis command is parsed from the RDB file.
+  Called when a Redis command is parsed from the RDB file or received from replication.
 
   ## Parameters
 
     * `state` - Current state
-    * `db` - Database number
-    * `command` - A command struct from `Veidrodelis.RedisCommand`
+    * `replica_command` - A `ReplicaCommand` struct containing:
+      * `db` - Database number
+      * `command` - Parsed command struct from `Veidrodelis.RedisCommand`
+      * `raw_command` - Raw generic command representation
+      * `context` - Map for storing metadata (can be modified by filters)
 
   ## Returns
 
@@ -101,8 +106,7 @@ defmodule Vdr.RedisStream.Callback do
   """
   @callback handle_command(
               state :: term(),
-              db :: non_neg_integer(),
-              command :: RedisCommand.t()
+              replica_command :: ReplicaCommand.t()
             ) ::
               {:ok, term()} | {:error, term()}
 

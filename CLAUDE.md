@@ -53,10 +53,13 @@ lib/                          # Elixir source code
 ├── veidrodelis.ex           # Main module with documentation
 ├── veidrodelis/
 │   ├── application.ex       # OTP application
-│   ├── rdb.ex              # RDB parser implementation
-│   ├── command.ex          # Redis command structs
 │   ├── redis_stream/
-│   │   └── callback.ex     # RedisStream callback behaviour
+│   │   ├── rdb.ex          # RDB parser implementation
+│   │   ├── command.ex      # Redis command structs
+│   │   ├── nif.ex          # Rust NIF interface
+│   │   ├── parser.ex       # Replica parser (replication stream)
+│   │   ├── callback.ex     # RedisStream callback behaviour
+│   │   └── replica.ex      # Replica client
 │   └── lzf.ex              # LZF NIF wrapper and interface
 
 c_src/                        # C source for NIFs
@@ -82,9 +85,9 @@ The project is implemented entirely in Elixir, leveraging the language's excelle
 
 ### Core Components
 
-**RDB Parser ([lib/veidrodelis/rdb.ex](lib/veidrodelis/rdb.ex))**
-- Pure Elixir implementation of the RDB parser
-- Entry point: `Vdr.RDB.parse(binary, callback_module, initial_state)`
+**RDB Parser ([lib/veidrodelis/redis_stream/rdb.ex](lib/veidrodelis/redis_stream/rdb.ex))**
+- Rust-based RDB parser with Elixir wrapper
+- Entry point: `Vdr.RedisStream.RDB.create()` and `Vdr.RedisStream.RDB.data(parser, chunk)`
 - Stateless streaming parser that processes opcodes sequentially
 - Supports all Redis data types: strings, lists, sets, sorted sets, hashes
 - Handles multiple encoding formats: ziplist, listpack, intset, quicklist variants
@@ -96,7 +99,7 @@ The project is implemented entirely in Elixir, leveraging the language's excelle
 - Called for each parsed Redis command with command structs
 - Returns: `{:ok, new_state}` or `{:error, reason}`
 
-**Command Structs ([lib/veidrodelis/command.ex](lib/veidrodelis/command.ex))**
+**Command Structs ([lib/veidrodelis/redis_stream/command.ex](lib/veidrodelis/redis_stream/command.ex))**
 - Represents Redis write commands that would have created the RDB data
 - `%Command.Set{key, value}` - SET command for string values
 - `%Command.RPush{key, value}` - RPUSH command for list elements
