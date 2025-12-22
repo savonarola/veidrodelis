@@ -7,7 +7,7 @@ defmodule Vdr.RedisStream.CommandParser do
   zsets, and lists are used.
   """
 
-  alias Vdr.Command
+  alias Vdr.RedisCommand
 
   @doc """
   Parse a Redis command represented as a list of binary arguments into a Command struct.
@@ -17,48 +17,48 @@ defmodule Vdr.RedisStream.CommandParser do
   ## Examples
 
       iex> parse(["SET", "key", "value"])
-      {:ok, %Command.Set{key: "key", value: "value"}}
+      {:ok, %RedisCommand.Set{key: "key", value: "value"}}
 
       iex> parse(["SADD", "myset", "m1", "m2"])
-      {:ok, %Command.SAdd{key: "myset", members: ["m1", "m2"]}}
+      {:ok, %RedisCommand.SAdd{key: "myset", members: ["m1", "m2"]}}
 
       iex> parse(["UNKNOWN", "arg"])
-      {:ok, %Command.Generic{args: ["UNKNOWN", "arg"]}}
+      {:ok, %RedisCommand.Generic{args: ["UNKNOWN", "arg"]}}
   """
-  @spec parse([binary()]) :: {:ok, Command.t()}
-  def parse(["SET", key, value]), do: {:ok, %Command.Set{key: key, value: value}}
+  @spec parse([binary()]) :: {:ok, RedisCommand.t()}
+  def parse(["SET", key, value]), do: {:ok, %RedisCommand.Set{key: key, value: value}}
 
   def parse(["MSET" | args]) do
     pairs = parse_pairs(args)
-    {:ok, %Command.MSet{pairs: pairs}}
+    {:ok, %RedisCommand.MSet{pairs: pairs}}
   end
 
-  def parse(["APPEND", key, value]), do: {:ok, %Command.Append{key: key, value: value}}
+  def parse(["APPEND", key, value]), do: {:ok, %RedisCommand.Append{key: key, value: value}}
 
   def parse(["SETRANGE", key, offset, value]) do
-    {:ok, %Command.SetRange{key: key, offset: String.to_integer(offset), value: value}}
+    {:ok, %RedisCommand.SetRange{key: key, offset: String.to_integer(offset), value: value}}
   end
 
   def parse(["SETBIT", key, offset, value]) do
     bit_value = String.to_integer(value)
-    {:ok, %Command.SetBit{key: key, offset: String.to_integer(offset), value: bit_value}}
+    {:ok, %RedisCommand.SetBit{key: key, offset: String.to_integer(offset), value: bit_value}}
   end
 
   # List commands
-  def parse(["LPUSH", key | values]), do: {:ok, %Command.LPush{key: key, values: values}}
-  def parse(["RPUSH", key | values]), do: {:ok, %Command.RPush{key: key, values: values}}
-  def parse(["LPUSHX", key | values]), do: {:ok, %Command.LPushX{key: key, values: values}}
-  def parse(["RPUSHX", key | values]), do: {:ok, %Command.RPushX{key: key, values: values}}
-  def parse(["LPOP", key]), do: {:ok, %Command.LPop{key: key}}
-  def parse(["RPOP", key]), do: {:ok, %Command.RPop{key: key}}
+  def parse(["LPUSH", key | values]), do: {:ok, %RedisCommand.LPush{key: key, values: values}}
+  def parse(["RPUSH", key | values]), do: {:ok, %RedisCommand.RPush{key: key, values: values}}
+  def parse(["LPUSHX", key | values]), do: {:ok, %RedisCommand.LPushX{key: key, values: values}}
+  def parse(["RPUSHX", key | values]), do: {:ok, %RedisCommand.RPushX{key: key, values: values}}
+  def parse(["LPOP", key]), do: {:ok, %RedisCommand.LPop{key: key}}
+  def parse(["RPOP", key]), do: {:ok, %RedisCommand.RPop{key: key}}
 
   def parse(["LREM", key, count, value]) do
-    {:ok, %Command.LRem{key: key, count: String.to_integer(count), value: value}}
+    {:ok, %RedisCommand.LRem{key: key, count: String.to_integer(count), value: value}}
   end
 
   def parse(["LTRIM", key, start, stop]) do
     {:ok,
-     %Command.LTrim{
+     %RedisCommand.LTrim{
        key: key,
        start: String.to_integer(start),
        stop: String.to_integer(stop)
@@ -66,7 +66,7 @@ defmodule Vdr.RedisStream.CommandParser do
   end
 
   def parse(["LSET", key, index, value]) do
-    {:ok, %Command.LSet{key: key, index: String.to_integer(index), value: value}}
+    {:ok, %RedisCommand.LSet{key: key, index: String.to_integer(index), value: value}}
   end
 
   def parse(["LINSERT", key, before_after, pivot, element]) do
@@ -76,60 +76,60 @@ defmodule Vdr.RedisStream.CommandParser do
         "AFTER" -> :after
       end
 
-    {:ok, %Command.LInsert{key: key, before_after: ba, pivot: pivot, element: element}}
+    {:ok, %RedisCommand.LInsert{key: key, before_after: ba, pivot: pivot, element: element}}
   end
 
   def parse(["RPOPLPUSH", source, destination]) do
-    {:ok, %Command.RPopLPush{source: source, destination: destination}}
+    {:ok, %RedisCommand.RPopLPush{source: source, destination: destination}}
   end
 
   # Set commands
-  def parse(["SADD", key | members]), do: {:ok, %Command.SAdd{key: key, members: members}}
-  def parse(["SREM", key | members]), do: {:ok, %Command.SRem{key: key, members: members}}
+  def parse(["SADD", key | members]), do: {:ok, %RedisCommand.SAdd{key: key, members: members}}
+  def parse(["SREM", key | members]), do: {:ok, %RedisCommand.SRem{key: key, members: members}}
 
   def parse(["SMOVE", source, destination, member]) do
-    {:ok, %Command.SMove{source: source, destination: destination, member: member}}
+    {:ok, %RedisCommand.SMove{source: source, destination: destination, member: member}}
   end
 
   def parse(["SINTERSTORE", destination | keys]) do
-    {:ok, %Command.SInterStore{destination: destination, keys: keys}}
+    {:ok, %RedisCommand.SInterStore{destination: destination, keys: keys}}
   end
 
   def parse(["SUNIONSTORE", destination | keys]) do
-    {:ok, %Command.SUnionStore{destination: destination, keys: keys}}
+    {:ok, %RedisCommand.SUnionStore{destination: destination, keys: keys}}
   end
 
   def parse(["SDIFFSTORE", destination | keys]) do
-    {:ok, %Command.SDiffStore{destination: destination, keys: keys}}
+    {:ok, %RedisCommand.SDiffStore{destination: destination, keys: keys}}
   end
 
   # Sorted set commands
   def parse(["ZADD", key | args]) do
     members = parse_zadd_args(args)
-    {:ok, %Command.ZAdd{key: key, members: members}}
+    {:ok, %RedisCommand.ZAdd{key: key, members: members}}
   end
 
-  def parse(["ZREM", key | members]), do: {:ok, %Command.ZRem{key: key, members: members}}
+  def parse(["ZREM", key | members]), do: {:ok, %RedisCommand.ZRem{key: key, members: members}}
 
   def parse(["ZPOPMAX", key]) do
-    {:ok, %Command.ZPopMax{key: key, count: 1}}
+    {:ok, %RedisCommand.ZPopMax{key: key, count: 1}}
   end
 
   def parse(["ZPOPMAX", key, count]) do
-    {:ok, %Command.ZPopMax{key: key, count: String.to_integer(count)}}
+    {:ok, %RedisCommand.ZPopMax{key: key, count: String.to_integer(count)}}
   end
 
   def parse(["ZPOPMIN", key]) do
-    {:ok, %Command.ZPopMin{key: key, count: 1}}
+    {:ok, %RedisCommand.ZPopMin{key: key, count: 1}}
   end
 
   def parse(["ZPOPMIN", key, count]) do
-    {:ok, %Command.ZPopMin{key: key, count: String.to_integer(count)}}
+    {:ok, %RedisCommand.ZPopMin{key: key, count: String.to_integer(count)}}
   end
 
   def parse(["ZREMRANGEBYRANK", key, start, stop]) do
     {:ok,
-     %Command.ZRemRangeByRank{
+     %RedisCommand.ZRemRangeByRank{
        key: key,
        start: String.to_integer(start),
        stop: String.to_integer(stop)
@@ -137,11 +137,11 @@ defmodule Vdr.RedisStream.CommandParser do
   end
 
   def parse(["ZREMRANGEBYSCORE", key, min, max]) do
-    {:ok, %Command.ZRemRangeByScore{key: key, min: min, max: max}}
+    {:ok, %RedisCommand.ZRemRangeByScore{key: key, min: min, max: max}}
   end
 
   def parse(["ZREMRANGEBYLEX", key, min, max]) do
-    {:ok, %Command.ZRemRangeByLex{key: key, min: min, max: max}}
+    {:ok, %RedisCommand.ZRemRangeByLex{key: key, min: min, max: max}}
   end
 
   def parse(["ZUNIONSTORE", destination, _numkeys | rest]) do
@@ -157,32 +157,32 @@ defmodule Vdr.RedisStream.CommandParser do
   # Hash commands
   def parse(["HSET", key | args]) do
     fields = parse_pairs(args)
-    {:ok, %Command.HSet{key: key, fields: fields}}
+    {:ok, %RedisCommand.HSet{key: key, fields: fields}}
   end
 
-  def parse(["HDEL", key | fields]), do: {:ok, %Command.HDel{key: key, fields: fields}}
+  def parse(["HDEL", key | fields]), do: {:ok, %RedisCommand.HDel{key: key, fields: fields}}
 
   # Generic key commands
-  def parse(["DEL" | keys]), do: {:ok, %Command.Del{keys: keys}}
+  def parse(["DEL" | keys]), do: {:ok, %RedisCommand.Del{keys: keys}}
 
   def parse(["RENAME", key, newkey]) do
-    {:ok, %Command.Rename{key: key, newkey: newkey}}
+    {:ok, %RedisCommand.Rename{key: key, newkey: newkey}}
   end
 
   def parse(["RENAMENX", key, newkey]) do
-    {:ok, %Command.RenameNX{key: key, newkey: newkey}}
+    {:ok, %RedisCommand.RenameNX{key: key, newkey: newkey}}
   end
 
   def parse(["MOVE", key, db]) do
-    {:ok, %Command.Move{key: key, db: String.to_integer(db)}}
+    {:ok, %RedisCommand.Move{key: key, db: String.to_integer(db)}}
   end
 
   def parse(["PEXPIREAT", key, timestamp_ms]) do
-    {:ok, %Command.PExpireAt{key: key, timestamp_ms: String.to_integer(timestamp_ms)}}
+    {:ok, %RedisCommand.PExpireAt{key: key, timestamp_ms: String.to_integer(timestamp_ms)}}
   end
 
   # Unknown command - wrap in Generic
-  def parse(args), do: {:ok, %Command.Generic{args: args}}
+  def parse(args), do: {:ok, %RedisCommand.Generic{args: args}}
 
   # Helper functions
 
@@ -245,7 +245,7 @@ defmodule Vdr.RedisStream.CommandParser do
     command =
       case type do
         :union ->
-          %Command.ZUnionStore{
+          %RedisCommand.ZUnionStore{
             destination: destination,
             keys: keys,
             weights: weights,
@@ -253,7 +253,7 @@ defmodule Vdr.RedisStream.CommandParser do
           }
 
         :inter ->
-          %Command.ZInterStore{
+          %RedisCommand.ZInterStore{
             destination: destination,
             keys: keys,
             weights: weights,

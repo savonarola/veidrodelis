@@ -1,6 +1,6 @@
 defmodule Veidrodelis.IntegrationTest do
   @moduledoc """
-  Comprehensive integration test that exercises all command types from Vdr.Command.
+  Comprehensive integration test that exercises all command types from Vdr.RedisCommand.
 
   This test verifies both RDB loading and streaming replication phases by:
   1. Setting up a maximally diverse dataset in Redis
@@ -17,7 +17,7 @@ defmodule Veidrodelis.IntegrationTest do
   use ExUnit.Case, async: false
 
   alias Vdr.RedisStream.Replica
-  alias Vdr.Command
+  alias Vdr.RedisCommand
   use CommandMatchers
   require Logger
 
@@ -26,7 +26,6 @@ defmodule Veidrodelis.IntegrationTest do
   # Callback module that collects all commands with database info
   defmodule CollectorCallback do
     @behaviour Vdr.RedisStream.Callback
-
 
     @impl true
     def handle_replication_start(state) do
@@ -75,7 +74,7 @@ defmodule Veidrodelis.IntegrationTest do
   # ===== Helper Functions =====
 
   @doc """
-  Issues a maximally diverse set of Redis commands covering all Vdr.Command types.
+  Issues a maximally diverse set of Redis commands covering all Vdr.RedisCommand types.
   """
   def issue_diverse_commands(redis, db \\ 0) do
     # Select database
@@ -208,58 +207,67 @@ defmodule Veidrodelis.IntegrationTest do
   """
   def verify_rdb_commands(commands) do
     # String commands - only final state
-    assert command_in_list(%Command.Set{key: "simple_key", value: "simple_value"}, commands),
+    assert command_in_list(%RedisCommand.Set{key: "simple_key", value: "simple_value"}, commands),
            "Missing SET simple_key"
 
     # MSET might be broken down into individual SETs in RDB
-    assert command_in_list(%Command.MSet{}, commands) or
-             (command_in_list(%Command.Set{key: "mkey1"}, commands) and
-                command_in_list(%Command.Set{key: "mkey2"}, commands)),
+    assert command_in_list(%RedisCommand.MSet{}, commands) or
+             (command_in_list(%RedisCommand.Set{key: "mkey1"}, commands) and
+                command_in_list(%RedisCommand.Set{key: "mkey2"}, commands)),
            "Missing MSET or individual keys from MSET"
 
     # Final value after APPEND - saved as a SET
-    assert command_in_list(%Command.Set{key: "append_key", value: "initial_appended"}, commands),
+    assert command_in_list(
+             %RedisCommand.Set{key: "append_key", value: "initial_appended"},
+             commands
+           ),
            "Missing final state of append_key"
 
     # List commands - only final state (after all modifications)
     # mylist has LPUSH then RPUSH, final state will be present
-    assert command_in_list(%Command.RPush{key: "mylist"}, commands) or
-             command_in_list(%Command.LPush{key: "mylist"}, commands),
+    assert command_in_list(%RedisCommand.RPush{key: "mylist"}, commands) or
+             command_in_list(%RedisCommand.LPush{key: "mylist"}, commands),
            "Missing mylist"
 
     # Set commands - final state
-    assert command_in_list(%Command.SAdd{key: "myset"}, commands), "Missing SADD myset"
-    assert command_in_list(%Command.SAdd{key: "rem_set"}, commands), "Missing SADD rem_set"
+    assert command_in_list(%RedisCommand.SAdd{key: "myset"}, commands), "Missing SADD myset"
+    assert command_in_list(%RedisCommand.SAdd{key: "rem_set"}, commands), "Missing SADD rem_set"
 
     # Set operations create result keys, but in RDB they're saved as SADDs
-    assert command_in_list(%Command.SAdd{key: "set_inter"}, commands), "Missing set_inter result"
-    assert command_in_list(%Command.SAdd{key: "set_union"}, commands), "Missing set_union result"
-    assert command_in_list(%Command.SAdd{key: "set_diff"}, commands), "Missing set_diff result"
+    assert command_in_list(%RedisCommand.SAdd{key: "set_inter"}, commands),
+           "Missing set_inter result"
+
+    assert command_in_list(%RedisCommand.SAdd{key: "set_union"}, commands),
+           "Missing set_union result"
+
+    assert command_in_list(%RedisCommand.SAdd{key: "set_diff"}, commands),
+           "Missing set_diff result"
 
     # Sorted set commands - final state
-    assert command_in_list(%Command.ZAdd{key: "myzset"}, commands), "Missing ZADD myzset"
+    assert command_in_list(%RedisCommand.ZAdd{key: "myzset"}, commands), "Missing ZADD myzset"
 
     # Sorted set operations create result keys, but in RDB they're saved as ZADDs
-    assert command_in_list(%Command.ZAdd{key: "zset_union"}, commands),
+    assert command_in_list(%RedisCommand.ZAdd{key: "zset_union"}, commands),
            "Missing zset_union result"
 
-    assert command_in_list(%Command.ZAdd{key: "zset_inter"}, commands),
+    assert command_in_list(%RedisCommand.ZAdd{key: "zset_inter"}, commands),
            "Missing zset_inter result"
 
     # Hash commands - final state
-    assert command_in_list(%Command.HSet{key: "myhash"}, commands), "Missing HSET myhash"
+    assert command_in_list(%RedisCommand.HSet{key: "myhash"}, commands), "Missing HSET myhash"
 
-    assert command_in_list(%Command.HSet{key: "hash_for_del"}, commands),
+    assert command_in_list(%RedisCommand.HSet{key: "hash_for_del"}, commands),
            "Missing HSET hash_for_del"
 
     # Expiration
-    assert command_in_list(%Command.PExpireAt{key: "expire_key"}, commands), "Missing PEXPIREAT"
+    assert command_in_list(%RedisCommand.PExpireAt{key: "expire_key"}, commands),
+           "Missing PEXPIREAT"
 
     # Key management - Renamed keys
-    assert command_in_list(%Command.Set{key: "new_name"}, commands),
+    assert command_in_list(%RedisCommand.Set{key: "new_name"}, commands),
            "Missing renamed key new_name"
 
-    assert command_in_list(%Command.Set{key: "renamenx_new"}, commands),
+    assert command_in_list(%RedisCommand.Set{key: "renamenx_new"}, commands),
            "Missing renamenx key renamenx_new"
 
     # Deleted keys should not have any commands for them (checked via absence)
@@ -272,63 +280,67 @@ defmodule Veidrodelis.IntegrationTest do
   """
   def verify_streaming_commands(commands) do
     # String commands
-    assert command_in_list(%Command.Set{key: "simple_key", value: "simple_value"}, commands),
+    assert command_in_list(%RedisCommand.Set{key: "simple_key", value: "simple_value"}, commands),
            "Missing SET simple_key"
 
-    assert command_in_list(%Command.MSet{}, commands), "Missing MSET"
-    assert command_in_list(%Command.Append{key: "append_key"}, commands), "Missing APPEND"
-    assert command_in_list(%Command.SetRange{key: "range_key"}, commands), "Missing SETRANGE"
-    assert command_in_list(%Command.SetBit{key: "bit_key"}, commands), "Missing SETBIT"
+    assert command_in_list(%RedisCommand.MSet{}, commands), "Missing MSET"
+    assert command_in_list(%RedisCommand.Append{key: "append_key"}, commands), "Missing APPEND"
+    assert command_in_list(%RedisCommand.SetRange{key: "range_key"}, commands), "Missing SETRANGE"
+    assert command_in_list(%RedisCommand.SetBit{key: "bit_key"}, commands), "Missing SETBIT"
 
     # List commands - all operations
-    assert command_in_list(%Command.RPush{key: "mylist"}, commands), "Missing RPUSH mylist"
-    assert command_in_list(%Command.LPush{key: "mylist"}, commands), "Missing LPUSH mylist"
-    assert command_in_list(%Command.LPushX{key: "other_list"}, commands), "Missing LPUSHX"
-    assert command_in_list(%Command.RPushX{key: "yet_another_list"}, commands), "Missing RPUSHX"
-    assert command_in_list(%Command.LTrim{key: "trim_list"}, commands), "Missing LTRIM"
-    assert command_in_list(%Command.LSet{key: "set_list"}, commands), "Missing LSET"
-    assert command_in_list(%Command.LInsert{key: "insert_list"}, commands), "Missing LINSERT"
-    assert command_in_list(%Command.LPop{key: "pop_list"}, commands), "Missing LPOP"
-    assert command_in_list(%Command.RPop{key: "pop_list"}, commands), "Missing RPOP"
-    assert command_in_list(%Command.LRem{key: "rem_list"}, commands), "Missing LREM"
-    assert command_in_list(%Command.RPopLPush{}, commands), "Missing RPOPLPUSH"
+    assert command_in_list(%RedisCommand.RPush{key: "mylist"}, commands), "Missing RPUSH mylist"
+    assert command_in_list(%RedisCommand.LPush{key: "mylist"}, commands), "Missing LPUSH mylist"
+    assert command_in_list(%RedisCommand.LPushX{key: "other_list"}, commands), "Missing LPUSHX"
+
+    assert command_in_list(%RedisCommand.RPushX{key: "yet_another_list"}, commands),
+           "Missing RPUSHX"
+
+    assert command_in_list(%RedisCommand.LTrim{key: "trim_list"}, commands), "Missing LTRIM"
+    assert command_in_list(%RedisCommand.LSet{key: "set_list"}, commands), "Missing LSET"
+    assert command_in_list(%RedisCommand.LInsert{key: "insert_list"}, commands), "Missing LINSERT"
+    assert command_in_list(%RedisCommand.LPop{key: "pop_list"}, commands), "Missing LPOP"
+    assert command_in_list(%RedisCommand.RPop{key: "pop_list"}, commands), "Missing RPOP"
+    assert command_in_list(%RedisCommand.LRem{key: "rem_list"}, commands), "Missing LREM"
+    assert command_in_list(%RedisCommand.RPopLPush{}, commands), "Missing RPOPLPUSH"
 
     # Set commands
-    assert command_in_list(%Command.SAdd{key: "myset"}, commands), "Missing SADD myset"
-    assert command_in_list(%Command.SRem{key: "rem_set"}, commands), "Missing SREM"
-    assert command_in_list(%Command.SMove{}, commands), "Missing SMOVE"
-    assert command_in_list(%Command.SInterStore{}, commands), "Missing SINTERSTORE"
-    assert command_in_list(%Command.SUnionStore{}, commands), "Missing SUNIONSTORE"
-    assert command_in_list(%Command.SDiffStore{}, commands), "Missing SDIFFSTORE"
+    assert command_in_list(%RedisCommand.SAdd{key: "myset"}, commands), "Missing SADD myset"
+    assert command_in_list(%RedisCommand.SRem{key: "rem_set"}, commands), "Missing SREM"
+    assert command_in_list(%RedisCommand.SMove{}, commands), "Missing SMOVE"
+    assert command_in_list(%RedisCommand.SInterStore{}, commands), "Missing SINTERSTORE"
+    assert command_in_list(%RedisCommand.SUnionStore{}, commands), "Missing SUNIONSTORE"
+    assert command_in_list(%RedisCommand.SDiffStore{}, commands), "Missing SDIFFSTORE"
 
     # Sorted set commands
-    assert command_in_list(%Command.ZAdd{key: "myzset"}, commands), "Missing ZADD myzset"
-    assert command_in_list(%Command.ZUnionStore{}, commands), "Missing ZUNIONSTORE"
-    assert command_in_list(%Command.ZInterStore{}, commands), "Missing ZINTERSTORE"
-    assert command_in_list(%Command.ZRem{key: "zset_for_rem"}, commands), "Missing ZREM"
-    assert command_in_list(%Command.ZPopMax{key: "pop_zset"}, commands), "Missing ZPOPMAX"
-    assert command_in_list(%Command.ZPopMin{key: "pop_zset"}, commands), "Missing ZPOPMIN"
+    assert command_in_list(%RedisCommand.ZAdd{key: "myzset"}, commands), "Missing ZADD myzset"
+    assert command_in_list(%RedisCommand.ZUnionStore{}, commands), "Missing ZUNIONSTORE"
+    assert command_in_list(%RedisCommand.ZInterStore{}, commands), "Missing ZINTERSTORE"
+    assert command_in_list(%RedisCommand.ZRem{key: "zset_for_rem"}, commands), "Missing ZREM"
+    assert command_in_list(%RedisCommand.ZPopMax{key: "pop_zset"}, commands), "Missing ZPOPMAX"
+    assert command_in_list(%RedisCommand.ZPopMin{key: "pop_zset"}, commands), "Missing ZPOPMIN"
 
-    assert command_in_list(%Command.ZRemRangeByRank{key: "remrange_zset"}, commands),
+    assert command_in_list(%RedisCommand.ZRemRangeByRank{key: "remrange_zset"}, commands),
            "Missing ZREMRANGEBYRANK"
 
-    assert command_in_list(%Command.ZRemRangeByScore{key: "remrange_score_zset"}, commands),
+    assert command_in_list(%RedisCommand.ZRemRangeByScore{key: "remrange_score_zset"}, commands),
            "Missing ZREMRANGEBYSCORE"
 
-    assert command_in_list(%Command.ZRemRangeByLex{key: "remrange_lex_zset"}, commands),
+    assert command_in_list(%RedisCommand.ZRemRangeByLex{key: "remrange_lex_zset"}, commands),
            "Missing ZREMRANGEBYLEX"
 
     # Hash commands
-    assert command_in_list(%Command.HSet{key: "myhash"}, commands), "Missing HSET myhash"
-    assert command_in_list(%Command.HDel{key: "hash_for_del"}, commands), "Missing HDEL"
+    assert command_in_list(%RedisCommand.HSet{key: "myhash"}, commands), "Missing HSET myhash"
+    assert command_in_list(%RedisCommand.HDel{key: "hash_for_del"}, commands), "Missing HDEL"
 
     # Expiration
-    assert command_in_list(%Command.PExpireAt{key: "expire_key"}, commands), "Missing PEXPIREAT"
+    assert command_in_list(%RedisCommand.PExpireAt{key: "expire_key"}, commands),
+           "Missing PEXPIREAT"
 
     # Key management
-    assert command_in_list(%Command.Rename{}, commands), "Missing RENAME"
-    assert command_in_list(%Command.RenameNX{}, commands), "Missing RENAMENX"
-    assert command_in_list(%Command.Del{}, commands), "Missing DEL"
+    assert command_in_list(%RedisCommand.Rename{}, commands), "Missing RENAME"
+    assert command_in_list(%RedisCommand.RenameNX{}, commands), "Missing RENAMENX"
+    assert command_in_list(%RedisCommand.Del{}, commands), "Missing DEL"
   end
 
   # ===== Low-level Replica Tests =====

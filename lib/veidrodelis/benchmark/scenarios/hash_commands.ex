@@ -23,7 +23,6 @@ defmodule Vdr.Benchmark.Scenarios.HashCommands do
     ]
   end
 
-
   # Alternates between HSET and HDEL commands
   defp generate_command do
     key_num = :rand.uniform(1000)

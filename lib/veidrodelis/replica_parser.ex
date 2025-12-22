@@ -12,7 +12,7 @@ defmodule Vdr.ReplicaParser do
 
   ## Example - Basic Usage
 
-      alias Vdr.Command
+      alias Vdr.RedisCommand
 
       # Create parser
       parser = Vdr.ReplicaParser.create()
@@ -42,7 +42,7 @@ defmodule Vdr.ReplicaParser do
       # For normal use cases, use Vdr.RedisStream.Replica instead.
   """
 
-  alias Vdr.Command
+  alias Vdr.RedisCommand
 
   @doc """
   Create a new streaming replica parser.
@@ -98,7 +98,7 @@ defmodule Vdr.ReplicaParser do
     * `{:error, reason}` - Parsing failed
 
   Commands are tuples: `{db, command_struct}` where `db` is the database number
-  and `command_struct` is a `Vdr.Command.*` struct.
+  and `command_struct` is a `Vdr.RedisCommand.*` struct.
 
   ## Example
 
@@ -148,107 +148,113 @@ defmodule Vdr.ReplicaParser do
         # String commands
         "SET" when length(args) >= 2 ->
           [key, value | _rest] = args
-          %Command.Set{key: key, value: value}
+          %RedisCommand.Set{key: key, value: value}
 
         "MSET" when length(args) >= 2 ->
           pairs = parse_pairs(args, [])
-          %Command.MSet{pairs: pairs}
+          %RedisCommand.MSet{pairs: pairs}
 
         "APPEND" when length(args) == 2 ->
           [key, value] = args
-          %Command.Append{key: key, value: value}
+          %RedisCommand.Append{key: key, value: value}
 
         "SETRANGE" when length(args) == 3 ->
           [key, offset_str, value] = args
           offset = String.to_integer(offset_str)
-          %Command.SetRange{key: key, offset: offset, value: value}
+          %RedisCommand.SetRange{key: key, offset: offset, value: value}
 
         "SETBIT" when length(args) == 3 ->
           [key, offset_str, value_str] = args
           offset = String.to_integer(offset_str)
           value = String.to_integer(value_str)
-          %Command.SetBit{key: key, offset: offset, value: value}
+          %RedisCommand.SetBit{key: key, offset: offset, value: value}
 
         # List commands
         "RPUSH" ->
           [key | values] = args
-          %Command.RPush{key: key, values: values}
+          %RedisCommand.RPush{key: key, values: values}
 
         "LPUSH" ->
           [key | values] = args
-          %Command.LPush{key: key, values: values}
+          %RedisCommand.LPush{key: key, values: values}
 
         "LPUSHX" ->
           [key | values] = args
-          %Command.LPushX{key: key, values: values}
+          %RedisCommand.LPushX{key: key, values: values}
 
         "RPUSHX" ->
           [key | values] = args
-          %Command.RPushX{key: key, values: values}
+          %RedisCommand.RPushX{key: key, values: values}
 
         "LPOP" when length(args) >= 1 ->
           [key | _rest] = args
-          %Command.LPop{key: key}
+          %RedisCommand.LPop{key: key}
 
         "RPOP" when length(args) >= 1 ->
           [key | _rest] = args
-          %Command.RPop{key: key}
+          %RedisCommand.RPop{key: key}
 
         "LREM" when length(args) == 3 ->
           [key, count_str, value] = args
           count = String.to_integer(count_str)
-          %Command.LRem{key: key, count: count, value: value}
+          %RedisCommand.LRem{key: key, count: count, value: value}
 
         "LTRIM" when length(args) == 3 ->
           [key, start_str, stop_str] = args
           start = String.to_integer(start_str)
           stop = String.to_integer(stop_str)
-          %Command.LTrim{key: key, start: start, stop: stop}
+          %RedisCommand.LTrim{key: key, start: start, stop: stop}
 
         "LSET" when length(args) == 3 ->
           [key, index_str, value] = args
           index = String.to_integer(index_str)
-          %Command.LSet{key: key, index: index, value: value}
+          %RedisCommand.LSet{key: key, index: index, value: value}
 
         "LINSERT" when length(args) == 4 ->
           [key, before_after_str, pivot, element] = args
           before_after = if String.upcase(before_after_str) == "BEFORE", do: :before, else: :after
-          %Command.LInsert{key: key, before_after: before_after, pivot: pivot, element: element}
+
+          %RedisCommand.LInsert{
+            key: key,
+            before_after: before_after,
+            pivot: pivot,
+            element: element
+          }
 
         "RPOPLPUSH" when length(args) == 2 ->
           [source, destination] = args
-          %Command.RPopLPush{source: source, destination: destination}
+          %RedisCommand.RPopLPush{source: source, destination: destination}
 
         # Set commands
         "SADD" ->
           [key | members] = args
-          %Command.SAdd{key: key, members: members}
+          %RedisCommand.SAdd{key: key, members: members}
 
         "SREM" ->
           [key | members] = args
-          %Command.SRem{key: key, members: members}
+          %RedisCommand.SRem{key: key, members: members}
 
         "SMOVE" when length(args) == 3 ->
           [source, destination, member] = args
-          %Command.SMove{source: source, destination: destination, member: member}
+          %RedisCommand.SMove{source: source, destination: destination, member: member}
 
         "SINTERSTORE" when length(args) >= 2 ->
           [destination, _numkeys | keys] = args
-          %Command.SInterStore{destination: destination, keys: keys}
+          %RedisCommand.SInterStore{destination: destination, keys: keys}
 
         "SUNIONSTORE" when length(args) >= 2 ->
           [destination, _numkeys | keys] = args
-          %Command.SUnionStore{destination: destination, keys: keys}
+          %RedisCommand.SUnionStore{destination: destination, keys: keys}
 
         "SDIFFSTORE" when length(args) >= 2 ->
           [destination, _numkeys | keys] = args
-          %Command.SDiffStore{destination: destination, keys: keys}
+          %RedisCommand.SDiffStore{destination: destination, keys: keys}
 
         # Sorted set commands
         "ZADD" ->
           [key | score_member_pairs] = args
           members = parse_zadd_args(score_member_pairs, [])
-          %Command.ZAdd{key: key, members: members}
+          %RedisCommand.ZAdd{key: key, members: members}
 
         "ZUNIONSTORE" when length(args) >= 2 ->
           parse_zunionstore(args)
@@ -258,68 +264,68 @@ defmodule Vdr.ReplicaParser do
 
         "ZREM" ->
           [key | members] = args
-          %Command.ZRem{key: key, members: members}
+          %RedisCommand.ZRem{key: key, members: members}
 
         "ZPOPMAX" ->
           [key | rest] = args
           count = if rest == [], do: 1, else: String.to_integer(List.first(rest))
-          %Command.ZPopMax{key: key, count: count}
+          %RedisCommand.ZPopMax{key: key, count: count}
 
         "ZPOPMIN" ->
           [key | rest] = args
           count = if rest == [], do: 1, else: String.to_integer(List.first(rest))
-          %Command.ZPopMin{key: key, count: count}
+          %RedisCommand.ZPopMin{key: key, count: count}
 
         "ZREMRANGEBYRANK" when length(args) == 3 ->
           [key, start_str, stop_str] = args
           start = String.to_integer(start_str)
           stop = String.to_integer(stop_str)
-          %Command.ZRemRangeByRank{key: key, start: start, stop: stop}
+          %RedisCommand.ZRemRangeByRank{key: key, start: start, stop: stop}
 
         "ZREMRANGEBYSCORE" when length(args) == 3 ->
           [key, min, max] = args
-          %Command.ZRemRangeByScore{key: key, min: min, max: max}
+          %RedisCommand.ZRemRangeByScore{key: key, min: min, max: max}
 
         "ZREMRANGEBYLEX" when length(args) == 3 ->
           [key, min, max] = args
-          %Command.ZRemRangeByLex{key: key, min: min, max: max}
+          %RedisCommand.ZRemRangeByLex{key: key, min: min, max: max}
 
         # Hash commands
         "HSET" ->
           [key | field_value_pairs] = args
           fields = parse_hset_args(field_value_pairs, [])
-          %Command.HSet{key: key, fields: fields}
+          %RedisCommand.HSet{key: key, fields: fields}
 
         "HDEL" ->
           [key | fields] = args
-          %Command.HDel{key: key, fields: fields}
+          %RedisCommand.HDel{key: key, fields: fields}
 
         # Key management
         "DEL" when length(args) >= 1 ->
-          %Command.Del{keys: args}
+          %RedisCommand.Del{keys: args}
 
         "RENAME" when length(args) == 2 ->
           [key, newkey] = args
-          %Command.Rename{key: key, newkey: newkey}
+          %RedisCommand.Rename{key: key, newkey: newkey}
 
         "RENAMENX" when length(args) == 2 ->
           [key, newkey] = args
-          %Command.RenameNX{key: key, newkey: newkey}
+          %RedisCommand.RenameNX{key: key, newkey: newkey}
 
         "MOVE" when length(args) == 2 ->
           [key, db_str] = args
           db = String.to_integer(db_str)
-          %Command.Move{key: key, db: db}
+          %RedisCommand.Move{key: key, db: db}
 
         # Expiration
         "PEXPIREAT" when length(args) == 2 ->
           [key, timestamp_str] = args
           timestamp_ms = String.to_integer(timestamp_str)
-          %Command.PExpireAt{key: key, timestamp_ms: timestamp_ms}
+          %RedisCommand.PExpireAt{key: key, timestamp_ms: timestamp_ms}
 
         _ ->
           # Return generic command for unknown or malformed commands
-          %Command.Generic{args: [name | args]}
+          %RedisCommand.Generic{args: [name | args]}
       end
 
     {db, command}
@@ -338,7 +344,7 @@ defmodule Vdr.ReplicaParser do
     {keys, rest} = Enum.split(rest, numkeys)
     {weights, aggregate} = parse_zstore_options(rest)
 
-    %Command.ZUnionStore{
+    %RedisCommand.ZUnionStore{
       destination: destination,
       keys: keys,
       weights: weights,
@@ -351,7 +357,7 @@ defmodule Vdr.ReplicaParser do
     {keys, rest} = Enum.split(rest, numkeys)
     {weights, aggregate} = parse_zstore_options(rest)
 
-    %Command.ZInterStore{
+    %RedisCommand.ZInterStore{
       destination: destination,
       keys: keys,
       weights: weights,

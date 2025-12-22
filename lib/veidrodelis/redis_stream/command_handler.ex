@@ -1,7 +1,6 @@
 defmodule Vdr.RedisStream.CommandFilter do
-
   @type piggyback :: term()
-  @type pre_handle :: (Command.t() -> {:ok, piggyback, Command.t()} | :skip)
+  @type pre_handle :: (RedisCommand.t() -> {:ok, piggyback, RedisCommand.t()} | :skip)
   @type post_handle :: (piggyback -> :ok)
 
   def identity_pre_handle(command) do
@@ -12,10 +11,8 @@ defmodule Vdr.RedisStream.CommandFilter do
     :ok
   end
 
-  defstruct [
-    pre_handle: &__MODULE__.identity_pre_handle/1,
-    post_handle: &__MODULE__.identity_post_handle/1
-  ]
+  defstruct pre_handle: &__MODULE__.identity_pre_handle/1,
+            post_handle: &__MODULE__.identity_post_handle/1
 
   def combine(outer_filter, inner_filter) do
     %__MODULE__{
@@ -25,9 +22,13 @@ defmodule Vdr.RedisStream.CommandFilter do
             case inner_filter.pre_handle.(command) do
               {:ok, piggyback_inner, command} ->
                 {:ok, {piggyback_outer, piggyback_inner}, command}
-              :skip -> :skip
+
+              :skip ->
+                :skip
             end
-          :skip -> :skip
+
+          :skip ->
+            :skip
         end
       end,
       post_handle: fn {piggyback_outer, piggyback_inner} ->
@@ -39,12 +40,13 @@ defmodule Vdr.RedisStream.CommandFilter do
 
   def apply(filter, command, fun) do
     case filter.pre_handle.(command) do
-      :skip -> :ok
+      :skip ->
+        :ok
+
       {:ok, piggyback, command} ->
         result = fun.(command)
         :ok = filter.post_handle.(piggyback)
         result
     end
   end
-
 end

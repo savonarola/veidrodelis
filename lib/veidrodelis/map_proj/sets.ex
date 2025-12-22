@@ -25,7 +25,8 @@ defmodule Vdr.MapProj.Sets do
         entries when is_tuple(entries) -> entries
       end
 
-    new_gb_set = Enum.reduce(members, gb_set, fn member, acc -> :gb_sets.add_element(member, acc) end)
+    new_gb_set =
+      Enum.reduce(members, gb_set, fn member, acc -> :gb_sets.add_element(member, acc) end)
 
     new_db_map = Map.put(db_map, key, new_gb_set)
     Map.put(store, db, new_db_map)

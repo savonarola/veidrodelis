@@ -8,49 +8,49 @@ defmodule Vdr.RedisStream.Callback do
 
   ## Command Structs
 
-  The parser emits command structs from `Veidrodelis.Command`:
+  The parser emits command structs from `Veidrodelis.RedisCommand`:
 
-  - `%Command.Set{}` - String value (SET command)
-  - `%Command.RPush{}` - List element (RPUSH command)
-  - `%Command.SAdd{}` - Set member (SADD command)
-  - `%Command.ZAdd{}` - Sorted set member with score (ZADD command)
-  - `%Command.HSet{}` - Hash field and value (HSET command)
-  - `%Command.PExpireAt{}` - Key expiration timestamp in milliseconds (PEXPIREAT command)
+  - `%RedisCommand.Set{}` - String value (SET command)
+  - `%RedisCommand.RPush{}` - List element (RPUSH command)
+  - `%RedisCommand.SAdd{}` - Set member (SADD command)
+  - `%RedisCommand.ZAdd{}` - Sorted set member with score (ZADD command)
+  - `%RedisCommand.HSet{}` - Hash field and value (HSET command)
+  - `%RedisCommand.PExpireAt{}` - Key expiration timestamp in milliseconds (PEXPIREAT command)
 
   ## Example
 
       defmodule MyCallback do
         @behaviour Vdr.RedisStream.Callback
 
-        alias Vdr.Command
+        alias Vdr.RedisCommand
 
         @impl true
-        def handle_command(state, db, %Command.Set{key: key, value: value}) do
+        def handle_command(state, db, %RedisCommand.Set{key: key, value: value}) do
           IO.puts("SET \#{key} = \#{value} in DB \#{db}")
           {:ok, state}
         end
 
-        def handle_command(state, db, %Command.RPush{key: key, value: value}) do
+        def handle_command(state, db, %RedisCommand.RPush{key: key, value: value}) do
           IO.puts("RPUSH \#{key} \#{value} in DB \#{db}")
           {:ok, state}
         end
 
-        def handle_command(state, db, %Command.SAdd{key: key, member: member}) do
+        def handle_command(state, db, %RedisCommand.SAdd{key: key, member: member}) do
           IO.puts("SADD \#{key} \#{member} in DB \#{db}")
           {:ok, state}
         end
 
-        def handle_command(state, db, %Command.ZAdd{key: key, score: score, member: member}) do
+        def handle_command(state, db, %RedisCommand.ZAdd{key: key, score: score, member: member}) do
           IO.puts("ZADD \#{key} \#{score} \#{member} in DB \#{db}")
           {:ok, state}
         end
 
-        def handle_command(state, db, %Command.HSet{key: key, field: field, value: value}) do
+        def handle_command(state, db, %RedisCommand.HSet{key: key, field: field, value: value}) do
           IO.puts("HSET \#{key} \#{field} \#{value} in DB \#{db}")
           {:ok, state}
         end
 
-        def handle_command(state, db, %Command.PExpireAt{key: key, timestamp_ms: timestamp_ms}) do
+        def handle_command(state, db, %RedisCommand.PExpireAt{key: key, timestamp_ms: timestamp_ms}) do
           IO.puts("PEXPIREAT \#{key} \#{timestamp_ms} in DB \#{db}")
           {:ok, state}
         end
@@ -60,7 +60,7 @@ defmodule Vdr.RedisStream.Callback do
       {:ok, final_state} = Vdr.RDB.parse(rdb_binary, MyCallback, %{})
   """
 
-  alias Vdr.Command
+  alias Vdr.RedisCommand
 
   @doc """
   Called when a full replication is about to start.
@@ -92,7 +92,7 @@ defmodule Vdr.RedisStream.Callback do
 
     * `state` - Current state
     * `db` - Database number
-    * `command` - A command struct from `Veidrodelis.Command`
+    * `command` - A command struct from `Veidrodelis.RedisCommand`
 
   ## Returns
 
@@ -102,7 +102,7 @@ defmodule Vdr.RedisStream.Callback do
   @callback handle_command(
               state :: term(),
               db :: non_neg_integer(),
-              command :: Command.t()
+              command :: RedisCommand.t()
             ) ::
               {:ok, term()} | {:error, term()}
 

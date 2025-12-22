@@ -16,10 +16,10 @@ defmodule Vdr.RedisStream.Replica do
       defmodule MyCallback do
         @behaviour Veidrodelis.RedisStream.Callback
 
-        alias Vdr.Command
+        alias Vdr.RedisCommand
 
         @impl true
-        def handle_command(state, db, %Command.Set{key: key, value: value}) do
+        def handle_command(state, db, %RedisCommand.Set{key: key, value: value}) do
           IO.puts("SET \#{key} = \#{value} in DB \#{db}")
           {:ok, Map.update(state, :count, 1, &(&1 + 1))}
         end
@@ -635,15 +635,20 @@ defmodule Vdr.RedisStream.Replica do
           new_buffer = [data | state.buffer]
           new_buffer_size = state.buffer_size + byte_size(data)
           new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
+
           case other do
             :ping ->
               handle_ping_response(new_state)
+
             :auth ->
               handle_auth_response(new_state)
+
             :replconf_listening_port ->
               handle_replconf_response(new_state, :replconf_capa)
+
             :replconf_capa ->
               handle_replconf_response(new_state, :send_psync)
+
             :psync ->
               handle_psync_response(new_state)
           end
@@ -749,6 +754,7 @@ defmodule Vdr.RedisStream.Replica do
             else
               {:noreply, new_state}
             end
+
           {:error, reason} ->
             Logger.error("handle_replication_start callback failed: #{inspect(reason)}")
             {:stop, {:handle_replication_start_failed, reason}, state}
@@ -765,6 +771,7 @@ defmodule Vdr.RedisStream.Replica do
         # Create replica parser (handles both RDB and command streaming)
 
         replica_parser = ReplicaParser.create()
+
         new_state = %{
           state
           | callback_state: updated_callback_state,
@@ -773,7 +780,9 @@ defmodule Vdr.RedisStream.Replica do
             replica_parser: replica_parser,
             state: :replication
         }
+
         {:ok, new_state}
+
       {:error, reason} ->
         {:error, {:handle_replication_start_failed, reason}}
     end
@@ -853,7 +862,7 @@ defmodule Vdr.RedisStream.Replica do
     result =
       case command do
         # PING - send ACK
-        %Vdr.Command.Set{key: "PING", value: ""} when db == 0 ->
+        %Vdr.RedisCommand.Set{key: "PING", value: ""} when db == 0 ->
           Logger.debug("Received PING, sending REPLCONF ACK #{state.replication_offset}")
           send_replconf_ack(state)
           {:ok, state}
@@ -861,9 +870,9 @@ defmodule Vdr.RedisStream.Replica do
         # Regular commands - invoke callback
         _ ->
           result =
-          CommandFilter.apply(state.command_filter, command, fn command ->
-            state.callback_module.handle_command(state.callback_state, db, command)
-          end)
+            CommandFilter.apply(state.command_filter, command, fn command ->
+              state.callback_module.handle_command(state.callback_state, db, command)
+            end)
 
           case result do
             {:ok, new_callback_state} ->

@@ -11,7 +11,7 @@ defmodule Vdr.MapProj do
 
   @behaviour Vdr.RedisStream.Callback
 
-  alias Vdr.Command
+  alias Vdr.RedisCommand
   alias Vdr.MapProj.{Strings, Lists, Sets, Hashes, ZSets, Common}
 
   defstruct [:store]
@@ -194,19 +194,19 @@ defmodule Vdr.MapProj do
 
   # Command handlers
 
-  defp do_handle_command(state, db, %Command.Set{key: key, value: value}) do
+  defp do_handle_command(state, db, %RedisCommand.Set{key: key, value: value}) do
     Strings.set(state.store, db, key, value)
   end
 
-  defp do_handle_command(state, db, %Command.MSet{pairs: pairs}) do
+  defp do_handle_command(state, db, %RedisCommand.MSet{pairs: pairs}) do
     Strings.mset(state.store, db, pairs)
   end
 
-  defp do_handle_command(state, db, %Command.Append{key: key, value: value}) do
+  defp do_handle_command(state, db, %RedisCommand.Append{key: key, value: value}) do
     Strings.append(state.store, db, key, value)
   end
 
-  defp do_handle_command(state, db, %Command.SetRange{
+  defp do_handle_command(state, db, %RedisCommand.SetRange{
          key: key,
          offset: offset,
          value: value
@@ -214,40 +214,40 @@ defmodule Vdr.MapProj do
     Strings.setrange(state.store, db, key, offset, value)
   end
 
-  defp do_handle_command(state, db, %Command.SetBit{key: key, offset: offset, value: bit}) do
+  defp do_handle_command(state, db, %RedisCommand.SetBit{key: key, offset: offset, value: bit}) do
     Strings.setbit(state.store, db, key, offset, bit)
   end
 
   # List commands
-  defp do_handle_command(state, db, %Command.RPush{key: key, values: values}) do
+  defp do_handle_command(state, db, %RedisCommand.RPush{key: key, values: values}) do
     Lists.rpush(state.store, db, key, values)
   end
 
-  defp do_handle_command(state, db, %Command.LPush{key: key, values: values}) do
+  defp do_handle_command(state, db, %RedisCommand.LPush{key: key, values: values}) do
     Lists.lpush(state.store, db, key, values)
   end
 
-  defp do_handle_command(state, db, %Command.RPushX{key: key, values: values}) do
+  defp do_handle_command(state, db, %RedisCommand.RPushX{key: key, values: values}) do
     Lists.rpushx(state.store, db, key, values)
   end
 
-  defp do_handle_command(state, db, %Command.LPushX{key: key, values: values}) do
+  defp do_handle_command(state, db, %RedisCommand.LPushX{key: key, values: values}) do
     Lists.lpushx(state.store, db, key, values)
   end
 
-  defp do_handle_command(state, db, %Command.LPop{key: key}) do
+  defp do_handle_command(state, db, %RedisCommand.LPop{key: key}) do
     Lists.lpop(state.store, db, key)
   end
 
-  defp do_handle_command(state, db, %Command.RPop{key: key}) do
+  defp do_handle_command(state, db, %RedisCommand.RPop{key: key}) do
     Lists.rpop(state.store, db, key)
   end
 
-  defp do_handle_command(state, db, %Command.LRem{key: key, count: count, value: value}) do
+  defp do_handle_command(state, db, %RedisCommand.LRem{key: key, count: count, value: value}) do
     Lists.lrem(state.store, db, key, count, value)
   end
 
-  defp do_handle_command(state, db, %Command.LTrim{
+  defp do_handle_command(state, db, %RedisCommand.LTrim{
          key: key,
          start: start_idx,
          stop: stop_idx
@@ -255,34 +255,34 @@ defmodule Vdr.MapProj do
     Lists.ltrim(state.store, db, key, start_idx, stop_idx)
   end
 
-  defp do_handle_command(state, db, %Command.LSet{key: key, index: index, value: value}) do
+  defp do_handle_command(state, db, %RedisCommand.LSet{key: key, index: index, value: value}) do
     Lists.lset(state.store, db, key, index, value)
   end
 
   defp do_handle_command(
          state,
          db,
-         %Command.LInsert{key: key, before_after: position, pivot: pivot, element: element}
+         %RedisCommand.LInsert{key: key, before_after: position, pivot: pivot, element: element}
        ) do
     Lists.linsert(state.store, db, key, position, pivot, element)
   end
 
-  defp do_handle_command(state, db, %Command.RPopLPush{
+  defp do_handle_command(state, db, %RedisCommand.RPopLPush{
          source: source,
          destination: dest
        }) do
     Lists.rpoplpush(state.store, db, source, dest)
   end
 
-  defp do_handle_command(state, db, %Command.SAdd{key: key, members: members}) do
+  defp do_handle_command(state, db, %RedisCommand.SAdd{key: key, members: members}) do
     Sets.sadd(state.store, db, key, members)
   end
 
-  defp do_handle_command(state, db, %Command.SRem{key: key, members: members}) do
+  defp do_handle_command(state, db, %RedisCommand.SRem{key: key, members: members}) do
     Sets.srem(state.store, db, key, members)
   end
 
-  defp do_handle_command(state, db, %Command.SMove{
+  defp do_handle_command(state, db, %RedisCommand.SMove{
          source: source,
          destination: dest,
          member: member
@@ -290,45 +290,45 @@ defmodule Vdr.MapProj do
     Sets.smove(state.store, db, source, dest, member)
   end
 
-  defp do_handle_command(state, db, %Command.SInterStore{destination: dest, keys: keys}) do
+  defp do_handle_command(state, db, %RedisCommand.SInterStore{destination: dest, keys: keys}) do
     Sets.sinterstore(state.store, db, dest, keys)
   end
 
-  defp do_handle_command(state, db, %Command.SUnionStore{destination: dest, keys: keys}) do
+  defp do_handle_command(state, db, %RedisCommand.SUnionStore{destination: dest, keys: keys}) do
     Sets.sunionstore(state.store, db, dest, keys)
   end
 
-  defp do_handle_command(state, db, %Command.SDiffStore{destination: dest, keys: keys}) do
+  defp do_handle_command(state, db, %RedisCommand.SDiffStore{destination: dest, keys: keys}) do
     Sets.sdiffstore(state.store, db, dest, keys)
   end
 
-  defp do_handle_command(state, db, %Command.HSet{key: key, fields: field_values}) do
+  defp do_handle_command(state, db, %RedisCommand.HSet{key: key, fields: field_values}) do
     Hashes.hset(state.store, db, key, field_values)
   end
 
-  defp do_handle_command(state, db, %Command.HDel{key: key, fields: fields}) do
+  defp do_handle_command(state, db, %RedisCommand.HDel{key: key, fields: fields}) do
     Hashes.hdel(state.store, db, key, fields)
   end
 
-  defp do_handle_command(state, db, %Command.ZAdd{key: key, members: members}) do
+  defp do_handle_command(state, db, %RedisCommand.ZAdd{key: key, members: members}) do
     ZSets.zadd(state.store, db, key, members)
   end
 
-  defp do_handle_command(state, db, %Command.ZRem{key: key, members: members}) do
+  defp do_handle_command(state, db, %RedisCommand.ZRem{key: key, members: members}) do
     ZSets.zrem(state.store, db, key, members)
   end
 
-  defp do_handle_command(state, db, %Command.ZPopMax{key: key, count: count}) do
+  defp do_handle_command(state, db, %RedisCommand.ZPopMax{key: key, count: count}) do
     {new_store, _popped} = ZSets.zpopmax(state.store, db, key, count)
     new_store
   end
 
-  defp do_handle_command(state, db, %Command.ZPopMin{key: key, count: count}) do
+  defp do_handle_command(state, db, %RedisCommand.ZPopMin{key: key, count: count}) do
     {new_store, _popped} = ZSets.zpopmin(state.store, db, key, count)
     new_store
   end
 
-  defp do_handle_command(state, db, %Command.ZRemRangeByRank{
+  defp do_handle_command(state, db, %RedisCommand.ZRemRangeByRank{
          key: key,
          start: start_idx,
          stop: stop_idx
@@ -336,17 +336,17 @@ defmodule Vdr.MapProj do
     ZSets.zremrangebyrank(state.store, db, key, start_idx, stop_idx)
   end
 
-  defp do_handle_command(state, db, %Command.ZRemRangeByScore{key: key, min: min, max: max}) do
+  defp do_handle_command(state, db, %RedisCommand.ZRemRangeByScore{key: key, min: min, max: max}) do
     min_score = parse_score(min)
     max_score = parse_score(max)
     ZSets.zremrangebyscore(state.store, db, key, min_score, max_score)
   end
 
-  defp do_handle_command(state, db, %Command.ZRemRangeByLex{key: key, min: min, max: max}) do
+  defp do_handle_command(state, db, %RedisCommand.ZRemRangeByLex{key: key, min: min, max: max}) do
     ZSets.zremrangebylex(state.store, db, key, min, max)
   end
 
-  defp do_handle_command(state, db, %Command.ZUnionStore{
+  defp do_handle_command(state, db, %RedisCommand.ZUnionStore{
          destination: dest,
          keys: keys,
          weights: weights,
@@ -362,7 +362,7 @@ defmodule Vdr.MapProj do
     )
   end
 
-  defp do_handle_command(state, db, %Command.ZInterStore{
+  defp do_handle_command(state, db, %RedisCommand.ZInterStore{
          destination: dest,
          keys: keys,
          weights: weights,
@@ -378,13 +378,13 @@ defmodule Vdr.MapProj do
     )
   end
 
-  defp do_handle_command(state, db, %Command.Del{keys: keys}) do
+  defp do_handle_command(state, db, %RedisCommand.Del{keys: keys}) do
     Enum.reduce(keys, state.store, fn key, store ->
       Common.del(store, db, key)
     end)
   end
 
-  defp do_handle_command(state, _db, %Command.PExpireAt{}) do
+  defp do_handle_command(state, _db, %RedisCommand.PExpireAt{}) do
     state.store
   end
 

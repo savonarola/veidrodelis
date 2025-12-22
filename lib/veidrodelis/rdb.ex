@@ -1,7 +1,7 @@
 defmodule Vdr.RDB do
   @moduledoc false
 
-  alias Vdr.Command
+  alias Vdr.RedisCommand
 
   @doc """
   Create a new streaming RDB parser.
@@ -85,29 +85,29 @@ defmodule Vdr.RDB do
         # String commands
         "SET" when length(args) >= 2 ->
           [key, value | _rest] = args
-          %Command.Set{key: key, value: value}
+          %RedisCommand.Set{key: key, value: value}
 
         "RPUSH" ->
           [key | values] = args
-          %Command.RPush{key: key, values: values}
+          %RedisCommand.RPush{key: key, values: values}
 
         "SADD" ->
           [key | members] = args
-          %Command.SAdd{key: key, members: members}
+          %RedisCommand.SAdd{key: key, members: members}
 
         "ZADD" ->
           [key | score_member_pairs] = args
           members = parse_zadd_args(score_member_pairs, [])
-          %Command.ZAdd{key: key, members: members}
+          %RedisCommand.ZAdd{key: key, members: members}
 
         "HSET" ->
           [key | field_value_pairs] = args
           fields = parse_hset_args(field_value_pairs, [])
-          %Command.HSet{key: key, fields: fields}
+          %RedisCommand.HSet{key: key, fields: fields}
 
         "PEXPIREAT" ->
           [key | [expire_ms]] = args
-          %Command.PExpireAt{key: key, timestamp_ms: expire_ms}
+          %RedisCommand.PExpireAt{key: key, timestamp_ms: expire_ms}
       end
 
     {db, command}
