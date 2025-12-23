@@ -11,6 +11,11 @@ defmodule Veidrodelis.ReplicaPeriodicAckTest do
     @behaviour Vdr.RedisStream.Callback
 
     @impl true
+    def init(_opts) do
+      {:ok, %{}}
+    end
+
+    @impl true
     def handle_replication_start(state) do
       {:ok, state}
     end

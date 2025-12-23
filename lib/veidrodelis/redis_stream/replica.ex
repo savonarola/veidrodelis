@@ -213,42 +213,50 @@ defmodule Vdr.RedisStream.Replica do
     Logger.debug("Initializing replica with opts: #{inspect(opts)}")
     Process.flag(:trap_exit, true)
 
-    state = %{
-      host: Keyword.get(opts, :host, "localhost"),
-      port: Keyword.get(opts, :port, @default_port),
-      username: Keyword.get(opts, :username),
-      password: Keyword.get(opts, :password),
-      ssl: Keyword.get(opts, :ssl, false),
-      ssl_opts: Keyword.get(opts, :ssl_opts, []),
-      callback_module: Keyword.fetch!(opts, :callback_module),
-      callback_state: Keyword.fetch!(opts, :callback_state),
-      # Reconnection options
-      reconnect_enabled: Keyword.get(opts, :reconnect, true),
-      reconnect_delay_ms: Keyword.get(opts, :reconnect_delay_ms, 1000),
-      max_reconnect_delay_ms: Keyword.get(opts, :max_reconnect_delay_ms, 30_000),
-      current_reconnect_delay_ms: Keyword.get(opts, :reconnect_delay_ms, 1000),
-      # ACK options
-      ack_interval_ms: Keyword.get(opts, :ack_interval_ms, 1000),
-      ack_timer_ref: nil,
-      # Connection state
-      socket: nil,
-      transport: nil,
-      # Replication state (preserved across reconnections)
-      saved_replication_id: nil,
-      saved_replication_offset: 0,
-      replication_id: nil,
-      replication_offset: 0,
-      # Rust replica parser handles all parsing (RDB + commands)
-      replica_parser: nil,
-      # Buffer for protocol messages before replication starts
-      buffer: [],
-      buffer_size: 0,
-      state: :init,
-      command_filter: Keyword.get(opts, :command_filter, %CommandFilter{})
-    }
+    callback_module = Keyword.get(opts, :callback_module)
+    callback_opts = Keyword.get(opts, :callback_opts)
 
-    # Start connection process asynchronously
-    {:ok, state, {:continue, :connect}}
+    case callback_module.init(callback_opts) do
+      {:ok, callback_state} ->
+        state = %{
+          host: Keyword.get(opts, :host, "localhost"),
+          port: Keyword.get(opts, :port, @default_port),
+          username: Keyword.get(opts, :username),
+          password: Keyword.get(opts, :password),
+          ssl: Keyword.get(opts, :ssl, false),
+          ssl_opts: Keyword.get(opts, :ssl_opts, []),
+          callback_module: callback_module,
+          callback_state: callback_state,
+          # Reconnection options
+          reconnect_enabled: Keyword.get(opts, :reconnect, true),
+          reconnect_delay_ms: Keyword.get(opts, :reconnect_delay_ms, 1000),
+          max_reconnect_delay_ms: Keyword.get(opts, :max_reconnect_delay_ms, 30_000),
+          current_reconnect_delay_ms: Keyword.get(opts, :reconnect_delay_ms, 1000),
+          # ACK options
+          ack_interval_ms: Keyword.get(opts, :ack_interval_ms, 1000),
+          ack_timer_ref: nil,
+          # Connection state
+          socket: nil,
+          transport: nil,
+          # Replication state (preserved across reconnections)
+          saved_replication_id: nil,
+          saved_replication_offset: 0,
+          replication_id: nil,
+          replication_offset: 0,
+          # Rust replica parser handles all parsing (RDB + commands)
+          replica_parser: nil,
+          # Buffer for protocol messages before replication starts
+          buffer: [],
+          buffer_size: 0,
+          state: :init,
+          command_filter: Keyword.get(opts, :command_filter, %CommandFilter{})
+        }
+
+        # Start connection process asynchronously
+        {:ok, state, {:continue, :connect}}
+      {:error, reason} ->
+        {:stop, {:init_failed, reason}}
+    end
   end
 
   @impl true

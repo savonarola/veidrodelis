@@ -7,8 +7,10 @@ defmodule VeidrodelisTest do
 
   @redis_host "localhost"
   @redis_port 16378
+  @id "vdr_id"
 
   @veidrodelis_base_opts [
+    id: @id,
     host: @redis_host,
     port: @redis_port
   ]
@@ -49,8 +51,8 @@ defmodule VeidrodelisTest do
 
       # Verify data in store
       wait_happens_within 100 do
-        Veidrodelis.get(pid, 0, "key1") == "value1" &&
-          Veidrodelis.get(pid, 0, "key2") == "value2" &&
+        Veidrodelis.get(@id, 0, "key1") == "value1" &&
+          Veidrodelis.get(@id, 0, "key2") == "value2" &&
           Redix.command!(redis, ["GET", "key1"]) == "value1" &&
           Redix.command!(redis, ["GET", "key2"]) == "value2"
       end
@@ -74,7 +76,7 @@ defmodule VeidrodelisTest do
 
       # Verify data in store
       wait_happens_within 100 do
-        members = Veidrodelis.smembers(pid, 0, "myset")
+        members = Veidrodelis.smembers(@id, 0, "myset")
         redis_members = Redix.command!(redis, ["SMEMBERS", "myset"])
 
         length(members) == 3 &&
@@ -104,7 +106,7 @@ defmodule VeidrodelisTest do
 
       # Verify data in store
       wait_happens_within 100 do
-        elements = Veidrodelis.lrange(pid, 0, "mylist", 0, -1)
+        elements = Veidrodelis.lrange(@id, 0, "mylist", 0, -1)
         redis_elements = Redix.command!(redis, ["LRANGE", "mylist", "0", "-1"])
 
         length(elements) == 3 &&
@@ -129,8 +131,8 @@ defmodule VeidrodelisTest do
 
       # Verify data in store
       wait_happens_within 100 do
-        value1 = Veidrodelis.hget(pid, 0, "myhash", "field1")
-        value2 = Veidrodelis.hget(pid, 0, "myhash", "field2")
+        value1 = Veidrodelis.hget(@id, 0, "myhash", "field1")
+        value2 = Veidrodelis.hget(@id, 0, "myhash", "field2")
 
         value1 == "value1" &&
           value2 == "value2" &&
@@ -164,7 +166,7 @@ defmodule VeidrodelisTest do
 
       # Verify data in store (zrange returns tuples with scores)
       assert_happens_within 1000 do
-        members_with_scores = Veidrodelis.zrange(pid, 0, "myzset", 0, -1)
+        members_with_scores = Veidrodelis.zrange(@id, 0, "myzset", 0, -1)
 
         members_with_scores == [
           {"member1", 1.0},
@@ -195,14 +197,14 @@ defmodule VeidrodelisTest do
 
       # Wait for commands to replicate
       assert_happens_within 1000 do
-        Veidrodelis.get(pid, 0, "stream_key") != nil &&
-          Veidrodelis.scard(pid, 0, "stream_set") == 2
+        Veidrodelis.get(@id, 0, "stream_key") != nil &&
+          Veidrodelis.scard(@id, 0, "stream_set") == 2
       end
 
       # Verify the data
-      assert Veidrodelis.get(pid, 0, "stream_key") == "stream_value"
+      assert Veidrodelis.get(@id, 0, "stream_key") == "stream_value"
 
-      members = Veidrodelis.smembers(pid, 0, "stream_set")
+      members = Veidrodelis.smembers(@id, 0, "stream_set")
       assert "s1" in members
       assert "s2" in members
 
@@ -223,7 +225,7 @@ defmodule VeidrodelisTest do
 
       # Wait for it to replicate
       wait_happens_within 500 do
-        Veidrodelis.get(pid, 0, "typekey") == "string_value"
+        Veidrodelis.get(@id, 0, "typekey") == "string_value"
       end
 
       # Change to a list
@@ -232,8 +234,8 @@ defmodule VeidrodelisTest do
 
       # Wait for it to replicate
       wait_happens_within 500 do
-        Veidrodelis.get(pid, 0, "typekey") == nil &&
-          Veidrodelis.lrange(pid, 0, "typekey", 0, -1) == [
+        Veidrodelis.get(@id, 0, "typekey") == nil &&
+          Veidrodelis.lrange(@id, 0, "typekey", 0, -1) == [
             "list_item1",
             "list_item2"
           ]
@@ -245,8 +247,8 @@ defmodule VeidrodelisTest do
 
       # Wait for it to replicate
       wait_happens_within 500 do
-        Veidrodelis.llen(pid, 0, "typekey") == 0 &&
-          Veidrodelis.scard(pid, 0, "typekey") == 2
+        Veidrodelis.llen(@id, 0, "typekey") == 0 &&
+          Veidrodelis.scard(@id, 0, "typekey") == 2
       end
 
       # Verify Redis has the current data
@@ -278,8 +280,8 @@ defmodule VeidrodelisTest do
 
       # Verify data in both databases
       wait_happens_within 100 do
-        Veidrodelis.get(pid, 0, "db0_key") == "db0_value" &&
-          Veidrodelis.get(pid, 1, "db1_key") == "db1_value"
+        Veidrodelis.get(@id, 0, "db0_key") == "db0_value" &&
+          Veidrodelis.get(@id, 1, "db1_key") == "db1_value"
       end
 
       # Verify Redis data
@@ -311,8 +313,8 @@ defmodule VeidrodelisTest do
 
       # Verify intersection result (only 'c' is in all three sets)
       wait_happens_within 100 do
-        result_members = Veidrodelis.smembers(pid, 0, "result_inter")
-        set1_members = Veidrodelis.smembers(pid, 0, "set1")
+        result_members = Veidrodelis.smembers(@id, 0, "result_inter")
+        set1_members = Veidrodelis.smembers(@id, 0, "set1")
 
         length(result_members) == 1 &&
           "c" in result_members &&
@@ -341,7 +343,7 @@ defmodule VeidrodelisTest do
 
       # Verify union result (should have all unique elements: 1,2,3,4,5)
       wait_happens_within 100 do
-        result_members = Veidrodelis.smembers(pid, 0, "result_union")
+        result_members = Veidrodelis.smembers(@id, 0, "result_union")
 
         length(result_members) == 5 &&
           "1" in result_members &&
@@ -373,7 +375,7 @@ defmodule VeidrodelisTest do
 
       # Verify difference result (should have: a, e)
       wait_happens_within 100 do
-        result_members = Veidrodelis.smembers(pid, 0, "result_diff")
+        result_members = Veidrodelis.smembers(@id, 0, "result_diff")
 
         length(result_members) == 2 &&
           "a" in result_members &&
@@ -414,7 +416,7 @@ defmodule VeidrodelisTest do
       # member3: 3*2 + 0*3 = 6
       # member4: 0*2 + 4*3 = 12
       assert_happens_within 1000 do
-        result = Veidrodelis.zrange(pid, 0, "result_weighted_union", 0, -1)
+        result = Veidrodelis.zrange(@id, 0, "result_weighted_union", 0, -1)
 
         result == [
           {"member3", 6.0},
@@ -455,7 +457,7 @@ defmodule VeidrodelisTest do
       # alice: min(10, 15) = 10
       # bob: min(20, 25) = 20
       wait_happens_within 100 do
-        result = Veidrodelis.zrange(pid, 0, "result_inter_min", 0, -1)
+        result = Veidrodelis.zrange(@id, 0, "result_inter_min", 0, -1)
 
         result == [
           {"alice", 10.0},
@@ -494,7 +496,7 @@ defmodule VeidrodelisTest do
       # task1: max(5, 7) = 7
       # task2: max(8, 3) = 8
       wait_happens_within 100 do
-        result = Veidrodelis.zrange(pid, 0, "result_inter_max", 0, -1)
+        result = Veidrodelis.zrange(@id, 0, "result_inter_max", 0, -1)
 
         result == [
           {"task1", 7.0},
@@ -540,7 +542,7 @@ defmodule VeidrodelisTest do
       # product2: 9.0*0.5 + 6.5*0.3 + 0*0.2 = 4.5 + 1.95 + 0 = 6.45
       # product3: 0*0.5 + 0*0.3 + 8.0*0.2 = 0 + 0 + 1.6 = 1.6
       wait_happens_within 100 do
-        result = Veidrodelis.zrange(pid, 0, "combined_rating", 0, -1)
+        result = Veidrodelis.zrange(@id, 0, "combined_rating", 0, -1)
 
         result == [
           {"product3", 1.6},

@@ -11,10 +11,11 @@ defmodule Vdr.MapProj do
 
   @behaviour Vdr.RedisStream.Callback
 
-  alias Vdr.RedisStream.Command, as: RedisCommand
+  alias Vdr.RedisStream.{Command, Replica}
+  alias Command, as: RedisCommand
   alias Vdr.MapProj.{Strings, Lists, Sets, Hashes, ZSets, Common}
 
-  defstruct [:store]
+  defstruct [:store, :id]
 
   @type key :: binary()
   @type value :: binary()
@@ -23,29 +24,9 @@ defmodule Vdr.MapProj do
           store: map()
         }
 
-  # Public API
-
-  @doc """
-  Starts a MapProj instance that connects to Redis and processes replication stream.
-
-  ## Options
-
-    * `:host` - Redis host (default: "localhost")
-    * `:port` - Redis port (default: 6379)
-    * `:username` - Redis username for ACL authentication (default: nil)
-    * `:password` - Redis password (default: nil)
-    * `:ssl` - Use SSL/TLS (default: false)
-    * `:ssl_opts` - SSL options (default: [])
-    * `:reconnect` - Enable automatic reconnection (default: true)
-    * `:reconnect_delay_ms` - Initial delay before reconnection in ms (default: 1000)
-    * `:max_reconnect_delay_ms` - Maximum delay between reconnection attempts in ms (default: 30000)
-
-  ## Returns
-
-    * `{:ok, pid}` - Successfully started (returns Replica GenServer PID)
-    * `{:error, reason}` - Failed to start
-  """
   def start_link(opts) do
+    id = Keyword.fetch!(opts, :id)
+
     redis_opts =
       Keyword.take(opts, [
         :host,
@@ -60,42 +41,30 @@ defmodule Vdr.MapProj do
         :command_filter
       ])
 
-    initial_state = %{}
+    callback_opts = Keyword.get(opts, :callback_opts, [])
+    callback_opts = Keyword.put(callback_opts, :id, id)
+
+    callback_module = __MODULE__
 
     replica_opts =
       [
-        callback_module: __MODULE__,
-        callback_state: initial_state
+        callback_module: callback_module,
+        callback_opts: callback_opts
       ] ++ redis_opts
 
     Vdr.RedisStream.Replica.start_link(replica_opts)
   end
 
-  @doc """
-  Stops a MapProj instance.
-  """
-  @spec stop(pid()) :: :ok
-  def stop(pid) when is_pid(pid) do
-    GenServer.stop(pid)
+  @impl Vdr.RedisStream.Callback
+  def init(opts) do
+    id = Keyword.fetch!(opts, :id)
+    state = initialize_state(id)
+    {:ok, state}
   end
-
-  @doc """
-  Gets the current replication state of a MapProj instance.
-  """
-  @spec get_replication_state(pid()) :: atom()
-  def get_replication_state(pid) when is_pid(pid) do
-    Vdr.RedisStream.Replica.get_replication_state(pid)
-  end
-
-  # RedisStream.Callback implementation
 
   @impl Vdr.RedisStream.Callback
-  def handle_replication_start(%__MODULE__{} = state) do
+  def handle_replication_start(state) do
     reinitialize_state(state)
-  end
-
-  def handle_replication_start(init_opts) do
-    initialize_state(init_opts)
   end
 
   @impl Vdr.RedisStream.Callback
@@ -183,19 +152,127 @@ defmodule Vdr.MapProj do
 
   # Private functions
 
-  defp initialize_state(_init_opts) do
-    state = %__MODULE__{
+  defp initialize_state(id) do
+    %__MODULE__{
+      id: id,
       store: %{}
     }
+  end
+
+  defp reinitialize_state(%__MODULE__{id: id}) do
+    state = %__MODULE__{
+      id: id,
+      store: %{}
+    }
+
+    :ok =
+      Vdr.Registry.register(self(), id, %Vdr.Handle{
+        callback_module: __MODULE__,
+        handle_state: self()
+      })
 
     {:ok, state}
   end
 
-  defp reinitialize_state(%__MODULE__{}) do
-    initialize_state(%{})
+  # Public accessor functions
+
+  def get(pid, db, key) when is_pid(pid) do
+    case Replica.call(pid, {:get, db, key}) do
+      {:ok, value} -> value
+      {:error, reason} -> {:error, reason}
+    end
   end
 
-  # Command handlers
+  def llen(pid, db, key) when is_pid(pid) do
+    case Replica.call(pid, {:llen, db, key}) do
+      {:ok, len} -> len
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def lrange(pid, db, key, start_idx, stop_idx) when is_pid(pid) do
+    case Replica.call(pid, {:lrange, db, key, start_idx, stop_idx}) do
+      {:ok, elements} -> elements
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def smembers(pid, db, key) when is_pid(pid) do
+    case Replica.call(pid, {:smembers, db, key}) do
+      {:ok, members} -> members
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def scard(pid, db, key) when is_pid(pid) do
+    case Replica.call(pid, {:scard, db, key}) do
+      {:ok, count} -> count
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def hget(pid, db, key, field) when is_pid(pid) do
+    case Replica.call(pid, {:hget, db, key, field}) do
+      {:ok, value} -> value
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def hmget(pid, db, key, fields) when is_pid(pid) do
+    case Replica.call(pid, {:hmget, db, key, fields}) do
+      {:ok, values} -> values
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def hgetall(pid, db, key) when is_pid(pid) do
+    case Replica.call(pid, {:hgetall, db, key}) do
+      {:ok, fields} -> fields
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def hkeys(pid, db, key) when is_pid(pid) do
+    case Replica.call(pid, {:hkeys, db, key}) do
+      {:ok, keys} -> keys
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def hvals(pid, db, key) when is_pid(pid) do
+    case Replica.call(pid, {:hvals, db, key}) do
+      {:ok, values} -> values
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def hlen(pid, db, key) when is_pid(pid) do
+    case Replica.call(pid, {:hlen, db, key}) do
+      {:ok, len} -> len
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def zrange(pid, db, key, start_idx, stop_idx) when is_pid(pid) do
+    case Replica.call(pid, {:zrange, db, key, start_idx, stop_idx}) do
+      {:ok, members} -> members
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def zcard(pid, db, key) when is_pid(pid) do
+    case Replica.call(pid, {:zcard, db, key}) do
+      {:ok, count} -> count
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  def zscore(pid, db, key, member) when is_pid(pid) do
+    case Replica.call(pid, {:zscore, db, key, member}) do
+      {:ok, score} -> score
+      {:error, reason} -> {:error, reason}
+    end
+  end
 
   defp do_handle_command(state, db, %RedisCommand.Set{key: key, value: value}) do
     Strings.set(state.store, db, key, value)

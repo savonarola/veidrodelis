@@ -28,6 +28,11 @@ defmodule Veidrodelis.IntegrationTest do
     @behaviour Vdr.RedisStream.Callback
 
     @impl true
+    def init(_opts) do
+      {:ok, %{}}
+    end
+
+    @impl true
     def handle_replication_start(state) do
       {:ok, state}
     end
@@ -57,6 +62,7 @@ defmodule Veidrodelis.IntegrationTest do
 
   @redis_host "localhost"
   @redis_port 16378
+  @id "vdr_id"
 
   setup do
     {:ok, redis} = Redix.start_link(host: @redis_host, port: @redis_port)
@@ -413,6 +419,7 @@ defmodule Veidrodelis.IntegrationTest do
       Logger.info("=== [Veidrodelis] Phase 2: Starting Veidrodelis and waiting for RDB sync ===")
 
       opts = [
+        id: @id,
         host: @redis_host,
         port: @redis_port
       ]
@@ -429,80 +436,80 @@ defmodule Veidrodelis.IntegrationTest do
       Process.sleep(200)
 
       # String values
-      assert Veidrodelis.get(vdr, 0, "simple_key") == "simple_value"
-      assert Veidrodelis.get(vdr, 0, "mkey1") == "mval1"
-      assert Veidrodelis.get(vdr, 0, "mkey2") == "mval2"
-      assert Veidrodelis.get(vdr, 0, "append_key") == "initial_appended"
-      assert Veidrodelis.get(vdr, 0, "new_name") == "rename_value"
-      assert Veidrodelis.get(vdr, 0, "renamenx_new") == "value"
-      assert Veidrodelis.get(vdr, 0, "expire_key") == "will_expire"
+      assert Veidrodelis.get(@id, 0, "simple_key") == "simple_value"
+      assert Veidrodelis.get(@id, 0, "mkey1") == "mval1"
+      assert Veidrodelis.get(@id, 0, "mkey2") == "mval2"
+      assert Veidrodelis.get(@id, 0, "append_key") == "initial_appended"
+      assert Veidrodelis.get(@id, 0, "new_name") == "rename_value"
+      assert Veidrodelis.get(@id, 0, "renamenx_new") == "value"
+      assert Veidrodelis.get(@id, 0, "expire_key") == "will_expire"
 
       # Deleted keys should not exist
-      assert Veidrodelis.get(vdr, 0, "delete_key1") == nil
-      assert Veidrodelis.get(vdr, 0, "delete_key2") == nil
-      assert Veidrodelis.get(vdr, 0, "old_name") == nil
+      assert Veidrodelis.get(@id, 0, "delete_key1") == nil
+      assert Veidrodelis.get(@id, 0, "delete_key2") == nil
+      assert Veidrodelis.get(@id, 0, "old_name") == nil
 
       # List values
-      assert Veidrodelis.llen(vdr, 0, "mylist") == 4
-      assert Veidrodelis.lrange(vdr, 0, "mylist", 0, -1) == ["elem0", "elem1", "elem2", "elem3"]
-      assert Veidrodelis.lrange(vdr, 0, "trim_list", 0, -1) == ["b", "c", "d"]
-      assert Veidrodelis.lrange(vdr, 0, "set_list", 0, -1) == ["x", "Y", "z"]
-      assert Veidrodelis.lrange(vdr, 0, "insert_list", 0, -1) == ["a", "b", "c"]
+      assert Veidrodelis.llen(@id, 0, "mylist") == 4
+      assert Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["elem0", "elem1", "elem2", "elem3"]
+      assert Veidrodelis.lrange(@id, 0, "trim_list", 0, -1) == ["b", "c", "d"]
+      assert Veidrodelis.lrange(@id, 0, "set_list", 0, -1) == ["x", "Y", "z"]
+      assert Veidrodelis.lrange(@id, 0, "insert_list", 0, -1) == ["a", "b", "c"]
 
       # After LPOP and RPOP, pop_list should have only "b"
-      assert Veidrodelis.lrange(vdr, 0, "pop_list", 0, -1) == ["b"]
+      assert Veidrodelis.lrange(@id, 0, "pop_list", 0, -1) == ["b"]
 
       # Set values
-      assert Veidrodelis.scard(vdr, 0, "myset") == 3
-      members = Veidrodelis.smembers(vdr, 0, "myset")
+      assert Veidrodelis.scard(@id, 0, "myset") == 3
+      members = Veidrodelis.smembers(@id, 0, "myset")
       assert "member1" in members
       assert "member2" in members
       assert "member3" in members
 
       # rem_set should have m1 and m3 (m2 was removed)
-      assert Veidrodelis.scard(vdr, 0, "rem_set") == 2
-      rem_members = Veidrodelis.smembers(vdr, 0, "rem_set")
+      assert Veidrodelis.scard(@id, 0, "rem_set") == 2
+      rem_members = Veidrodelis.smembers(@id, 0, "rem_set")
       assert "m1" in rem_members
       assert "m3" in rem_members
       refute "m2" in rem_members
 
       # Set operations
-      inter_members = Veidrodelis.smembers(vdr, 0, "set_inter")
+      inter_members = Veidrodelis.smembers(@id, 0, "set_inter")
       assert "2" in inter_members
       assert "3" in inter_members
-      assert Veidrodelis.scard(vdr, 0, "set_union") == 4
-      assert Veidrodelis.scard(vdr, 0, "set_diff") == 1
+      assert Veidrodelis.scard(@id, 0, "set_union") == 4
+      assert Veidrodelis.scard(@id, 0, "set_diff") == 1
 
       # Hash values
-      assert Veidrodelis.hlen(vdr, 0, "myhash") == 3
-      assert Veidrodelis.hget(vdr, 0, "myhash", "field1") == "value1"
-      assert Veidrodelis.hget(vdr, 0, "myhash", "field2") == "value2"
-      assert Veidrodelis.hget(vdr, 0, "myhash", "field3") == "value3"
+      assert Veidrodelis.hlen(@id, 0, "myhash") == 3
+      assert Veidrodelis.hget(@id, 0, "myhash", "field1") == "value1"
+      assert Veidrodelis.hget(@id, 0, "myhash", "field2") == "value2"
+      assert Veidrodelis.hget(@id, 0, "myhash", "field3") == "value3"
 
       # hash_for_del should have only f1 (f2 was deleted)
-      assert Veidrodelis.hlen(vdr, 0, "hash_for_del") == 1
-      assert Veidrodelis.hget(vdr, 0, "hash_for_del", "f1") == "v1"
-      assert Veidrodelis.hget(vdr, 0, "hash_for_del", "f2") == nil
+      assert Veidrodelis.hlen(@id, 0, "hash_for_del") == 1
+      assert Veidrodelis.hget(@id, 0, "hash_for_del", "f1") == "v1"
+      assert Veidrodelis.hget(@id, 0, "hash_for_del", "f2") == nil
 
       # Sorted set values
-      assert Veidrodelis.zcard(vdr, 0, "myzset") == 3
-      assert Veidrodelis.zscore(vdr, 0, "myzset", "member1") == 1.0
-      assert Veidrodelis.zscore(vdr, 0, "myzset", "member2") == 2.5
-      assert Veidrodelis.zscore(vdr, 0, "myzset", "member3") == 3.7
+      assert Veidrodelis.zcard(@id, 0, "myzset") == 3
+      assert Veidrodelis.zscore(@id, 0, "myzset", "member1") == 1.0
+      assert Veidrodelis.zscore(@id, 0, "myzset", "member2") == 2.5
+      assert Veidrodelis.zscore(@id, 0, "myzset", "member3") == 3.7
 
       # zset_for_rem should have x and z (y was removed)
-      assert Veidrodelis.zcard(vdr, 0, "zset_for_rem") == 2
-      assert Veidrodelis.zscore(vdr, 0, "zset_for_rem", "x") == 1.0
-      assert Veidrodelis.zscore(vdr, 0, "zset_for_rem", "z") == 3.0
-      assert Veidrodelis.zscore(vdr, 0, "zset_for_rem", "y") == nil
+      assert Veidrodelis.zcard(@id, 0, "zset_for_rem") == 2
+      assert Veidrodelis.zscore(@id, 0, "zset_for_rem", "x") == 1.0
+      assert Veidrodelis.zscore(@id, 0, "zset_for_rem", "z") == 3.0
+      assert Veidrodelis.zscore(@id, 0, "zset_for_rem", "y") == nil
 
       # pop_zset should have only "b" after ZPOPMAX and ZPOPMIN
-      assert Veidrodelis.zcard(vdr, 0, "pop_zset") == 1
-      assert Veidrodelis.zscore(vdr, 0, "pop_zset", "b") == 2.0
+      assert Veidrodelis.zcard(@id, 0, "pop_zset") == 1
+      assert Veidrodelis.zscore(@id, 0, "pop_zset", "b") == 2.0
 
       # Verify set/zset operations created correct results
-      assert Veidrodelis.zcard(vdr, 0, "zset_union") > 0
-      assert Veidrodelis.zcard(vdr, 0, "zset_inter") > 0
+      assert Veidrodelis.zcard(@id, 0, "zset_union") > 0
+      assert Veidrodelis.zcard(@id, 0, "zset_inter") > 0
 
       Logger.info("=== [Veidrodelis] Phase 4: Issuing commands to DB 1 while streaming ===")
 
@@ -510,38 +517,38 @@ defmodule Veidrodelis.IntegrationTest do
 
       # Wait for streaming replication
       assert_happens_within 3000 do
-        Veidrodelis.get(vdr, 1, "simple_key") == "simple_value" &&
-          Veidrodelis.llen(vdr, 1, "mylist") == 4 &&
-          Veidrodelis.scard(vdr, 1, "myset") == 3 &&
-          Veidrodelis.hlen(vdr, 1, "myhash") == 3 &&
-          Veidrodelis.zcard(vdr, 1, "myzset") == 3
+        Veidrodelis.get(@id, 1, "simple_key") == "simple_value" &&
+          Veidrodelis.llen(@id, 1, "mylist") == 4 &&
+          Veidrodelis.scard(@id, 1, "myset") == 3 &&
+          Veidrodelis.hlen(@id, 1, "myhash") == 3 &&
+          Veidrodelis.zcard(@id, 1, "myzset") == 3
       end
 
       Logger.info("=== [Veidrodelis] Phase 5: Verifying streaming data via query API ===")
 
       # String values
-      assert Veidrodelis.get(vdr, 1, "simple_key") == "simple_value"
-      assert Veidrodelis.get(vdr, 1, "mkey1") == "mval1"
-      assert Veidrodelis.get(vdr, 1, "append_key") == "initial_appended"
+      assert Veidrodelis.get(@id, 1, "simple_key") == "simple_value"
+      assert Veidrodelis.get(@id, 1, "mkey1") == "mval1"
+      assert Veidrodelis.get(@id, 1, "append_key") == "initial_appended"
 
       # List values
-      assert Veidrodelis.llen(vdr, 1, "mylist") == 4
-      assert Veidrodelis.lrange(vdr, 1, "mylist", 0, -1) == ["elem0", "elem1", "elem2", "elem3"]
+      assert Veidrodelis.llen(@id, 1, "mylist") == 4
+      assert Veidrodelis.lrange(@id, 1, "mylist", 0, -1) == ["elem0", "elem1", "elem2", "elem3"]
 
       # Set values
-      assert Veidrodelis.scard(vdr, 1, "myset") == 3
-      members_db1 = Veidrodelis.smembers(vdr, 1, "myset")
+      assert Veidrodelis.scard(@id, 1, "myset") == 3
+      members_db1 = Veidrodelis.smembers(@id, 1, "myset")
       assert "member1" in members_db1
       assert "member2" in members_db1
       assert "member3" in members_db1
 
       # Hash values
-      assert Veidrodelis.hlen(vdr, 1, "myhash") == 3
-      assert Veidrodelis.hget(vdr, 1, "myhash", "field1") == "value1"
+      assert Veidrodelis.hlen(@id, 1, "myhash") == 3
+      assert Veidrodelis.hget(@id, 1, "myhash", "field1") == "value1"
 
       # Sorted set values
-      assert Veidrodelis.zcard(vdr, 1, "myzset") == 3
-      assert Veidrodelis.zscore(vdr, 1, "myzset", "member1") == 1.0
+      assert Veidrodelis.zcard(@id, 1, "myzset") == 3
+      assert Veidrodelis.zscore(@id, 1, "myzset", "member1") == 1.0
 
       Logger.info("=== [Veidrodelis] Test completed successfully ===")
 
