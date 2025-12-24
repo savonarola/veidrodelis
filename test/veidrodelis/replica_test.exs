@@ -21,6 +21,11 @@ defmodule Veidrodelis.ReplicaTest do
     end
 
     @impl true
+    def handle_streaming_start(state) do
+      {:ok, state}
+    end
+
+    @impl true
     def handle_command(state, %Vdr.RedisStream.ReplicaCommand{db: db, command: command}) do
       # Add command to the list with timestamp
       commands = Map.get(state, :commands, [])

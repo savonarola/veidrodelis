@@ -67,7 +67,7 @@ defmodule Vdr.TS do
   def create(), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Stores a binary value with the given binary key.
+  Stores a binary value with the given binary key in a specific database.
 
   Both keys and values must be binaries. If the key already exists,
   its value is overwritten.
@@ -76,43 +76,54 @@ defmodule Vdr.TS do
 
       storage = Vdr.TS.create()
 
-      # Store binary values
-      :ok = Vdr.TS.set(storage, "key", "value")
-      :ok = Vdr.TS.set(storage, "data", <<1, 2, 3, 4>>)
+      # Store binary values in database 0
+      :ok = Vdr.TS.set(storage, 0, "key", "value")
+      :ok = Vdr.TS.set(storage, 0, "data", <<1, 2, 3, 4>>)
+
+      # Store in different database
+      :ok = Vdr.TS.set(storage, 1, "key", "other_value")
 
       # Overwrite existing key
-      :ok = Vdr.TS.set(storage, "key", "new_value")
+      :ok = Vdr.TS.set(storage, 0, "key", "new_value")
   """
-  @spec set(reference(), binary(), binary()) :: :ok
-  def set(_storage, _key, _value), do: :erlang.nif_error(:nif_not_loaded)
+  @spec set(reference(), non_neg_integer(), binary(), binary()) :: :ok
+  def set(_storage, _db, _key, _value), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Retrieves a binary value by key.
+  Retrieves a binary value by key from a specific database.
 
   Returns the stored binary, or `nil` if the key doesn't exist.
 
   ## Examples
 
       storage = Vdr.TS.create()
-      Vdr.TS.set(storage, "key", "value")
+      Vdr.TS.set(storage, 0, "key", "value")
 
-      Vdr.TS.get(storage, "key")
+      Vdr.TS.get(storage, 0, "key")
       #=> "value"
 
-      Vdr.TS.get(storage, "missing")
+      Vdr.TS.get(storage, 0, "missing")
       #=> nil
+
+      # Different databases are isolated
+      Vdr.TS.set(storage, 0, "key", "value0")
+      Vdr.TS.set(storage, 1, "key", "value1")
+      Vdr.TS.get(storage, 0, "key")
+      #=> "value0"
+      Vdr.TS.get(storage, 1, "key")
+      #=> "value1"
 
       # Binary data is preserved exactly
       data = <<0, 1, 2, 255, 254, 253>>
-      Vdr.TS.set(storage, "binary", data)
-      Vdr.TS.get(storage, "binary")
+      Vdr.TS.set(storage, 0, "binary", data)
+      Vdr.TS.get(storage, 0, "binary")
       #=> <<0, 1, 2, 255, 254, 253>>
   """
-  @spec get(reference(), binary()) :: binary() | nil
-  def get(_storage, _key), do: :erlang.nif_error(:nif_not_loaded)
+  @spec get(reference(), non_neg_integer(), binary()) :: binary() | nil
+  def get(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Deletes a key from storage.
+  Deletes a key from a specific database.
 
   Always returns `:ok`, even if the key doesn't exist. This makes
   deletion idempotent.
@@ -120,17 +131,24 @@ defmodule Vdr.TS do
   ## Examples
 
       storage = Vdr.TS.create()
-      Vdr.TS.set(storage, "key", "value")
+      Vdr.TS.set(storage, 0, "key", "value")
 
-      :ok = Vdr.TS.del(storage, "key")
-      Vdr.TS.get(storage, "key")
+      :ok = Vdr.TS.del(storage, 0, "key")
+      Vdr.TS.get(storage, 0, "key")
       #=> nil
 
       # Deleting non-existent key still returns :ok
-      :ok = Vdr.TS.del(storage, "missing")
+      :ok = Vdr.TS.del(storage, 0, "missing")
+
+      # Deleting from one database doesn't affect others
+      Vdr.TS.set(storage, 0, "key", "value0")
+      Vdr.TS.set(storage, 1, "key", "value1")
+      :ok = Vdr.TS.del(storage, 0, "key")
+      Vdr.TS.get(storage, 1, "key")
+      #=> "value1"
   """
-  @spec del(reference(), binary()) :: :ok
-  def del(_storage, _key), do: :erlang.nif_error(:nif_not_loaded)
+  @spec del(reference(), non_neg_integer(), binary()) :: :ok
+  def del(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Destroys a storage instance, clearing all data.

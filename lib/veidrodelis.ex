@@ -213,8 +213,9 @@ defmodule Veidrodelis do
     case Vdr.Registry.lookup(id) do
       {:ok, %Vdr.Handle{handle_state: handle_state, callback_module: callback_module}} ->
         Kernel.apply(callback_module, fun_name, [handle_state | fun_args])
-      :not_found -> raise "Veidrodelis instance with id #{id} not found"
+
+      :not_found ->
+        raise "Veidrodelis instance with id #{id} not found"
     end
   end
-
 end

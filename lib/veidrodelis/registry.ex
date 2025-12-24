@@ -40,15 +40,21 @@ defmodule Vdr.Registry do
   def handle_call({:register, pid, id, handle}, _from, state) do
     case state.instances do
       %{^pid => {other_id, _}} when other_id != id ->
-        {:reply, {:error, %{reason: :already_registered_with_different_id, id: id, other_id: other_id, pid: pid}}, state}
+        {:reply,
+         {:error,
+          %{reason: :already_registered_with_different_id, id: id, other_id: other_id, pid: pid}},
+         state}
+
       %{^pid => {^id, _}} ->
         :ets.insert(@tab, {id, handle})
         {:reply, :ok, state}
+
       _ ->
         case :ets.insert_new(@tab, {id, handle}) do
           true ->
             ref = Process.monitor(pid)
             {:reply, :ok, %{state | instances: Map.put(state.instances, pid, {id, ref})}}
+
           false ->
             {:reply, {:error, %{reason: :id_already_registered, id: id, pid: pid}}, state}
         end
@@ -61,6 +67,7 @@ defmodule Vdr.Registry do
         :ets.delete(@tab, id)
         Process.demonitor(ref, [:flush])
         {:reply, :ok, %{state | instances: Map.delete(state.instances, pid)}}
+
       _ ->
         {:reply, {:error, {:not_registered, pid}}, state}
     end
@@ -75,9 +82,11 @@ defmodule Vdr.Registry do
       %{^pid => {id, ^ref}} ->
         :ets.delete(@tab, id)
         {:noreply, %{state | instances: Map.delete(state.instances, pid)}}
+
       %{^pid => _} ->
         Logger.warning("Process #{inspect(pid)} is monitored with unknown ref #{inspect(ref)}")
         {:noreply, state}
+
       _ ->
         {:noreply, state}
     end
@@ -86,5 +95,4 @@ defmodule Vdr.Registry do
   def handle_info(_unknown_message, state) do
     {:noreply, state}
   end
-
 end

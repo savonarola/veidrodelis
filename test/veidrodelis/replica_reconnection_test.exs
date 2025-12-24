@@ -36,6 +36,11 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       {:ok, new_state}
     end
 
+    @impl true
+    def handle_streaming_start(state) do
+      {:ok, state}
+    end
+
     def commands(state) do
       Map.get(state, :commands, [])
       |> Enum.map(fn {_ts, _db, cmd} -> cmd end)

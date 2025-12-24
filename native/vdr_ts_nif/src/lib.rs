@@ -22,6 +22,7 @@ fn create_storage() -> ResourceArc<TStorage> {
 fn set_value<'a>(
     env: Env<'a>,
     storage: ResourceArc<TStorage>,
+    db: u64,
     key: Binary,
     value: Binary,
 ) -> Term<'a> {
@@ -32,14 +33,14 @@ fn set_value<'a>(
     };
 
     // Set the value using encapsulated method
-    inner.set(key.as_slice(), value.as_slice());
+    inner.set(db, key.as_slice(), value.as_slice());
 
     // Return :ok
     atoms::ok().encode(env)
 }
 
 #[rustler::nif(name = "get")]
-fn get_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, key: Binary) -> Term<'a> {
+fn get_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, db: u64, key: Binary) -> Term<'a> {
     // Lock the storage
     let inner = match storage.0.lock() {
         Ok(guard) => guard,
@@ -47,7 +48,7 @@ fn get_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, key: Binary) -> T
     };
 
     // Get the value using encapsulated method
-    match inner.get(key.as_slice()) {
+    match inner.get(db, key.as_slice()) {
         Some(value) => {
             // Return the binary value
             let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
@@ -62,7 +63,7 @@ fn get_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, key: Binary) -> T
 }
 
 #[rustler::nif(name = "del")]
-fn delete_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, key: Binary) -> Term<'a> {
+fn delete_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, db: u64, key: Binary) -> Term<'a> {
     // Lock the storage
     let mut inner = match storage.0.lock() {
         Ok(guard) => guard,
@@ -70,7 +71,7 @@ fn delete_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, key: Binary) -
     };
 
     // Delete the key using encapsulated method
-    inner.del(key.as_slice());
+    inner.del(db, key.as_slice());
 
     // Always return :ok
     atoms::ok().encode(env)

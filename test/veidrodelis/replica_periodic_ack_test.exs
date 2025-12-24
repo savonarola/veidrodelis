@@ -21,6 +21,11 @@ defmodule Veidrodelis.ReplicaPeriodicAckTest do
     end
 
     @impl true
+    def handle_streaming_start(state) do
+      {:ok, state}
+    end
+
+    @impl true
     def handle_command(state, %Vdr.RedisStream.ReplicaCommand{}) do
       {:ok, state}
     end

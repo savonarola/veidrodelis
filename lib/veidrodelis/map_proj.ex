@@ -15,13 +15,16 @@ defmodule Vdr.MapProj do
   alias Command, as: RedisCommand
   alias Vdr.MapProj.{Strings, Lists, Sets, Hashes, ZSets, Common}
 
-  defstruct [:store, :id]
+  defstruct [:store, :id, :new_store, :ready]
 
   @type key :: binary()
   @type value :: binary()
 
   @type t :: %__MODULE__{
-          store: map()
+          store: map(),
+          id: term(),
+          new_store: map() | nil,
+          ready: boolean()
         }
 
   def start_link(opts) do
@@ -59,6 +62,14 @@ defmodule Vdr.MapProj do
   def init(opts) do
     id = Keyword.fetch!(opts, :id)
     state = initialize_state(id)
+
+    # Register immediately so queries can be made right after start_link
+    :ok =
+      Vdr.Registry.register(self(), id, %Vdr.Handle{
+        callback_module: __MODULE__,
+        handle_state: self()
+      })
+
     {:ok, state}
   end
 
@@ -68,75 +79,99 @@ defmodule Vdr.MapProj do
   end
 
   @impl Vdr.RedisStream.Callback
+  def handle_streaming_start(state) do
+    # Replace current store with new_store
+    # Set ready flag to true
+    # Clear new_store
+    new_state = %{state | store: state.new_store, new_store: nil, ready: true}
+    {:ok, new_state}
+  end
+
+  @impl Vdr.RedisStream.Callback
   def handle_command(%__MODULE__{} = state, %Vdr.RedisStream.ReplicaCommand{
         db: db,
         command: command
       }) do
-    new_store = do_handle_command(state, db, command)
-    {:ok, %{state | store: new_store}}
+    # If new_store exists, write to it (during RDB transfer)
+    # Otherwise, write to store (during streaming)
+    if state.new_store do
+      # Writing to new_store during RDB transfer
+      updated_new_store = do_handle_command(state.new_store, db, command)
+      {:ok, %{state | new_store: updated_new_store}}
+    else
+      # Writing to store during streaming
+      updated_store = do_handle_command(state.store, db, command)
+      {:ok, %{state | store: updated_store}}
+    end
   end
 
   @impl Vdr.RedisStream.Callback
   def handle_call(%__MODULE__{} = state, message) do
-    case message do
-      {:get, db, key} ->
-        result = Strings.get(state.store, db, key)
-        {:reply, result, state}
+    # Check if ready to serve reads
+    if not state.ready do
+      {:reply, {:error, :not_ready}, state}
+    else
+      # Serve reads from current store (not new_store)
+      case message do
+        {:get, db, key} ->
+          result = Strings.get(state.store, db, key)
+          {:reply, result, state}
 
-      {:llen, db, key} ->
-        result = Lists.llen(state.store, db, key)
-        {:reply, result, state}
+        {:llen, db, key} ->
+          result = Lists.llen(state.store, db, key)
+          {:reply, result, state}
 
-      {:lrange, db, key, start_idx, stop_idx} ->
-        result = Lists.lrange(state.store, db, key, start_idx, stop_idx)
-        {:reply, result, state}
+        {:lrange, db, key, start_idx, stop_idx} ->
+          result = Lists.lrange(state.store, db, key, start_idx, stop_idx)
+          {:reply, result, state}
 
-      {:smembers, db, key} ->
-        result = Sets.smembers(state.store, db, key)
-        {:reply, result, state}
+        {:smembers, db, key} ->
+          result = Sets.smembers(state.store, db, key)
+          {:reply, result, state}
 
-      {:scard, db, key} ->
-        result = Sets.scard(state.store, db, key)
-        {:reply, result, state}
+        {:scard, db, key} ->
+          result = Sets.scard(state.store, db, key)
+          {:reply, result, state}
 
-      {:hget, db, key, field} ->
-        result = Hashes.hget(state.store, db, key, field)
-        {:reply, result, state}
+        {:hget, db, key, field} ->
+          result = Hashes.hget(state.store, db, key, field)
+          {:reply, result, state}
 
-      {:hmget, db, key, fields} ->
-        result = Enum.map(fields, fn field -> Hashes.hget(state.store, db, key, field) end)
-        {:reply, result, state}
+        {:hmget, db, key, fields} ->
+          result = Enum.map(fields, fn field -> Hashes.hget(state.store, db, key, field) end)
+          {:reply, result, state}
 
-      {:hgetall, db, key} ->
-        result = Hashes.hgetall(state.store, db, key)
-        {:reply, result, state}
+        {:hgetall, db, key} ->
+          result = Hashes.hgetall(state.store, db, key)
+          {:reply, result, state}
 
-      {:hkeys, db, key} ->
-        result = Hashes.hkeys(state.store, db, key)
-        {:reply, result, state}
+        {:hkeys, db, key} ->
+          result = Hashes.hkeys(state.store, db, key)
+          {:reply, result, state}
 
-      {:hvals, db, key} ->
-        result = Hashes.hvals(state.store, db, key)
-        {:reply, result, state}
+        {:hvals, db, key} ->
+          result = Hashes.hvals(state.store, db, key)
+          {:reply, result, state}
 
-      {:hlen, db, key} ->
-        result = Hashes.hlen(state.store, db, key)
-        {:reply, result, state}
+        {:hlen, db, key} ->
+          result = Hashes.hlen(state.store, db, key)
+          {:reply, result, state}
 
-      {:zrange, db, key, start_idx, stop_idx} ->
-        result = ZSets.zrange(state.store, db, key, start_idx, stop_idx)
-        {:reply, result, state}
+        {:zrange, db, key, start_idx, stop_idx} ->
+          result = ZSets.zrange(state.store, db, key, start_idx, stop_idx)
+          {:reply, result, state}
 
-      {:zcard, db, key} ->
-        result = ZSets.zcard(state.store, db, key)
-        {:reply, result, state}
+        {:zcard, db, key} ->
+          result = ZSets.zcard(state.store, db, key)
+          {:reply, result, state}
 
-      {:zscore, db, key, member} ->
-        result = ZSets.zscore(state.store, db, key, member)
-        {:reply, result, state}
+        {:zscore, db, key, member} ->
+          result = ZSets.zscore(state.store, db, key, member)
+          {:reply, result, state}
 
-      _ ->
-        {:error, :unknown_command}
+        _ ->
+          {:error, :unknown_command}
+      end
     end
   end
 
@@ -155,285 +190,284 @@ defmodule Vdr.MapProj do
   defp initialize_state(id) do
     %__MODULE__{
       id: id,
-      store: %{}
+      store: %{},
+      new_store: nil,
+      ready: false
     }
   end
 
-  defp reinitialize_state(%__MODULE__{id: id}) do
-    state = %__MODULE__{
-      id: id,
-      store: %{}
-    }
+  defp reinitialize_state(%__MODULE__{} = state) do
+    # Create new_store for incoming RDB data
+    # Keep current store for serving reads during RDB transfer
+    # Keep ready flag as-is (true after first sync, false initially)
+    new_state = %{state | new_store: %{}}
 
-    :ok =
-      Vdr.Registry.register(self(), id, %Vdr.Handle{
-        callback_module: __MODULE__,
-        handle_state: self()
-      })
-
-    {:ok, state}
+    # Registry is already registered in init, no need to re-register
+    {:ok, new_state}
   end
 
   # Public accessor functions
+  # On success: returns value (could be nil, string, list, etc.)
+  # On error: returns {:error, reason} (e.g., {:error, :not_ready})
 
   def get(pid, db, key) when is_pid(pid) do
     case Replica.call(pid, {:get, db, key}) do
       {:ok, value} -> value
-      {:error, reason} -> {:error, reason}
+      error -> error
     end
   end
 
   def llen(pid, db, key) when is_pid(pid) do
     case Replica.call(pid, {:llen, db, key}) do
-      {:ok, len} -> len
-      {:error, reason} -> {:error, reason}
+      {:ok, value} -> value
+      error -> error
     end
   end
 
   def lrange(pid, db, key, start_idx, stop_idx) when is_pid(pid) do
     case Replica.call(pid, {:lrange, db, key, start_idx, stop_idx}) do
-      {:ok, elements} -> elements
-      {:error, reason} -> {:error, reason}
+      {:ok, value} -> value
+      error -> error
     end
   end
 
   def smembers(pid, db, key) when is_pid(pid) do
     case Replica.call(pid, {:smembers, db, key}) do
-      {:ok, members} -> members
-      {:error, reason} -> {:error, reason}
+      {:ok, value} -> value
+      error -> error
     end
   end
 
   def scard(pid, db, key) when is_pid(pid) do
     case Replica.call(pid, {:scard, db, key}) do
-      {:ok, count} -> count
-      {:error, reason} -> {:error, reason}
+      {:ok, value} -> value
+      error -> error
     end
   end
 
   def hget(pid, db, key, field) when is_pid(pid) do
     case Replica.call(pid, {:hget, db, key, field}) do
       {:ok, value} -> value
-      {:error, reason} -> {:error, reason}
+      error -> error
     end
   end
 
   def hmget(pid, db, key, fields) when is_pid(pid) do
     case Replica.call(pid, {:hmget, db, key, fields}) do
-      {:ok, values} -> values
-      {:error, reason} -> {:error, reason}
+      {:ok, value} -> value
+      error -> error
     end
   end
 
   def hgetall(pid, db, key) when is_pid(pid) do
     case Replica.call(pid, {:hgetall, db, key}) do
-      {:ok, fields} -> fields
-      {:error, reason} -> {:error, reason}
+      {:ok, value} -> value
+      error -> error
     end
   end
 
   def hkeys(pid, db, key) when is_pid(pid) do
     case Replica.call(pid, {:hkeys, db, key}) do
-      {:ok, keys} -> keys
-      {:error, reason} -> {:error, reason}
+      {:ok, value} -> value
+      error -> error
     end
   end
 
   def hvals(pid, db, key) when is_pid(pid) do
     case Replica.call(pid, {:hvals, db, key}) do
-      {:ok, values} -> values
-      {:error, reason} -> {:error, reason}
+      {:ok, value} -> value
+      error -> error
     end
   end
 
   def hlen(pid, db, key) when is_pid(pid) do
     case Replica.call(pid, {:hlen, db, key}) do
-      {:ok, len} -> len
-      {:error, reason} -> {:error, reason}
+      {:ok, value} -> value
+      error -> error
     end
   end
 
   def zrange(pid, db, key, start_idx, stop_idx) when is_pid(pid) do
     case Replica.call(pid, {:zrange, db, key, start_idx, stop_idx}) do
-      {:ok, members} -> members
-      {:error, reason} -> {:error, reason}
+      {:ok, value} -> value
+      error -> error
     end
   end
 
   def zcard(pid, db, key) when is_pid(pid) do
     case Replica.call(pid, {:zcard, db, key}) do
-      {:ok, count} -> count
-      {:error, reason} -> {:error, reason}
+      {:ok, value} -> value
+      error -> error
     end
   end
 
   def zscore(pid, db, key, member) when is_pid(pid) do
     case Replica.call(pid, {:zscore, db, key, member}) do
-      {:ok, score} -> score
-      {:error, reason} -> {:error, reason}
+      {:ok, value} -> value
+      error -> error
     end
   end
 
-  defp do_handle_command(state, db, %RedisCommand.Set{key: key, value: value}) do
-    Strings.set(state.store, db, key, value)
+  defp do_handle_command(store, db, %RedisCommand.Set{key: key, value: value}) do
+    Strings.set(store, db, key, value)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.MSet{pairs: pairs}) do
-    Strings.mset(state.store, db, pairs)
+  defp do_handle_command(store, db, %RedisCommand.MSet{pairs: pairs}) do
+    Strings.mset(store, db, pairs)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.Append{key: key, value: value}) do
-    Strings.append(state.store, db, key, value)
+  defp do_handle_command(store, db, %RedisCommand.Append{key: key, value: value}) do
+    Strings.append(store, db, key, value)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.SetRange{
+  defp do_handle_command(store, db, %RedisCommand.SetRange{
          key: key,
          offset: offset,
          value: value
        }) do
-    Strings.setrange(state.store, db, key, offset, value)
+    Strings.setrange(store, db, key, offset, value)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.SetBit{key: key, offset: offset, value: bit}) do
-    Strings.setbit(state.store, db, key, offset, bit)
+  defp do_handle_command(store, db, %RedisCommand.SetBit{key: key, offset: offset, value: bit}) do
+    Strings.setbit(store, db, key, offset, bit)
   end
 
   # List commands
-  defp do_handle_command(state, db, %RedisCommand.RPush{key: key, values: values}) do
-    Lists.rpush(state.store, db, key, values)
+  defp do_handle_command(store, db, %RedisCommand.RPush{key: key, values: values}) do
+    Lists.rpush(store, db, key, values)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.LPush{key: key, values: values}) do
-    Lists.lpush(state.store, db, key, values)
+  defp do_handle_command(store, db, %RedisCommand.LPush{key: key, values: values}) do
+    Lists.lpush(store, db, key, values)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.RPushX{key: key, values: values}) do
-    Lists.rpushx(state.store, db, key, values)
+  defp do_handle_command(store, db, %RedisCommand.RPushX{key: key, values: values}) do
+    Lists.rpushx(store, db, key, values)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.LPushX{key: key, values: values}) do
-    Lists.lpushx(state.store, db, key, values)
+  defp do_handle_command(store, db, %RedisCommand.LPushX{key: key, values: values}) do
+    Lists.lpushx(store, db, key, values)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.LPop{key: key}) do
-    Lists.lpop(state.store, db, key)
+  defp do_handle_command(store, db, %RedisCommand.LPop{key: key}) do
+    Lists.lpop(store, db, key)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.RPop{key: key}) do
-    Lists.rpop(state.store, db, key)
+  defp do_handle_command(store, db, %RedisCommand.RPop{key: key}) do
+    Lists.rpop(store, db, key)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.LRem{key: key, count: count, value: value}) do
-    Lists.lrem(state.store, db, key, count, value)
+  defp do_handle_command(store, db, %RedisCommand.LRem{key: key, count: count, value: value}) do
+    Lists.lrem(store, db, key, count, value)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.LTrim{
+  defp do_handle_command(store, db, %RedisCommand.LTrim{
          key: key,
          start: start_idx,
          stop: stop_idx
        }) do
-    Lists.ltrim(state.store, db, key, start_idx, stop_idx)
+    Lists.ltrim(store, db, key, start_idx, stop_idx)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.LSet{key: key, index: index, value: value}) do
-    Lists.lset(state.store, db, key, index, value)
+  defp do_handle_command(store, db, %RedisCommand.LSet{key: key, index: index, value: value}) do
+    Lists.lset(store, db, key, index, value)
   end
 
   defp do_handle_command(
-         state,
+         store,
          db,
          %RedisCommand.LInsert{key: key, before_after: position, pivot: pivot, element: element}
        ) do
-    Lists.linsert(state.store, db, key, position, pivot, element)
+    Lists.linsert(store, db, key, position, pivot, element)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.RPopLPush{
+  defp do_handle_command(store, db, %RedisCommand.RPopLPush{
          source: source,
          destination: dest
        }) do
-    Lists.rpoplpush(state.store, db, source, dest)
+    Lists.rpoplpush(store, db, source, dest)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.SAdd{key: key, members: members}) do
-    Sets.sadd(state.store, db, key, members)
+  defp do_handle_command(store, db, %RedisCommand.SAdd{key: key, members: members}) do
+    Sets.sadd(store, db, key, members)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.SRem{key: key, members: members}) do
-    Sets.srem(state.store, db, key, members)
+  defp do_handle_command(store, db, %RedisCommand.SRem{key: key, members: members}) do
+    Sets.srem(store, db, key, members)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.SMove{
+  defp do_handle_command(store, db, %RedisCommand.SMove{
          source: source,
          destination: dest,
          member: member
        }) do
-    Sets.smove(state.store, db, source, dest, member)
+    Sets.smove(store, db, source, dest, member)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.SInterStore{destination: dest, keys: keys}) do
-    Sets.sinterstore(state.store, db, dest, keys)
+  defp do_handle_command(store, db, %RedisCommand.SInterStore{destination: dest, keys: keys}) do
+    Sets.sinterstore(store, db, dest, keys)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.SUnionStore{destination: dest, keys: keys}) do
-    Sets.sunionstore(state.store, db, dest, keys)
+  defp do_handle_command(store, db, %RedisCommand.SUnionStore{destination: dest, keys: keys}) do
+    Sets.sunionstore(store, db, dest, keys)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.SDiffStore{destination: dest, keys: keys}) do
-    Sets.sdiffstore(state.store, db, dest, keys)
+  defp do_handle_command(store, db, %RedisCommand.SDiffStore{destination: dest, keys: keys}) do
+    Sets.sdiffstore(store, db, dest, keys)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.HSet{key: key, fields: field_values}) do
-    Hashes.hset(state.store, db, key, field_values)
+  defp do_handle_command(store, db, %RedisCommand.HSet{key: key, fields: field_values}) do
+    Hashes.hset(store, db, key, field_values)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.HDel{key: key, fields: fields}) do
-    Hashes.hdel(state.store, db, key, fields)
+  defp do_handle_command(store, db, %RedisCommand.HDel{key: key, fields: fields}) do
+    Hashes.hdel(store, db, key, fields)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.ZAdd{key: key, members: members}) do
-    ZSets.zadd(state.store, db, key, members)
+  defp do_handle_command(store, db, %RedisCommand.ZAdd{key: key, members: members}) do
+    ZSets.zadd(store, db, key, members)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.ZRem{key: key, members: members}) do
-    ZSets.zrem(state.store, db, key, members)
+  defp do_handle_command(store, db, %RedisCommand.ZRem{key: key, members: members}) do
+    ZSets.zrem(store, db, key, members)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.ZPopMax{key: key, count: count}) do
-    {new_store, _popped} = ZSets.zpopmax(state.store, db, key, count)
+  defp do_handle_command(store, db, %RedisCommand.ZPopMax{key: key, count: count}) do
+    {new_store, _popped} = ZSets.zpopmax(store, db, key, count)
     new_store
   end
 
-  defp do_handle_command(state, db, %RedisCommand.ZPopMin{key: key, count: count}) do
-    {new_store, _popped} = ZSets.zpopmin(state.store, db, key, count)
+  defp do_handle_command(store, db, %RedisCommand.ZPopMin{key: key, count: count}) do
+    {new_store, _popped} = ZSets.zpopmin(store, db, key, count)
     new_store
   end
 
-  defp do_handle_command(state, db, %RedisCommand.ZRemRangeByRank{
+  defp do_handle_command(store, db, %RedisCommand.ZRemRangeByRank{
          key: key,
          start: start_idx,
          stop: stop_idx
        }) do
-    ZSets.zremrangebyrank(state.store, db, key, start_idx, stop_idx)
+    ZSets.zremrangebyrank(store, db, key, start_idx, stop_idx)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.ZRemRangeByScore{key: key, min: min, max: max}) do
+  defp do_handle_command(store, db, %RedisCommand.ZRemRangeByScore{key: key, min: min, max: max}) do
     min_score = parse_score(min)
     max_score = parse_score(max)
-    ZSets.zremrangebyscore(state.store, db, key, min_score, max_score)
+    ZSets.zremrangebyscore(store, db, key, min_score, max_score)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.ZRemRangeByLex{key: key, min: min, max: max}) do
-    ZSets.zremrangebylex(state.store, db, key, min, max)
+  defp do_handle_command(store, db, %RedisCommand.ZRemRangeByLex{key: key, min: min, max: max}) do
+    ZSets.zremrangebylex(store, db, key, min, max)
   end
 
-  defp do_handle_command(state, db, %RedisCommand.ZUnionStore{
+  defp do_handle_command(store, db, %RedisCommand.ZUnionStore{
          destination: dest,
          keys: keys,
          weights: weights,
          aggregate: aggregate
        }) do
     ZSets.zunionstore(
-      state.store,
+      store,
       db,
       dest,
       keys,
@@ -442,14 +476,14 @@ defmodule Vdr.MapProj do
     )
   end
 
-  defp do_handle_command(state, db, %RedisCommand.ZInterStore{
+  defp do_handle_command(store, db, %RedisCommand.ZInterStore{
          destination: dest,
          keys: keys,
          weights: weights,
          aggregate: aggregate
        }) do
     ZSets.zinterstore(
-      state.store,
+      store,
       db,
       dest,
       keys,
@@ -458,18 +492,18 @@ defmodule Vdr.MapProj do
     )
   end
 
-  defp do_handle_command(state, db, %RedisCommand.Del{keys: keys}) do
-    Enum.reduce(keys, state.store, fn key, store ->
-      Common.del(store, db, key)
+  defp do_handle_command(store, db, %RedisCommand.Del{keys: keys}) do
+    Enum.reduce(keys, store, fn key, acc_store ->
+      Common.del(acc_store, db, key)
     end)
   end
 
-  defp do_handle_command(state, _db, %RedisCommand.PExpireAt{}) do
-    state.store
+  defp do_handle_command(store, _db, %RedisCommand.PExpireAt{}) do
+    store
   end
 
-  defp do_handle_command(state, _db, _command) do
-    state.store
+  defp do_handle_command(store, _db, _command) do
+    store
   end
 
   defp parse_score("-inf"), do: :neg_inf

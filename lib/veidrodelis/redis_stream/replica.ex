@@ -254,6 +254,7 @@ defmodule Vdr.RedisStream.Replica do
 
         # Start connection process asynchronously
         {:ok, state, {:continue, :connect}}
+
       {:error, reason} ->
         {:stop, {:init_failed, reason}}
     end
@@ -827,6 +828,9 @@ defmodule Vdr.RedisStream.Replica do
       {:ok, commands, new_replica_parser} ->
         # Parser returned commands and wants more data
         #
+        # Check parser state AFTER feeding data to detect streaming transition
+        parser_state_after = Vdr.RedisStream.Nif.replica_state(new_replica_parser)
+
         # Only increment offset if we were in streaming mode BEFORE feeding this data
         # If we were reading RDB, this data is RDB data and should not count
         new_offset =
@@ -846,13 +850,37 @@ defmodule Vdr.RedisStream.Replica do
             replication_offset: new_offset
         }
 
-        # Process commands through callback
-        case process_commands(commands, state_with_offset) do
-          {:ok, new_state} ->
-            {:noreply, new_state}
+        # If streaming just started (after RDB transfer completes), call handle_streaming_start
+        # This happens in FULLRESYNC after RDB is fully received and parsed
+        # This does NOT happen in PSYNC CONTINUE (parser starts directly in :streaming mode)
+        state_result =
+          if parser_state_before != :streaming and parser_state_after == :streaming do
+            case state.callback_module.handle_streaming_start(state_with_offset.callback_state) do
+              {:ok, new_callback_state} ->
+                Logger.info("handle_streaming_start callback succeeded")
+                {:ok, %{state_with_offset | callback_state: new_callback_state}}
+
+              {:error, reason} ->
+                Logger.error("handle_streaming_start callback failed: #{inspect(reason)}")
+                {:error, {:handle_streaming_start_failed, reason}}
+            end
+          else
+            {:ok, state_with_offset}
+          end
+
+        case state_result do
+          {:ok, state_with_offset} ->
+            # Process commands through callback
+            case process_commands(commands, state_with_offset) do
+              {:ok, new_state} ->
+                {:noreply, new_state}
+
+              {:error, reason} ->
+                {:stop, {:callback_failed, reason}, state}
+            end
 
           {:error, reason} ->
-            {:stop, {:callback_failed, reason}, state}
+            {:stop, reason, state}
         end
 
       {:error, reason} ->

@@ -5,12 +5,12 @@ defmodule Vdr.RedisStream.Callback do
 
   @callback init(opts :: keyword()) :: {:ok, term()} | {:error, term()}
   @callback handle_replication_start(state :: term()) :: {:ok, term()} | {:error, term()}
+  @callback handle_streaming_start(state :: term()) :: {:ok, term()} | {:error, term()}
   @callback handle_command(
               state :: term(),
               replica_command :: ReplicaCommand.t()
             ) ::
               {:ok, term()} | {:error, term()}
-
 
   @callback handle_call(state :: term(), message :: term()) ::
               {:reply, term(), term()} | {:noreply, term()} | {:error, term()}
