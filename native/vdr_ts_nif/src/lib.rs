@@ -288,24 +288,191 @@ fn scard_get<'a>(
     }
 }
 
+// List operation NIFs
+
+#[rustler::nif(name = "lpush")]
+fn lpush_values<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    values: Vec<Binary>,
+) -> Term<'a> {
+    let mut inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    let values_vec: Vec<Vec<u8>> = values.iter().map(|b| b.as_slice().to_vec()).collect();
+
+    match inner.lpush(db, key.as_slice(), &values_vec) {
+        Ok(_len) => atoms::ok().encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "rpush")]
+fn rpush_values<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    values: Vec<Binary>,
+) -> Term<'a> {
+    let mut inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    let values_vec: Vec<Vec<u8>> = values.iter().map(|b| b.as_slice().to_vec()).collect();
+
+    match inner.rpush(db, key.as_slice(), &values_vec) {
+        Ok(_len) => atoms::ok().encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "lpop")]
+fn lpop_value<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+) -> Term<'a> {
+    let mut inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.lpop(db, key.as_slice()) {
+        Ok(Some(value)) => {
+            let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
+            binary.as_mut_slice().copy_from_slice(&value);
+            (atoms::ok(), binary.release(env)).encode(env)
+        }
+        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "rpop")]
+fn rpop_value<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+) -> Term<'a> {
+    let mut inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.rpop(db, key.as_slice()) {
+        Ok(Some(value)) => {
+            let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
+            binary.as_mut_slice().copy_from_slice(&value);
+            (atoms::ok(), binary.release(env)).encode(env)
+        }
+        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "llen")]
+fn llen_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.llen(db, key.as_slice()) {
+        Ok(len) => (atoms::ok(), len).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "lrange")]
+fn lrange_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    start: i64,
+    stop: i64,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.lrange(db, key.as_slice(), start, stop) {
+        Ok(elements) => {
+            let binaries: Vec<Term> = elements
+                .iter()
+                .map(|e| {
+                    let mut binary = rustler::types::OwnedBinary::new(e.len()).unwrap();
+                    binary.as_mut_slice().copy_from_slice(e);
+                    binary.release(env).encode(env)
+                })
+                .collect();
+            (atoms::ok(), binaries).encode(env)
+        }
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "lset")]
+fn lset_value<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    index: i64,
+    value: Binary,
+) -> Term<'a> {
+    let mut inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.lset(db, key.as_slice(), index, value.as_slice()) {
+        Ok(true) => atoms::ok().encode(env),
+        Ok(false) => atoms::ok().encode(env), // Redis LSET returns error on out of range, but we return :ok for now
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "rpoplpush")]
+fn rpoplpush_value<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    source_key: Binary,
+    dest_key: Binary,
+) -> Term<'a> {
+    let mut inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.rpoplpush(db, source_key.as_slice(), dest_key.as_slice()) {
+        Ok(Some(value)) => {
+            let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
+            binary.as_mut_slice().copy_from_slice(&value);
+            (atoms::ok(), binary.release(env)).encode(env)
+        }
+        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
 rustler::init!(
     "Elixir.Vdr.TS",
-    [
-        create_storage,
-        set_value,
-        get_value,
-        delete_value,
-        destroy_storage,
-        sadd_members,
-        srem_members,
-        smove_member,
-        sunionstore_sets,
-        sinterstore_sets,
-        sdiffstore_sets,
-        smembers_get,
-        sismember_check,
-        scard_get,
-    ],
     load = load_nif
 );
 

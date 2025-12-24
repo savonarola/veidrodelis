@@ -345,4 +345,157 @@ defmodule Vdr.TS do
   @spec scard(reference(), non_neg_integer(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
   def scard(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+
+  # List operations
+
+  @doc """
+  Pushes one or more values to the head (left) of the list.
+
+  Returns `:ok` on success. Returns `{:error, :wrong_type}` if the key
+  exists and holds a non-list value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      :ok = Vdr.TS.lpush(storage, 0, "mylist", ["a", "b", "c"])
+      # List now contains: ["c", "b", "a"]
+
+      # Type checking
+      Vdr.TS.set(storage, 0, "mystring", "value")
+      {:error, :wrong_type} = Vdr.TS.lpush(storage, 0, "mystring", ["a"])
+  """
+  @spec lpush(reference(), non_neg_integer(), binary(), [binary()]) ::
+          :ok | {:error, :wrong_type}
+  def lpush(_storage, _db, _key, _values), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Pushes one or more values to the tail (right) of the list.
+
+  Returns `:ok` on success. Returns `{:error, :wrong_type}` if the key
+  exists and holds a non-list value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      :ok = Vdr.TS.rpush(storage, 0, "mylist", ["a", "b", "c"])
+      # List now contains: ["a", "b", "c"]
+
+      # Type checking
+      Vdr.TS.set(storage, 0, "mystring", "value")
+      {:error, :wrong_type} = Vdr.TS.rpush(storage, 0, "mystring", ["a"])
+  """
+  @spec rpush(reference(), non_neg_integer(), binary(), [binary()]) ::
+          :ok | {:error, :wrong_type}
+  def rpush(_storage, _db, _key, _values), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Removes and returns the first element from the head (left) of the list.
+
+  Returns `{:ok, value}` if an element was popped, `{:ok, nil}` if the list
+  is empty or doesn't exist. Returns `{:error, :wrong_type}` if the key
+  exists and holds a non-list value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.rpush(storage, 0, "mylist", ["a", "b", "c"])
+      {:ok, "a"} = Vdr.TS.lpop(storage, 0, "mylist")
+      {:ok, nil} = Vdr.TS.lpop(storage, 0, "nonexistent")
+  """
+  @spec lpop(reference(), non_neg_integer(), binary()) ::
+          {:ok, binary() | nil} | {:error, :wrong_type}
+  def lpop(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Removes and returns the last element from the tail (right) of the list.
+
+  Returns `{:ok, value}` if an element was popped, `{:ok, nil}` if the list
+  is empty or doesn't exist. Returns `{:error, :wrong_type}` if the key
+  exists and holds a non-list value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.rpush(storage, 0, "mylist", ["a", "b", "c"])
+      {:ok, "c"} = Vdr.TS.rpop(storage, 0, "mylist")
+      {:ok, nil} = Vdr.TS.rpop(storage, 0, "nonexistent")
+  """
+  @spec rpop(reference(), non_neg_integer(), binary()) ::
+          {:ok, binary() | nil} | {:error, :wrong_type}
+  def rpop(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Returns the length of the list stored at key.
+
+  Returns `{:ok, count}` where count is a non-negative integer. If key doesn't exist,
+  returns `{:ok, 0}`. Returns `{:error, :wrong_type}` if the key exists and holds
+  a non-list value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.rpush(storage, 0, "mylist", ["a", "b", "c"])
+      {:ok, 3} = Vdr.TS.llen(storage, 0, "mylist")
+      {:ok, 0} = Vdr.TS.llen(storage, 0, "nonexistent")
+  """
+  @spec llen(reference(), non_neg_integer(), binary()) ::
+          {:ok, non_neg_integer()} | {:error, :wrong_type}
+  def llen(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Returns a range of elements from the list stored at key.
+
+  Both start and stop are inclusive and support negative indices (counting from the end).
+  Returns `{:ok, elements}` where elements is a list of binaries. If key doesn't exist,
+  returns `{:ok, []}`. Returns `{:error, :wrong_type}` if the key exists and holds
+  a non-list value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.rpush(storage, 0, "mylist", ["a", "b", "c", "d"])
+      {:ok, ["a", "b", "c"]} = Vdr.TS.lrange(storage, 0, "mylist", 0, 2)
+      {:ok, ["c", "d"]} = Vdr.TS.lrange(storage, 0, "mylist", -2, -1)
+      {:ok, []} = Vdr.TS.lrange(storage, 0, "nonexistent", 0, -1)
+  """
+  @spec lrange(reference(), non_neg_integer(), binary(), integer(), integer()) ::
+          {:ok, [binary()]} | {:error, :wrong_type}
+  def lrange(_storage, _db, _key, _start, _stop), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Sets the list element at index to value.
+
+  Returns `:ok` on success. Returns `{:error, :wrong_type}` if the key exists
+  and holds a non-list value. Index can be negative (counting from the end).
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.rpush(storage, 0, "mylist", ["a", "b", "c"])
+      :ok = Vdr.TS.lset(storage, 0, "mylist", 1, "x")
+      {:ok, ["a", "x", "c"]} = Vdr.TS.lrange(storage, 0, "mylist", 0, -1)
+  """
+  @spec lset(reference(), non_neg_integer(), binary(), integer(), binary()) ::
+          :ok | {:error, :wrong_type}
+  def lset(_storage, _db, _key, _index, _value), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Atomically pops the last element from source list and pushes it to the head of destination list.
+
+  Returns `{:ok, value}` if an element was moved, `{:ok, nil}` if the source list
+  is empty or doesn't exist. Returns `{:error, :wrong_type}` if either key exists
+  and holds a non-list value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.rpush(storage, 0, "list1", ["a", "b", "c"])
+      Vdr.TS.rpush(storage, 0, "list2", ["x", "y"])
+      {:ok, "c"} = Vdr.TS.rpoplpush(storage, 0, "list1", "list2")
+      # list1: ["a", "b"], list2: ["c", "x", "y"]
+  """
+  @spec rpoplpush(reference(), non_neg_integer(), binary(), binary()) ::
+          {:ok, binary() | nil} | {:error, :wrong_type}
+  def rpoplpush(_storage, _db, _source_key, _dest_key),
+    do: :erlang.nif_error(:nif_not_loaded)
 end

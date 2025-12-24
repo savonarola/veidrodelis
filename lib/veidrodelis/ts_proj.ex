@@ -175,9 +175,20 @@ defmodule Vdr.TSProj do
     Vdr.TS.get(ts_storage, db, key)
   end
 
-  # All other accessors return not_implemented error
-  def llen(_handle_state, _db, _key), do: {:error, :not_implemented}
-  def lrange(_handle_state, _db, _key, _start, _stop), do: {:error, :not_implemented}
+  # List accessors
+  def llen(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
+    case Vdr.TS.llen(ts_storage, db, key) do
+      {:ok, len} -> len
+      {:error, _} = error -> error
+    end
+  end
+
+  def lrange(%{ts_storage: ts_storage}, db, key, start, stop) when is_binary(key) do
+    case Vdr.TS.lrange(ts_storage, db, key, start, stop) do
+      {:ok, elements} -> elements
+      {:error, _} = error -> error
+    end
+  end
 
   def smembers(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
     case Vdr.TS.smembers(ts_storage, db, key) do
@@ -273,6 +284,65 @@ defmodule Vdr.TSProj do
        }) do
     case Vdr.TS.sdiffstore(ts_storage, db, dest_key, source_keys) do
       :ok -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  # List command handlers
+  defp do_handle_command(ts_storage, db, %RedisCommand.LPush{key: key, values: values}) do
+    case Vdr.TS.lpush(ts_storage, db, key, values) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.RPush{key: key, values: values}) do
+    case Vdr.TS.rpush(ts_storage, db, key, values) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.LPushX{key: key, values: values}) do
+    # LPushX only pushes if key exists - for simplicity during replication, treat like LPush
+    case Vdr.TS.lpush(ts_storage, db, key, values) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.RPushX{key: key, values: values}) do
+    # RPushX only pushes if key exists - for simplicity during replication, treat like RPush
+    case Vdr.TS.rpush(ts_storage, db, key, values) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.LPop{key: key}) do
+    case Vdr.TS.lpop(ts_storage, db, key) do
+      {:ok, _} -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.RPop{key: key}) do
+    case Vdr.TS.rpop(ts_storage, db, key) do
+      {:ok, _} -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.LSet{key: key, index: index, value: value}) do
+    case Vdr.TS.lset(ts_storage, db, key, index, value) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.RPopLPush{source: source_key, destination: dest_key}) do
+    case Vdr.TS.rpoplpush(ts_storage, db, source_key, dest_key) do
+      {:ok, _} -> :ok
       {:error, _} -> :ok
     end
   end

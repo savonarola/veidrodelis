@@ -164,8 +164,8 @@ defmodule VeidrodelisTSTest do
       # Wait a bit for any potential data
       :timer.sleep(100)
 
-      # Trying to access non-string and non-set operations should return error
-      assert Veidrodelis.llen(@id, 0, "mylist") == {:error, :not_implemented}
+      # Trying to access non-implemented operations should return error
+      # Note: lists are now implemented, so only hashes and sorted sets return not_implemented
       assert Veidrodelis.hget(@id, 0, "myhash", "field") == {:error, :not_implemented}
       assert Veidrodelis.zcard(@id, 0, "myzset") == {:error, :not_implemented}
 
@@ -293,6 +293,225 @@ defmodule VeidrodelisTSTest do
       Veidrodelis.stop(pid)
     end
 
+    test "processes basic list commands", %{redis: redis} do
+      # Write list data to Redis
+      Redix.command!(redis, ["RPUSH", "mylist", "a", "b", "c"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify list data
+      wait_happens_within 100 do
+        Veidrodelis.llen(@id, 0, "mylist") == 3 &&
+          Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["a", "b", "c"]
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes streaming list commands", %{redis: redis} do
+      # Start Veidrodelis FIRST
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication to start
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # NOW write list data (streaming)
+      Redix.command!(redis, ["LPUSH", "stream_list", "x", "y", "z"])
+
+      # Wait for commands to replicate
+      assert_happens_within 1000 do
+        Veidrodelis.llen(@id, 0, "stream_list") == 3
+      end
+
+      # Verify the list (LPUSH pushes in reverse order)
+      assert Veidrodelis.lrange(@id, 0, "stream_list", 0, -1) == ["z", "y", "x"]
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes mixed push operations on lists", %{redis: redis} do
+      # Create a list with RPUSH and LPUSH
+      Redix.command!(redis, ["RPUSH", "mylist", "b", "c"])
+      Redix.command!(redis, ["LPUSH", "mylist", "a"])
+      Redix.command!(redis, ["RPUSH", "mylist", "d"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify list order
+      wait_happens_within 100 do
+        Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["a", "b", "c", "d"]
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes list lset commands", %{redis: redis} do
+      # Create a list and modify it
+      Redix.command!(redis, ["RPUSH", "mylist", "a", "b", "c"])
+      Redix.command!(redis, ["LSET", "mylist", "1", "x"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify modified list
+      wait_happens_within 100 do
+        Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["a", "x", "c"]
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes list pop operations", %{redis: redis} do
+      # Create a list
+      Redix.command!(redis, ["RPUSH", "mylist", "a", "b", "c", "d"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify initial list
+      wait_happens_within 100 do
+        Veidrodelis.llen(@id, 0, "mylist") == 4
+      end
+
+      # Pop from both ends
+      Redix.command!(redis, ["LPOP", "mylist"])
+      Redix.command!(redis, ["RPOP", "mylist"])
+
+      # Wait for pops to replicate
+      wait_happens_within 500 do
+        Veidrodelis.llen(@id, 0, "mylist") == 2 &&
+          Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["b", "c"]
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes rpoplpush operation", %{redis: redis} do
+      # Create two lists
+      Redix.command!(redis, ["RPUSH", "list1", "a", "b", "c"])
+      Redix.command!(redis, ["RPUSH", "list2", "x", "y"])
+
+      # Perform RPOPLPUSH
+      Redix.command!(redis, ["RPOPLPUSH", "list1", "list2"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify both lists
+      wait_happens_within 100 do
+        list1 = Veidrodelis.lrange(@id, 0, "list1", 0, -1)
+        list2 = Veidrodelis.lrange(@id, 0, "list2", 0, -1)
+
+        list1 == ["a", "b"] &&
+          list2 == ["c", "x", "y"]
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes rpoplpush on same list (rotation)", %{redis: redis} do
+      # Create a list
+      Redix.command!(redis, ["RPUSH", "mylist", "a", "b", "c"])
+
+      # Rotate the list (move last to first)
+      Redix.command!(redis, ["RPOPLPUSH", "mylist", "mylist"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify rotated list (c moved to front)
+      wait_happens_within 100 do
+        Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["c", "a", "b"]
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "handles lrange with various indices", %{redis: redis} do
+      # Create a list with several elements
+      Redix.command!(redis, ["RPUSH", "mylist", "a", "b", "c", "d", "e"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for list to replicate
+      wait_happens_within 100 do
+        Veidrodelis.llen(@id, 0, "mylist") == 5
+      end
+
+      # Test various range queries
+      assert Veidrodelis.lrange(@id, 0, "mylist", 0, 2) == ["a", "b", "c"]
+      assert Veidrodelis.lrange(@id, 0, "mylist", -2, -1) == ["d", "e"]
+      assert Veidrodelis.lrange(@id, 0, "mylist", 1, 3) == ["b", "c", "d"]
+      assert Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["a", "b", "c", "d", "e"]
+
+      # Non-existent list returns empty
+      assert Veidrodelis.lrange(@id, 0, "nonexistent", 0, -1) == []
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "handles empty list operations", %{redis: redis} do
+      # Create and then empty a list
+      Redix.command!(redis, ["RPUSH", "mylist", "a"])
+      Redix.command!(redis, ["LPOP", "mylist"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify empty list (key should be deleted)
+      wait_happens_within 100 do
+        Veidrodelis.llen(@id, 0, "mylist") == 0 &&
+          Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == []
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
     test "handles type mismatches correctly", %{redis: redis} do
       # Create a string key
       Redix.command!(redis, ["SET", "mystring", "value"])
@@ -313,6 +532,10 @@ defmodule VeidrodelisTSTest do
       # Trying to access string as set should return error
       assert Veidrodelis.smembers(@id, 0, "mystring") == {:error, :wrong_type}
       assert Veidrodelis.scard(@id, 0, "mystring") == {:error, :wrong_type}
+
+      # Trying to access string as list should also return error
+      assert Veidrodelis.llen(@id, 0, "mystring") == {:error, :wrong_type}
+      assert Veidrodelis.lrange(@id, 0, "mystring", 0, -1) == {:error, :wrong_type}
 
       Veidrodelis.stop(pid)
     end

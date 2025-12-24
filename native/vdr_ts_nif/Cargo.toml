@@ -9,3 +9,4 @@ crate-type = ["cdylib"]
 
 [dependencies]
 rustler = "0.37.2"
+im = "15.1.0"
