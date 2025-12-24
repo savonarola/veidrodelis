@@ -90,9 +90,19 @@ defmodule Veidrodelis do
   @doc """
   Gets the current replication state of a Veidrodelis instance.
   """
-  @spec get_replication_state(pid()) :: atom()
+  @spec get_replication_state(pid() | instance_id()) :: atom()
   def get_replication_state(pid) when is_pid(pid) do
     Replica.get_replication_state(pid)
+  end
+
+  def get_replication_state(id) do
+    case Vdr.Registry.lookup(id) do
+      {:ok, %Vdr.Handle{pid: pid}} ->
+        Replica.get_replication_state(pid)
+
+      :not_found ->
+        raise "Veidrodelis instance with id #{id} not found"
+    end
   end
 
   # Redis accessor functions

@@ -66,7 +66,8 @@ defmodule Vdr.TSProj do
     :ok =
       Vdr.Registry.register(self(), id, %Vdr.Handle{
         callback_module: __MODULE__,
-        handle_state: %{pid: self(), ts_storage: state.ts_storage}
+        handle_state: %{pid: self(), ts_storage: state.ts_storage},
+        pid: self()
       })
 
     {:ok, state}
@@ -88,7 +89,8 @@ defmodule Vdr.TSProj do
     :ok =
       Vdr.Registry.register(self(), state.id, %Vdr.Handle{
         callback_module: __MODULE__,
-        handle_state: %{pid: self(), ts_storage: new_state.ts_storage}
+        handle_state: %{pid: self(), ts_storage: new_state.ts_storage},
+        pid: self()
       })
 
     {:ok, new_state}

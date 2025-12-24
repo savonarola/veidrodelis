@@ -67,7 +67,8 @@ defmodule Vdr.MapProj do
     :ok =
       Vdr.Registry.register(self(), id, %Vdr.Handle{
         callback_module: __MODULE__,
-        handle_state: self()
+        handle_state: self(),
+        pid: self()
       })
 
     {:ok, state}
