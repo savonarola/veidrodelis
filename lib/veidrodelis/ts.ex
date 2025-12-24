@@ -174,4 +174,175 @@ defmodule Vdr.TS do
   """
   @spec destroy(reference()) :: :ok
   def destroy(_storage), do: :erlang.nif_error(:nif_not_loaded)
+
+  # Set operations
+
+  @doc """
+  Adds one or more members to the set stored at key.
+
+  Returns `:ok` on success. Returns `{:error, :wrong_type}` if the key
+  exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      :ok = Vdr.TS.sadd(storage, 0, "myset", ["a", "b", "c"])
+      :ok = Vdr.TS.sadd(storage, 0, "myset", ["b", "d"])  # "b" already exists
+
+      # Type checking
+      Vdr.TS.set(storage, 0, "mystring", "value")
+      {:error, :wrong_type} = Vdr.TS.sadd(storage, 0, "mystring", ["a"])
+  """
+  @spec sadd(reference(), non_neg_integer(), binary(), [binary()]) ::
+          :ok | {:error, :wrong_type}
+  def sadd(_storage, _db, _key, _members), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Removes one or more members from the set stored at key.
+
+  Returns `:ok` on success, even if members don't exist in the set.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.sadd(storage, 0, "myset", ["a", "b", "c"])
+      :ok = Vdr.TS.srem(storage, 0, "myset", ["a", "b"])
+      :ok = Vdr.TS.srem(storage, 0, "myset", ["x", "y"])  # non-existent members
+  """
+  @spec srem(reference(), non_neg_integer(), binary(), [binary()]) ::
+          :ok | {:error, :wrong_type}
+  def srem(_storage, _db, _key, _members), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Moves a member from the source set to the destination set.
+
+  Returns `:ok` on success, even if the member doesn't exist in the source set.
+  Returns `{:error, :wrong_type}` if either key exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.sadd(storage, 0, "set1", ["a", "b", "c"])
+      Vdr.TS.sadd(storage, 0, "set2", ["x", "y"])
+      :ok = Vdr.TS.smove(storage, 0, "set1", "set2", "b")
+      :ok = Vdr.TS.smove(storage, 0, "set1", "set2", "z")  # doesn't exist
+  """
+  @spec smove(reference(), non_neg_integer(), binary(), binary(), binary()) ::
+          :ok | {:error, :wrong_type}
+  def smove(_storage, _db, _source_key, _dest_key, _member),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Stores the union of multiple sets in the destination key.
+
+  Returns `:ok` on success. Returns `{:error, :wrong_type}` if any source key
+  exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.sadd(storage, 0, "set1", ["a", "b"])
+      Vdr.TS.sadd(storage, 0, "set2", ["b", "c"])
+      :ok = Vdr.TS.sunionstore(storage, 0, "result", ["set1", "set2"])
+      # result contains: ["a", "b", "c"]
+  """
+  @spec sunionstore(reference(), non_neg_integer(), binary(), [binary()]) ::
+          :ok | {:error, :wrong_type}
+  def sunionstore(_storage, _db, _dest_key, _source_keys),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Stores the intersection of multiple sets in the destination key.
+
+  Returns `:ok` on success. Returns `{:error, :wrong_type}` if any source key
+  exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.sadd(storage, 0, "set1", ["a", "b", "c"])
+      Vdr.TS.sadd(storage, 0, "set2", ["b", "c", "d"])
+      :ok = Vdr.TS.sinterstore(storage, 0, "result", ["set1", "set2"])
+      # result contains: ["b", "c"]
+  """
+  @spec sinterstore(reference(), non_neg_integer(), binary(), [binary()]) ::
+          :ok | {:error, :wrong_type}
+  def sinterstore(_storage, _db, _dest_key, _source_keys),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Stores the difference of sets in the destination key.
+
+  The difference is computed as: first_set - second_set - third_set - ...
+
+  Returns `:ok` on success. Returns `{:error, :wrong_type}` if any source key
+  exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.sadd(storage, 0, "set1", ["a", "b", "c", "d"])
+      Vdr.TS.sadd(storage, 0, "set2", ["b", "d"])
+      :ok = Vdr.TS.sdiffstore(storage, 0, "result", ["set1", "set2"])
+      # result contains: ["a", "c"]
+  """
+  @spec sdiffstore(reference(), non_neg_integer(), binary(), [binary()]) ::
+          :ok | {:error, :wrong_type}
+  def sdiffstore(_storage, _db, _dest_key, _source_keys),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Returns all members of the set stored at key.
+
+  Returns `{:ok, members}` where members is a list of binaries. If key doesn't exist,
+  returns `{:ok, []}`. Returns `{:error, :wrong_type}` if the key exists and
+  holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.sadd(storage, 0, "myset", ["a", "b", "c"])
+      {:ok, members} = Vdr.TS.smembers(storage, 0, "myset")
+      # members is ["a", "b", "c"] (order may vary)
+      {:ok, []} = Vdr.TS.smembers(storage, 0, "nonexistent")
+  """
+  @spec smembers(reference(), non_neg_integer(), binary()) ::
+          {:ok, [binary()]} | {:error, :wrong_type}
+  def smembers(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Checks if a member exists in the set stored at key.
+
+  Returns `{:ok, true}` if the member exists, `{:ok, false}` otherwise.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.sadd(storage, 0, "myset", ["a", "b", "c"])
+      {:ok, true} = Vdr.TS.sismember(storage, 0, "myset", "b")
+      {:ok, false} = Vdr.TS.sismember(storage, 0, "myset", "z")
+  """
+  @spec sismember(reference(), non_neg_integer(), binary(), binary()) ::
+          {:ok, boolean()} | {:error, :wrong_type}
+  def sismember(_storage, _db, _key, _member), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Returns the cardinality (number of members) of the set stored at key.
+
+  Returns `{:ok, count}` where count is a non-negative integer. If key doesn't exist,
+  returns `{:ok, 0}`. Returns `{:error, :wrong_type}` if the key exists and holds
+  a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.sadd(storage, 0, "myset", ["a", "b", "c"])
+      {:ok, 3} = Vdr.TS.scard(storage, 0, "myset")
+      {:ok, 0} = Vdr.TS.scard(storage, 0, "nonexistent")
+  """
+  @spec scard(reference(), non_neg_integer(), binary()) ::
+          {:ok, non_neg_integer()} | {:error, :wrong_type}
+  def scard(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
 end

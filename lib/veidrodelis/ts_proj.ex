@@ -178,8 +178,28 @@ defmodule Vdr.TSProj do
   # All other accessors return not_implemented error
   def llen(_handle_state, _db, _key), do: {:error, :not_implemented}
   def lrange(_handle_state, _db, _key, _start, _stop), do: {:error, :not_implemented}
-  def smembers(_handle_state, _db, _key), do: {:error, :not_implemented}
-  def scard(_handle_state, _db, _key), do: {:error, :not_implemented}
+
+  def smembers(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
+    case Vdr.TS.smembers(ts_storage, db, key) do
+      {:ok, members} -> members
+      {:error, _} = error -> error
+    end
+  end
+
+  def scard(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
+    case Vdr.TS.scard(ts_storage, db, key) do
+      {:ok, count} -> count
+      {:error, _} = error -> error
+    end
+  end
+
+  def sismember(%{ts_storage: ts_storage}, db, key, member)
+      when is_binary(key) and is_binary(member) do
+    case Vdr.TS.sismember(ts_storage, db, key, member) do
+      {:ok, is_member} -> is_member
+      {:error, _} = error -> error
+    end
+  end
   def hget(_handle_state, _db, _key, _field), do: {:error, :not_implemented}
   def hmget(_handle_state, _db, _key, _fields), do: {:error, :not_implemented}
   def hgetall(_handle_state, _db, _key), do: {:error, :not_implemented}
@@ -199,6 +219,62 @@ defmodule Vdr.TSProj do
     Enum.each(keys, fn key ->
       Vdr.TS.del(ts_storage, db, key)
     end)
+  end
+
+  # Set command handlers
+  defp do_handle_command(ts_storage, db, %RedisCommand.SAdd{key: key, members: members}) do
+    case Vdr.TS.sadd(ts_storage, db, key, members) do
+      :ok -> :ok
+      {:error, _} -> :ok  # Ignore errors during replication
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.SRem{key: key, members: members}) do
+    case Vdr.TS.srem(ts_storage, db, key, members) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.SMove{
+         source: source_key,
+         destination: dest_key,
+         member: member
+       }) do
+    case Vdr.TS.smove(ts_storage, db, source_key, dest_key, member) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.SUnionStore{
+         destination: dest_key,
+         keys: source_keys
+       }) do
+    case Vdr.TS.sunionstore(ts_storage, db, dest_key, source_keys) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.SInterStore{
+         destination: dest_key,
+         keys: source_keys
+       }) do
+    case Vdr.TS.sinterstore(ts_storage, db, dest_key, source_keys) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.SDiffStore{
+         destination: dest_key,
+         keys: source_keys
+       }) do
+    case Vdr.TS.sdiffstore(ts_storage, db, dest_key, source_keys) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
   end
 
   # Ignore all other commands

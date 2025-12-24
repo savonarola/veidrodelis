@@ -164,11 +164,155 @@ defmodule VeidrodelisTSTest do
       # Wait a bit for any potential data
       :timer.sleep(100)
 
-      # Trying to access non-string operations should return error
-      assert Veidrodelis.smembers(@id, 0, "myset") == {:error, :not_implemented}
+      # Trying to access non-string and non-set operations should return error
       assert Veidrodelis.llen(@id, 0, "mylist") == {:error, :not_implemented}
       assert Veidrodelis.hget(@id, 0, "myhash", "field") == {:error, :not_implemented}
       assert Veidrodelis.zcard(@id, 0, "myzset") == {:error, :not_implemented}
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes set commands", %{redis: redis} do
+      # Write data to Redis
+      Redix.command!(redis, ["SADD", "myset", "member1", "member2", "member3"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify data in store
+      wait_happens_within 100 do
+        members = Veidrodelis.smembers(@id, 0, "myset")
+        redis_members = Redix.command!(redis, ["SMEMBERS", "myset"])
+
+        length(members) == 3 &&
+          "member1" in members &&
+          "member2" in members &&
+          "member3" in members &&
+          length(redis_members) == 3 &&
+          "member1" in redis_members &&
+          "member2" in redis_members &&
+          "member3" in redis_members
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes set intersection operations", %{redis: redis} do
+      # Create multiple sets
+      Redix.command!(redis, ["SADD", "set1", "a", "b", "c", "d"])
+      Redix.command!(redis, ["SADD", "set2", "b", "c", "e", "f"])
+      Redix.command!(redis, ["SADD", "set3", "c", "d", "g"])
+
+      # Perform intersection
+      Redix.command!(redis, ["SINTERSTORE", "result_inter", "set1", "set2", "set3"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify intersection result (only 'c' is in all three sets)
+      wait_happens_within 100 do
+        result_members = Veidrodelis.smembers(@id, 0, "result_inter")
+        set1_members = Veidrodelis.smembers(@id, 0, "set1")
+
+        length(result_members) == 1 &&
+          "c" in result_members &&
+          length(set1_members) == 4
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes set union operations", %{redis: redis} do
+      # Create multiple sets
+      Redix.command!(redis, ["SADD", "setA", "1", "2", "3"])
+      Redix.command!(redis, ["SADD", "setB", "2", "3", "4"])
+      Redix.command!(redis, ["SADD", "setC", "3", "4", "5"])
+
+      # Perform union
+      Redix.command!(redis, ["SUNIONSTORE", "result_union", "setA", "setB", "setC"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify union result (should have all unique elements: 1,2,3,4,5)
+      wait_happens_within 100 do
+        result_members = Veidrodelis.smembers(@id, 0, "result_union")
+
+        length(result_members) == 5 &&
+          "1" in result_members &&
+          "2" in result_members &&
+          "3" in result_members &&
+          "4" in result_members &&
+          "5" in result_members
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes set difference operations", %{redis: redis} do
+      # Create sets
+      Redix.command!(redis, ["SADD", "base_set", "a", "b", "c", "d", "e"])
+      Redix.command!(redis, ["SADD", "subtract1", "b", "d"])
+      Redix.command!(redis, ["SADD", "subtract2", "c"])
+
+      # Perform difference (base_set - subtract1 - subtract2)
+      Redix.command!(redis, ["SDIFFSTORE", "result_diff", "base_set", "subtract1", "subtract2"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify difference result (should have: a, e)
+      wait_happens_within 100 do
+        result_members = Veidrodelis.smembers(@id, 0, "result_diff")
+
+        length(result_members) == 2 &&
+          "a" in result_members &&
+          "e" in result_members
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "handles type mismatches correctly", %{redis: redis} do
+      # Create a string key
+      Redix.command!(redis, ["SET", "mystring", "value"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify initial data
+      wait_happens_within 100 do
+        Veidrodelis.get(@id, 0, "mystring") == "value"
+      end
+
+      # Trying to access string as set should return error
+      assert Veidrodelis.smembers(@id, 0, "mystring") == {:error, :wrong_type}
+      assert Veidrodelis.scard(@id, 0, "mystring") == {:error, :wrong_type}
 
       Veidrodelis.stop(pid)
     end
