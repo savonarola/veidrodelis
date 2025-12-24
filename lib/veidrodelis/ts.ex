@@ -498,4 +498,353 @@ defmodule Vdr.TS do
           {:ok, binary() | nil} | {:error, :wrong_type}
   def rpoplpush(_storage, _db, _source_key, _dest_key),
     do: :erlang.nif_error(:nif_not_loaded)
+
+  # Hash operations
+
+  @doc """
+  Sets field in the hash stored at key to value.
+
+  Returns `:ok` on success. Returns `{:error, :wrong_type}` if the key
+  exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      :ok = Vdr.TS.hset(storage, 0, "myhash", "field1", "value1")
+      {:ok, "value1"} = Vdr.TS.hget(storage, 0, "myhash", "field1")
+
+      # Type checking
+      Vdr.TS.set(storage, 0, "mystring", "value")
+      {:error, :wrong_type} = Vdr.TS.hset(storage, 0, "mystring", "field", "value")
+  """
+  @spec hset(reference(), non_neg_integer(), binary(), binary(), binary()) ::
+          :ok | {:error, :wrong_type}
+  def hset(_storage, _db, _key, _field, _value), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Sets multiple fields in the hash stored at key.
+
+  Returns `:ok` on success. Returns `{:error, :wrong_type}` if the key
+  exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      :ok = Vdr.TS.hmset(storage, 0, "myhash", [{"field1", "value1"}, {"field2", "value2"}])
+  """
+  @spec hmset(reference(), non_neg_integer(), binary(), [{binary(), binary()}]) ::
+          :ok | {:error, :wrong_type}
+  def hmset(_storage, _db, _key, _fields), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets the value of a field in the hash stored at key.
+
+  Returns `{:ok, value}` if field exists, `{:ok, nil}` if field or key doesn't exist.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.hset(storage, 0, "myhash", "field1", "value1")
+      {:ok, "value1"} = Vdr.TS.hget(storage, 0, "myhash", "field1")
+      {:ok, nil} = Vdr.TS.hget(storage, 0, "myhash", "nonexistent")
+  """
+  @spec hget(reference(), non_neg_integer(), binary(), binary()) ::
+          {:ok, binary() | nil} | {:error, :wrong_type}
+  def hget(_storage, _db, _key, _field), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets the values of multiple fields in the hash stored at key.
+
+  Returns `{:ok, values}` where values is a list of binaries or nils.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.hmset(storage, 0, "myhash", [{"f1", "v1"}, {"f2", "v2"}])
+      {:ok, ["v1", "v2", nil]} = Vdr.TS.hmget(storage, 0, "myhash", ["f1", "f2", "f3"])
+  """
+  @spec hmget(reference(), non_neg_integer(), binary(), [binary()]) ::
+          {:ok, [binary() | nil]} | {:error, :wrong_type}
+  def hmget(_storage, _db, _key, _fields), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets all field-value pairs in the hash stored at key.
+
+  Returns `{:ok, pairs}` where pairs is a list of {field, value} tuples.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.hmset(storage, 0, "myhash", [{"field1", "value1"}, {"field2", "value2"}])
+      {:ok, pairs} = Vdr.TS.hgetall(storage, 0, "myhash")
+      # pairs contains [{"field1", "value1"}, {"field2", "value2"}]
+  """
+  @spec hgetall(reference(), non_neg_integer(), binary()) ::
+          {:ok, [{binary(), binary()}]} | {:error, :wrong_type}
+  def hgetall(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets all field names in the hash stored at key.
+
+  Returns `{:ok, fields}` where fields is a list of binaries.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.hmset(storage, 0, "myhash", [{"field1", "value1"}, {"field2", "value2"}])
+      {:ok, ["field1", "field2"]} = Vdr.TS.hkeys(storage, 0, "myhash")
+  """
+  @spec hkeys(reference(), non_neg_integer(), binary()) ::
+          {:ok, [binary()]} | {:error, :wrong_type}
+  def hkeys(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets all values in the hash stored at key.
+
+  Returns `{:ok, values}` where values is a list of binaries.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.hmset(storage, 0, "myhash", [{"field1", "value1"}, {"field2", "value2"}])
+      {:ok, values} = Vdr.TS.hvals(storage, 0, "myhash")
+      # values contains ["value1", "value2"]
+  """
+  @spec hvals(reference(), non_neg_integer(), binary()) ::
+          {:ok, [binary()]} | {:error, :wrong_type}
+  def hvals(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets the number of fields in the hash stored at key.
+
+  Returns `{:ok, count}` where count is a non-negative integer.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.hmset(storage, 0, "myhash", [{"field1", "value1"}, {"field2", "value2"}])
+      {:ok, 2} = Vdr.TS.hlen(storage, 0, "myhash")
+      {:ok, 0} = Vdr.TS.hlen(storage, 0, "nonexistent")
+  """
+  @spec hlen(reference(), non_neg_integer(), binary()) ::
+          {:ok, non_neg_integer()} | {:error, :wrong_type}
+  def hlen(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Checks if field exists in the hash stored at key.
+
+  Returns `{:ok, true}` if field exists, `{:ok, false}` otherwise.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.hset(storage, 0, "myhash", "field1", "value1")
+      {:ok, true} = Vdr.TS.hexists(storage, 0, "myhash", "field1")
+      {:ok, false} = Vdr.TS.hexists(storage, 0, "myhash", "nonexistent")
+  """
+  @spec hexists(reference(), non_neg_integer(), binary(), binary()) ::
+          {:ok, boolean()} | {:error, :wrong_type}
+  def hexists(_storage, _db, _key, _field), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Deletes one or more fields from the hash stored at key.
+
+  Returns `{:ok, count}` where count is the number of fields deleted.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.hmset(storage, 0, "myhash", [{"f1", "v1"}, {"f2", "v2"}, {"f3", "v3"}])
+      {:ok, 2} = Vdr.TS.hdel(storage, 0, "myhash", ["f1", "f2"])
+      {:ok, 0} = Vdr.TS.hdel(storage, 0, "nonexistent", ["f1"])
+  """
+  @spec hdel(reference(), non_neg_integer(), binary(), [binary()]) ::
+          {:ok, non_neg_integer()} | {:error, :wrong_type}
+  def hdel(_storage, _db, _key, _fields), do: :erlang.nif_error(:nif_not_loaded)
+
+  # Sorted set (zset) operations
+
+  @doc """
+  Adds members with scores to the sorted set stored at key.
+
+  Returns `{:ok, count}` where count is the number of new members added.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      {:ok, 3} = Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      {:ok, 0} = Vdr.TS.zadd(storage, 0, "myzset", [{1.5, "one"}])  # Updates score, returns 0
+  """
+  @spec zadd(reference(), non_neg_integer(), binary(), [{float(), binary()}]) ::
+          {:ok, non_neg_integer()} | {:error, :wrong_type}
+  def zadd(_storage, _db, _key, _members), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Removes members from the sorted set stored at key.
+
+  Returns `{:ok, count}` where count is the number of members removed.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}])
+      {:ok, 1} = Vdr.TS.zrem(storage, 0, "myzset", ["one"])
+  """
+  @spec zrem(reference(), non_neg_integer(), binary(), [binary()]) ::
+          {:ok, non_neg_integer()} | {:error, :wrong_type}
+  def zrem(_storage, _db, _key, _members), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets the score of a member in the sorted set stored at key.
+
+  Returns `{:ok, score}` if member exists, `{:ok, nil}` if member or key doesn't exist.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.zadd(storage, 0, "myzset", [{1.5, "member"}])
+      {:ok, 1.5} = Vdr.TS.zscore(storage, 0, "myzset", "member")
+      {:ok, nil} = Vdr.TS.zscore(storage, 0, "myzset", "nonexistent")
+  """
+  @spec zscore(reference(), non_neg_integer(), binary(), binary()) ::
+          {:ok, float() | nil} | {:error, :wrong_type}
+  def zscore(_storage, _db, _key, _member), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets the cardinality (number of members) of the sorted set stored at key.
+
+  Returns `{:ok, count}` where count is a non-negative integer.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}])
+      {:ok, 2} = Vdr.TS.zcard(storage, 0, "myzset")
+      {:ok, 0} = Vdr.TS.zcard(storage, 0, "nonexistent")
+  """
+  @spec zcard(reference(), non_neg_integer(), binary()) ::
+          {:ok, non_neg_integer()} | {:error, :wrong_type}
+  def zcard(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets a range of members from the sorted set by rank (index).
+
+  Both start and stop are inclusive and support negative indices.
+  If with_scores is true, returns flat list: [member1, score1, member2, score2, ...].
+  If with_scores is false, returns list of members: [member1, member2, ...].
+
+  Returns `{:ok, elements}` where elements is a list.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      {:ok, ["one", "two"]} = Vdr.TS.zrange(storage, 0, "myzset", 0, 1, false)
+      {:ok, ["one", 1.0, "two", 2.0]} = Vdr.TS.zrange(storage, 0, "myzset", 0, 1, true)
+  """
+  @spec zrange(reference(), non_neg_integer(), binary(), integer(), integer(), boolean()) ::
+          {:ok, [binary() | float()]} | {:error, :wrong_type}
+  def zrange(_storage, _db, _key, _start, _stop, _with_scores),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets members from the sorted set with scores between min and max (inclusive).
+
+  If with_scores is true, returns flat list: [member1, score1, member2, score2, ...].
+  If with_scores is false, returns list of members: [member1, member2, ...].
+
+  Returns `{:ok, elements}` where elements is a list.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      {:ok, ["one", "two"]} = Vdr.TS.zrangebyscore(storage, 0, "myzset", 1.0, 2.0, false)
+      {:ok, ["one", 1.0, "two", 2.0]} = Vdr.TS.zrangebyscore(storage, 0, "myzset", 1.0, 2.0, true)
+  """
+  @spec zrangebyscore(reference(), non_neg_integer(), binary(), float(), float(), boolean()) ::
+          {:ok, [binary() | float()]} | {:error, :wrong_type}
+  def zrangebyscore(_storage, _db, _key, _min, _max, _with_scores),
+    do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets the rank (0-based index) of a member in the sorted set (ascending order).
+
+  Returns `{:ok, rank}` if member exists, `{:ok, nil}` if member or key doesn't exist.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      {:ok, 0} = Vdr.TS.zrank(storage, 0, "myzset", "one")
+      {:ok, 2} = Vdr.TS.zrank(storage, 0, "myzset", "three")
+  """
+  @spec zrank(reference(), non_neg_integer(), binary(), binary()) ::
+          {:ok, non_neg_integer() | nil} | {:error, :wrong_type}
+  def zrank(_storage, _db, _key, _member), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets the reverse rank of a member in the sorted set (descending order).
+
+  Returns `{:ok, rank}` if member exists, `{:ok, nil}` if member or key doesn't exist.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      {:ok, 2} = Vdr.TS.zrevrank(storage, 0, "myzset", "one")
+      {:ok, 0} = Vdr.TS.zrevrank(storage, 0, "myzset", "three")
+  """
+  @spec zrevrank(reference(), non_neg_integer(), binary(), binary()) ::
+          {:ok, non_neg_integer() | nil} | {:error, :wrong_type}
+  def zrevrank(_storage, _db, _key, _member), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Counts members in the sorted set with scores between min and max (inclusive).
+
+  Returns `{:ok, count}` where count is a non-negative integer.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      {:ok, 2} = Vdr.TS.zcount(storage, 0, "myzset", 1.0, 2.0)
+  """
+  @spec zcount(reference(), non_neg_integer(), binary(), float(), float()) ::
+          {:ok, non_neg_integer()} | {:error, :wrong_type}
+  def zcount(_storage, _db, _key, _min, _max), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Increments the score of a member in the sorted set by delta.
+
+  Creates the member with score delta if it doesn't exist.
+  Returns `{:ok, new_score}` with the new score.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      {:ok, 1.5} = Vdr.TS.zincrby(storage, 0, "myzset", 1.5, "member")
+      {:ok, 3.0} = Vdr.TS.zincrby(storage, 0, "myzset", 1.5, "member")
+  """
+  @spec zincrby(reference(), non_neg_integer(), binary(), float(), binary()) ::
+          {:ok, float()} | {:error, :wrong_type}
+  def zincrby(_storage, _db, _key, _delta, _member), do: :erlang.nif_error(:nif_not_loaded)
 end

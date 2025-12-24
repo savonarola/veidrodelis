@@ -211,15 +211,81 @@ defmodule Vdr.TSProj do
       {:error, _} = error -> error
     end
   end
-  def hget(_handle_state, _db, _key, _field), do: {:error, :not_implemented}
-  def hmget(_handle_state, _db, _key, _fields), do: {:error, :not_implemented}
-  def hgetall(_handle_state, _db, _key), do: {:error, :not_implemented}
-  def hkeys(_handle_state, _db, _key), do: {:error, :not_implemented}
-  def hvals(_handle_state, _db, _key), do: {:error, :not_implemented}
-  def hlen(_handle_state, _db, _key), do: {:error, :not_implemented}
-  def zrange(_handle_state, _db, _key, _start, _stop), do: {:error, :not_implemented}
-  def zcard(_handle_state, _db, _key), do: {:error, :not_implemented}
-  def zscore(_handle_state, _db, _key, _member), do: {:error, :not_implemented}
+
+  # Hash accessors
+  def hget(%{ts_storage: ts_storage}, db, key, field)
+      when is_binary(key) and is_binary(field) do
+    case Vdr.TS.hget(ts_storage, db, key, field) do
+      {:ok, value} -> value
+      {:error, _} = error -> error
+    end
+  end
+
+  def hmget(%{ts_storage: ts_storage}, db, key, fields)
+      when is_binary(key) and is_list(fields) do
+    case Vdr.TS.hmget(ts_storage, db, key, fields) do
+      {:ok, values} -> values
+      {:error, _} = error -> error
+    end
+  end
+
+  def hgetall(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
+    case Vdr.TS.hgetall(ts_storage, db, key) do
+      {:ok, pairs} -> pairs
+      {:error, _} = error -> error
+    end
+  end
+
+  def hkeys(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
+    case Vdr.TS.hkeys(ts_storage, db, key) do
+      {:ok, keys} -> keys
+      {:error, _} = error -> error
+    end
+  end
+
+  def hvals(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
+    case Vdr.TS.hvals(ts_storage, db, key) do
+      {:ok, values} -> values
+      {:error, _} = error -> error
+    end
+  end
+
+  def hlen(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
+    case Vdr.TS.hlen(ts_storage, db, key) do
+      {:ok, len} -> len
+      {:error, _} = error -> error
+    end
+  end
+
+  # Sorted set accessors
+  def zrange(%{ts_storage: ts_storage}, db, key, start, stop)
+      when is_binary(key) do
+    case Vdr.TS.zrange(ts_storage, db, key, start, stop, true) do
+      {:ok, flat_list} ->
+        # Convert flat list [member1, score1, member2, score2, ...] to [{member1, score1}, {member2, score2}, ...]
+        flat_list
+        |> Enum.chunk_every(2)
+        |> Enum.map(fn [member, score] -> {member, score} end)
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  def zcard(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
+    case Vdr.TS.zcard(ts_storage, db, key) do
+      {:ok, count} -> count
+      {:error, _} = error -> error
+    end
+  end
+
+  def zscore(%{ts_storage: ts_storage}, db, key, member)
+      when is_binary(key) and is_binary(member) do
+    case Vdr.TS.zscore(ts_storage, db, key, member) do
+      {:ok, score} -> score
+      {:error, _} = error -> error
+    end
+  end
 
   # String command handlers
   defp do_handle_command(ts_storage, db, %RedisCommand.Set{key: key, value: value}) do
@@ -342,6 +408,36 @@ defmodule Vdr.TSProj do
 
   defp do_handle_command(ts_storage, db, %RedisCommand.RPopLPush{source: source_key, destination: dest_key}) do
     case Vdr.TS.rpoplpush(ts_storage, db, source_key, dest_key) do
+      {:ok, _} -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  # Hash command handlers
+  defp do_handle_command(ts_storage, db, %RedisCommand.HSet{key: key, fields: fields}) do
+    case Vdr.TS.hmset(ts_storage, db, key, fields) do
+      :ok -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.HDel{key: key, fields: fields}) do
+    case Vdr.TS.hdel(ts_storage, db, key, fields) do
+      {:ok, _} -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  # Sorted set command handlers
+  defp do_handle_command(ts_storage, db, %RedisCommand.ZAdd{key: key, members: members}) do
+    case Vdr.TS.zadd(ts_storage, db, key, members) do
+      {:ok, _} -> :ok
+      {:error, _} -> :ok
+    end
+  end
+
+  defp do_handle_command(ts_storage, db, %RedisCommand.ZRem{key: key, members: members}) do
+    case Vdr.TS.zrem(ts_storage, db, key, members) do
       {:ok, _} -> :ok
       {:error, _} -> :ok
     end

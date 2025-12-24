@@ -1,5 +1,76 @@
 use std::collections::{BTreeMap, BTreeSet};
+use std::cmp::Ordering;
 use im::Vector;
+
+type Score = f64;
+
+/// Ordered wrapper for f64 to use in BTreeSet
+/// Treats NaN as equal to NaN and less than all other values
+#[derive(Clone, Copy, Debug)]
+struct OrderedFloat(f64);
+
+impl OrderedFloat {
+    fn new(f: f64) -> Self {
+        OrderedFloat(f)
+    }
+
+    fn get(&self) -> f64 {
+        self.0
+    }
+}
+
+impl PartialEq for OrderedFloat {
+    fn eq(&self, other: &Self) -> bool {
+        self.0 == other.0 || (self.0.is_nan() && other.0.is_nan())
+    }
+}
+
+impl Eq for OrderedFloat {}
+
+impl PartialOrd for OrderedFloat {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for OrderedFloat {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self.0.is_nan(), other.0.is_nan()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Less,
+            (false, true) => Ordering::Greater,
+            (false, false) => self.0.partial_cmp(&other.0).unwrap(),
+        }
+    }
+}
+
+/// Sorted set (zset) data structure
+/// Maintains both a sorted index and a member->score map for efficient operations
+#[derive(Clone)]
+pub struct ZSet {
+    /// Sorted index for range queries and sorted iteration
+    /// Ordered by (score, member) to handle duplicate scores
+    index: BTreeSet<(OrderedFloat, Vec<u8>)>,
+    /// Member to score mapping for quick lookups
+    entries: BTreeMap<Vec<u8>, Score>,
+}
+
+impl ZSet {
+    fn new() -> Self {
+        ZSet {
+            index: BTreeSet::new(),
+            entries: BTreeMap::new(),
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
 
 /// Storage value types
 #[derive(Clone)]
@@ -7,6 +78,8 @@ pub enum StorageValue {
     String(Vec<u8>),
     Set(BTreeSet<Vec<u8>>),
     List(Vector<Vec<u8>>),
+    Hash(BTreeMap<Vec<u8>, Vec<u8>>),
+    ZSet(ZSet),
 }
 
 /// Inner storage structure
@@ -32,8 +105,9 @@ impl StorageInner {
     pub fn get(&self, db: u64, key: &[u8]) -> Result<Option<&[u8]>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::String(value)) => Ok(Some(value.as_slice())),
-            Some(StorageValue::Set(_)) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            Some(StorageValue::List(_)) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            Some(StorageValue::Set(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) | Some(StorageValue::ZSet(_)) => {
+                Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
             None => Ok(None),
         }
     }
@@ -94,7 +168,9 @@ impl StorageInner {
 
         let set = match value {
             StorageValue::Set(set) => set,
-            StorageValue::String(_) | StorageValue::List(_) => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            StorageValue::String(_) | StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::ZSet(_) => {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
         };
 
         let mut removed = 0;
@@ -131,7 +207,9 @@ impl StorageInner {
                     existed
                 }
             }
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
             None => return Ok(false),
         };
 
@@ -142,7 +220,7 @@ impl StorageInner {
         // Check if source set is now empty and should be deleted
         let should_delete_source = match db_map.get(source_key) {
             Some(StorageValue::Set(set)) => set.is_empty(),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | None => false,
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) | None => false,
         };
 
         // Delete source if empty
@@ -157,7 +235,9 @@ impl StorageInner {
                     StorageValue::Set(set) => {
                         set.insert(member.to_vec());
                     }
-                    StorageValue::String(_) | StorageValue::List(_) => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+                    StorageValue::String(_) | StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::ZSet(_) => {
+                        return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                    }
                 }
             }
             std::collections::btree_map::Entry::Vacant(e) => {
@@ -185,7 +265,9 @@ impl StorageInner {
                         StorageValue::Set(set) => {
                             union_set.extend(set.iter().cloned());
                         }
-                        StorageValue::String(_) | StorageValue::List(_) => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+                        StorageValue::String(_) | StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::ZSet(_) => {
+                            return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                        }
                     }
                 }
             }
@@ -218,7 +300,9 @@ impl StorageInner {
         // Start with first set
         let mut intersection_set = match db_map.get(source_keys[0].as_slice()) {
             Some(StorageValue::Set(set)) => set.clone(),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
             None => BTreeSet::new(),
         };
 
@@ -228,7 +312,9 @@ impl StorageInner {
                 Some(StorageValue::Set(set)) => {
                     intersection_set = intersection_set.intersection(set).cloned().collect();
                 }
-                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                    return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
                 None => {
                     // Intersection with empty set is empty
                     intersection_set.clear();
@@ -264,7 +350,9 @@ impl StorageInner {
         // Start with first set
         let mut diff_set = match db_map.get(source_keys[0].as_slice()) {
             Some(StorageValue::Set(set)) => set.clone(),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
             None => BTreeSet::new(),
         };
 
@@ -274,7 +362,9 @@ impl StorageInner {
                 Some(StorageValue::Set(set)) => {
                     diff_set = diff_set.difference(set).cloned().collect();
                 }
-                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                    return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
                 None => {
                     // Difference with empty set doesn't change result
                     continue;
@@ -297,7 +387,9 @@ impl StorageInner {
     pub fn smembers(&self, db: u64, key: &[u8]) -> Result<Vec<Vec<u8>>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::Set(set)) => Ok(set.iter().cloned().collect()),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
             None => Ok(Vec::new()),
         }
     }
@@ -306,7 +398,9 @@ impl StorageInner {
     pub fn sismember(&self, db: u64, key: &[u8], member: &[u8]) -> Result<bool, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::Set(set)) => Ok(set.contains(member)),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
             None => Ok(false),
         }
     }
@@ -315,7 +409,9 @@ impl StorageInner {
     pub fn scard(&self, db: u64, key: &[u8]) -> Result<usize, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::Set(set)) => Ok(set.len()),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
             None => Ok(0),
         }
     }
@@ -601,5 +697,436 @@ impl StorageInner {
         dest_list.push_front(popped.clone());
 
         Ok(Some(popped))
+    }
+
+    // Hash operations
+
+    /// Set field in hash to value. Creates hash if it doesn't exist.
+    pub fn hset(&mut self, db: u64, key: &[u8], field: &[u8], value: &[u8]) -> Result<bool, &'static str> {
+        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+
+        // Check if key exists and validate type
+        if let Some(val) = db_map.get(key) {
+            if !matches!(val, StorageValue::Hash(_)) {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+            }
+        }
+
+        // Get or create the hash
+        let hash = db_map
+            .entry(key.to_vec())
+            .or_insert_with(|| StorageValue::Hash(BTreeMap::new()));
+
+        let hash = match hash {
+            StorageValue::Hash(h) => h,
+            _ => unreachable!(),
+        };
+
+        // Insert returns None if field didn't exist (new field)
+        let is_new = hash.insert(field.to_vec(), value.to_vec()).is_none();
+        Ok(is_new)
+    }
+
+    /// Set multiple fields in hash. Returns number of new fields added.
+    pub fn hmset(&mut self, db: u64, key: &[u8], fields: &[(Vec<u8>, Vec<u8>)]) -> Result<usize, &'static str> {
+        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+
+        // Check if key exists and validate type
+        if let Some(val) = db_map.get(key) {
+            if !matches!(val, StorageValue::Hash(_)) {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+            }
+        }
+
+        // Get or create the hash
+        let hash = db_map
+            .entry(key.to_vec())
+            .or_insert_with(|| StorageValue::Hash(BTreeMap::new()));
+
+        let hash = match hash {
+            StorageValue::Hash(h) => h,
+            _ => unreachable!(),
+        };
+
+        let mut new_fields = 0;
+        for (field, value) in fields {
+            if hash.insert(field.clone(), value.clone()).is_none() {
+                new_fields += 1;
+            }
+        }
+
+        Ok(new_fields)
+    }
+
+    /// Get field value from hash. Returns None if key or field doesn't exist.
+    pub fn hget(&self, db: u64, key: &[u8], field: &[u8]) -> Result<Option<Vec<u8>>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Hash(hash)) => Ok(hash.get(field).cloned()),
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
+
+    /// Get multiple field values from hash.
+    pub fn hmget(&self, db: u64, key: &[u8], fields: &[Vec<u8>]) -> Result<Vec<Option<Vec<u8>>>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Hash(hash)) => {
+                let values = fields.iter().map(|field| hash.get(field).cloned()).collect();
+                Ok(values)
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => {
+                // Return vec of None for each field
+                Ok(vec![None; fields.len()])
+            }
+        }
+    }
+
+    /// Get all field-value pairs from hash.
+    pub fn hgetall(&self, db: u64, key: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Hash(hash)) => {
+                let pairs = hash.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+                Ok(pairs)
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Get all field names from hash.
+    pub fn hkeys(&self, db: u64, key: &[u8]) -> Result<Vec<Vec<u8>>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Hash(hash)) => Ok(hash.keys().cloned().collect()),
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Get all values from hash.
+    pub fn hvals(&self, db: u64, key: &[u8]) -> Result<Vec<Vec<u8>>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Hash(hash)) => Ok(hash.values().cloned().collect()),
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Get number of fields in hash.
+    pub fn hlen(&self, db: u64, key: &[u8]) -> Result<usize, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Hash(hash)) => Ok(hash.len()),
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(0),
+        }
+    }
+
+    /// Check if field exists in hash.
+    pub fn hexists(&self, db: u64, key: &[u8], field: &[u8]) -> Result<bool, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Hash(hash)) => Ok(hash.contains_key(field)),
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(false),
+        }
+    }
+
+    /// Delete fields from hash. Returns number of fields deleted.
+    pub fn hdel(&mut self, db: u64, key: &[u8], fields: &[Vec<u8>]) -> Result<usize, &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(0);
+        };
+
+        let Some(value) = db_map.get_mut(key) else {
+            return Ok(0);
+        };
+
+        let hash = match value {
+            StorageValue::Hash(hash) => hash,
+            _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+        };
+
+        let mut deleted = 0;
+        for field in fields {
+            if hash.remove(field).is_some() {
+                deleted += 1;
+            }
+        }
+
+        // Remove key if hash is empty
+        if hash.is_empty() {
+            db_map.remove(key);
+        }
+
+        Ok(deleted)
+    }
+
+    // Sorted set (zset) operations
+
+    /// Add members with scores to sorted set. Returns number of new members added.
+    pub fn zadd(&mut self, db: u64, key: &[u8], members: &[(Score, Vec<u8>)]) -> Result<usize, &'static str> {
+        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+
+        // Check if key exists and validate type
+        if let Some(val) = db_map.get(key) {
+            if !matches!(val, StorageValue::ZSet(_)) {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+            }
+        }
+
+        // Get or create the zset
+        let zset = db_map
+            .entry(key.to_vec())
+            .or_insert_with(|| StorageValue::ZSet(ZSet::new()));
+
+        let zset = match zset {
+            StorageValue::ZSet(z) => z,
+            _ => unreachable!(),
+        };
+
+        let mut added = 0;
+        for (score, member) in members {
+            // If member exists, remove old index entry
+            if let Some(old_score) = zset.entries.get(member) {
+                zset.index.remove(&(OrderedFloat::new(*old_score), member.clone()));
+            } else {
+                added += 1;
+            }
+
+            // Add new entries
+            zset.entries.insert(member.clone(), *score);
+            zset.index.insert((OrderedFloat::new(*score), member.clone()));
+        }
+
+        Ok(added)
+    }
+
+    /// Remove members from sorted set. Returns number of members removed.
+    pub fn zrem(&mut self, db: u64, key: &[u8], members: &[Vec<u8>]) -> Result<usize, &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(0);
+        };
+
+        let Some(value) = db_map.get_mut(key) else {
+            return Ok(0);
+        };
+
+        let zset = match value {
+            StorageValue::ZSet(zset) => zset,
+            _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+        };
+
+        let mut removed = 0;
+        for member in members {
+            if let Some(score) = zset.entries.remove(member) {
+                zset.index.remove(&(OrderedFloat::new(score), member.clone()));
+                removed += 1;
+            }
+        }
+
+        // Remove key if zset is empty
+        if zset.is_empty() {
+            db_map.remove(key);
+        }
+
+        Ok(removed)
+    }
+
+    /// Get the score of a member in sorted set.
+    pub fn zscore(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<Score>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::ZSet(zset)) => Ok(zset.entries.get(member).copied()),
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
+
+    /// Get the cardinality (number of members) of sorted set.
+    pub fn zcard(&self, db: u64, key: &[u8]) -> Result<usize, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::ZSet(zset)) => Ok(zset.len()),
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(0),
+        }
+    }
+
+    /// Get range of members by index (rank). Supports negative indices.
+    /// Returns list of (member, score) tuples.
+    pub fn zrange(&self, db: u64, key: &[u8], start: i64, stop: i64, with_scores: bool) -> Result<Vec<(Vec<u8>, Option<Score>)>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::ZSet(zset)) => {
+                let len = zset.len() as i64;
+
+                if len == 0 {
+                    return Ok(Vec::new());
+                }
+
+                // Normalize negative indices
+                let start_pos = if start < 0 {
+                    (len + start).max(0) as usize
+                } else {
+                    start.min(len - 1).max(0) as usize
+                };
+
+                let stop_pos = if stop < 0 {
+                    (len + stop).max(0) as usize
+                } else {
+                    stop.min(len - 1).max(0) as usize
+                };
+
+                if start_pos > stop_pos || start_pos >= len as usize {
+                    return Ok(Vec::new());
+                }
+
+                let result: Vec<(Vec<u8>, Option<Score>)> = zset
+                    .index
+                    .iter()
+                    .skip(start_pos)
+                    .take(stop_pos - start_pos + 1)
+                    .map(|(score, member)| {
+                        if with_scores {
+                            (member.clone(), Some(score.get()))
+                        } else {
+                            (member.clone(), None)
+                        }
+                    })
+                    .collect();
+
+                Ok(result)
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Get range of members by score. Returns list of (member, score) tuples.
+    pub fn zrangebyscore(&self, db: u64, key: &[u8], min: Score, max: Score, with_scores: bool) -> Result<Vec<(Vec<u8>, Option<Score>)>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::ZSet(zset)) => {
+                let min_ord = OrderedFloat::new(min);
+                let max_ord = OrderedFloat::new(max);
+                let result: Vec<(Vec<u8>, Option<Score>)> = zset
+                    .index
+                    .iter()
+                    .filter(|(score, _)| *score >= min_ord && *score <= max_ord)
+                    .map(|(score, member)| {
+                        if with_scores {
+                            (member.clone(), Some(score.get()))
+                        } else {
+                            (member.clone(), None)
+                        }
+                    })
+                    .collect();
+
+                Ok(result)
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Get the rank (index) of a member in sorted set (0-based, ascending order).
+    pub fn zrank(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<usize>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::ZSet(zset)) => {
+                // Get the score for this member
+                let Some(score) = zset.entries.get(member) else {
+                    return Ok(None);
+                };
+
+                let score_ord = OrderedFloat::new(*score);
+                let member_vec = member.to_vec();
+                // Count how many entries come before this one
+                let rank = zset
+                    .index
+                    .iter()
+                    .take_while(|(s, m)| *s < score_ord || (*s == score_ord && m < &member_vec))
+                    .count();
+
+                Ok(Some(rank))
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
+
+    /// Get the reverse rank (index from highest to lowest) of a member.
+    pub fn zrevrank(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<usize>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::ZSet(zset)) => {
+                // Get the score for this member
+                let Some(score) = zset.entries.get(member) else {
+                    return Ok(None);
+                };
+
+                let score_ord = OrderedFloat::new(*score);
+                let member_vec = member.to_vec();
+                // Count how many entries come after this one (in reverse order)
+                let rev_rank = zset
+                    .index
+                    .iter()
+                    .rev()
+                    .take_while(|(s, m)| *s > score_ord || (*s == score_ord && m > &member_vec))
+                    .count();
+
+                Ok(Some(rev_rank))
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
+
+    /// Count members in sorted set with scores between min and max (inclusive).
+    pub fn zcount(&self, db: u64, key: &[u8], min: Score, max: Score) -> Result<usize, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::ZSet(zset)) => {
+                let min_ord = OrderedFloat::new(min);
+                let max_ord = OrderedFloat::new(max);
+                let count = zset
+                    .index
+                    .iter()
+                    .filter(|(score, _)| *score >= min_ord && *score <= max_ord)
+                    .count();
+                Ok(count)
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(0),
+        }
+    }
+
+    /// Increment the score of a member by delta. Creates member if it doesn't exist.
+    pub fn zincrby(&mut self, db: u64, key: &[u8], delta: Score, member: &[u8]) -> Result<Score, &'static str> {
+        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+
+        // Check if key exists and validate type
+        if let Some(val) = db_map.get(key) {
+            if !matches!(val, StorageValue::ZSet(_)) {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+            }
+        }
+
+        // Get or create the zset
+        let zset = db_map
+            .entry(key.to_vec())
+            .or_insert_with(|| StorageValue::ZSet(ZSet::new()));
+
+        let zset = match zset {
+            StorageValue::ZSet(z) => z,
+            _ => unreachable!(),
+        };
+
+        // Get current score or default to 0.0
+        let old_score = zset.entries.get(member).copied().unwrap_or(0.0);
+        let new_score = old_score + delta;
+
+        // Remove old index entry if exists
+        if zset.entries.contains_key(member) {
+            zset.index.remove(&(OrderedFloat::new(old_score), member.to_vec()));
+        }
+
+        // Add new entries
+        zset.entries.insert(member.to_vec(), new_score);
+        zset.index.insert((OrderedFloat::new(new_score), member.to_vec()));
+
+        Ok(new_score)
     }
 }

@@ -471,6 +471,493 @@ fn rpoplpush_value<'a>(
     }
 }
 
+// Hash operation NIFs
+
+#[rustler::nif(name = "hset")]
+fn hset_field<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    field: Binary,
+    value: Binary,
+) -> Term<'a> {
+    let mut inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.hset(db, key.as_slice(), field.as_slice(), value.as_slice()) {
+        Ok(_is_new) => atoms::ok().encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "hmset")]
+fn hmset_fields<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    fields: Vec<(Binary, Binary)>,
+) -> Term<'a> {
+    let mut inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    let fields_vec: Vec<(Vec<u8>, Vec<u8>)> = fields
+        .iter()
+        .map(|(f, v)| (f.as_slice().to_vec(), v.as_slice().to_vec()))
+        .collect();
+
+    match inner.hmset(db, key.as_slice(), &fields_vec) {
+        Ok(_count) => atoms::ok().encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "hget")]
+fn hget_field<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    field: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.hget(db, key.as_slice(), field.as_slice()) {
+        Ok(Some(value)) => {
+            let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
+            binary.as_mut_slice().copy_from_slice(&value);
+            (atoms::ok(), binary.release(env)).encode(env)
+        }
+        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "hmget")]
+fn hmget_fields<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    fields: Vec<Binary>,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    let fields_vec: Vec<Vec<u8>> = fields.iter().map(|f| f.as_slice().to_vec()).collect();
+
+    match inner.hmget(db, key.as_slice(), &fields_vec) {
+        Ok(values) => {
+            let terms: Vec<Term> = values
+                .iter()
+                .map(|opt_val| match opt_val {
+                    Some(val) => {
+                        let mut binary = rustler::types::OwnedBinary::new(val.len()).unwrap();
+                        binary.as_mut_slice().copy_from_slice(val);
+                        binary.release(env).encode(env)
+                    }
+                    None => atoms::nil().encode(env),
+                })
+                .collect();
+            (atoms::ok(), terms).encode(env)
+        }
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "hgetall")]
+fn hgetall_fields<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.hgetall(db, key.as_slice()) {
+        Ok(pairs) => {
+            let terms: Vec<(Term, Term)> = pairs
+                .iter()
+                .map(|(k, v)| {
+                    let mut key_bin = rustler::types::OwnedBinary::new(k.len()).unwrap();
+                    key_bin.as_mut_slice().copy_from_slice(k);
+                    let mut val_bin = rustler::types::OwnedBinary::new(v.len()).unwrap();
+                    val_bin.as_mut_slice().copy_from_slice(v);
+                    (key_bin.release(env).encode(env), val_bin.release(env).encode(env))
+                })
+                .collect();
+            (atoms::ok(), terms).encode(env)
+        }
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "hkeys")]
+fn hkeys_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.hkeys(db, key.as_slice()) {
+        Ok(keys) => {
+            let binaries: Vec<Term> = keys
+                .iter()
+                .map(|k| {
+                    let mut binary = rustler::types::OwnedBinary::new(k.len()).unwrap();
+                    binary.as_mut_slice().copy_from_slice(k);
+                    binary.release(env).encode(env)
+                })
+                .collect();
+            (atoms::ok(), binaries).encode(env)
+        }
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "hvals")]
+fn hvals_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.hvals(db, key.as_slice()) {
+        Ok(values) => {
+            let binaries: Vec<Term> = values
+                .iter()
+                .map(|v| {
+                    let mut binary = rustler::types::OwnedBinary::new(v.len()).unwrap();
+                    binary.as_mut_slice().copy_from_slice(v);
+                    binary.release(env).encode(env)
+                })
+                .collect();
+            (atoms::ok(), binaries).encode(env)
+        }
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "hlen")]
+fn hlen_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.hlen(db, key.as_slice()) {
+        Ok(len) => (atoms::ok(), len).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "hexists")]
+fn hexists_check<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    field: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.hexists(db, key.as_slice(), field.as_slice()) {
+        Ok(exists) => (atoms::ok(), exists).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "hdel")]
+fn hdel_fields<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    fields: Vec<Binary>,
+) -> Term<'a> {
+    let mut inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    let fields_vec: Vec<Vec<u8>> = fields.iter().map(|f| f.as_slice().to_vec()).collect();
+
+    match inner.hdel(db, key.as_slice(), &fields_vec) {
+        Ok(deleted) => (atoms::ok(), deleted).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+// Sorted set (zset) operation NIFs
+
+#[rustler::nif(name = "zadd")]
+fn zadd_members<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    members: Vec<(f64, Binary)>,
+) -> Term<'a> {
+    let mut inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    let members_vec: Vec<(f64, Vec<u8>)> = members
+        .iter()
+        .map(|(score, member)| (*score, member.as_slice().to_vec()))
+        .collect();
+
+    match inner.zadd(db, key.as_slice(), &members_vec) {
+        Ok(added) => (atoms::ok(), added).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "zrem")]
+fn zrem_members<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    members: Vec<Binary>,
+) -> Term<'a> {
+    let mut inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    let members_vec: Vec<Vec<u8>> = members.iter().map(|m| m.as_slice().to_vec()).collect();
+
+    match inner.zrem(db, key.as_slice(), &members_vec) {
+        Ok(removed) => (atoms::ok(), removed).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "zscore")]
+fn zscore_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    member: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.zscore(db, key.as_slice(), member.as_slice()) {
+        Ok(Some(score)) => (atoms::ok(), score).encode(env),
+        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "zcard")]
+fn zcard_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.zcard(db, key.as_slice()) {
+        Ok(count) => (atoms::ok(), count).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "zrange")]
+fn zrange_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    start: i64,
+    stop: i64,
+    with_scores: bool,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.zrange(db, key.as_slice(), start, stop, with_scores) {
+        Ok(results) => {
+            let terms: Vec<Term> = results
+                .iter()
+                .flat_map(|(member, score_opt)| {
+                    let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+                    member_bin.as_mut_slice().copy_from_slice(member);
+                    let member_term = member_bin.release(env).encode(env);
+
+                    if let Some(score) = score_opt {
+                        vec![member_term, score.encode(env)]
+                    } else {
+                        vec![member_term]
+                    }
+                })
+                .collect();
+            (atoms::ok(), terms).encode(env)
+        }
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "zrangebyscore")]
+fn zrangebyscore_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    min: f64,
+    max: f64,
+    with_scores: bool,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.zrangebyscore(db, key.as_slice(), min, max, with_scores) {
+        Ok(results) => {
+            let terms: Vec<Term> = results
+                .iter()
+                .flat_map(|(member, score_opt)| {
+                    let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+                    member_bin.as_mut_slice().copy_from_slice(member);
+                    let member_term = member_bin.release(env).encode(env);
+
+                    if let Some(score) = score_opt {
+                        vec![member_term, score.encode(env)]
+                    } else {
+                        vec![member_term]
+                    }
+                })
+                .collect();
+            (atoms::ok(), terms).encode(env)
+        }
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "zrank")]
+fn zrank_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    member: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.zrank(db, key.as_slice(), member.as_slice()) {
+        Ok(Some(rank)) => (atoms::ok(), rank).encode(env),
+        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "zrevrank")]
+fn zrevrank_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    member: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.zrevrank(db, key.as_slice(), member.as_slice()) {
+        Ok(Some(rank)) => (atoms::ok(), rank).encode(env),
+        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "zcount")]
+fn zcount_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    min: f64,
+    max: f64,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.zcount(db, key.as_slice(), min, max) {
+        Ok(count) => (atoms::ok(), count).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "zincrby")]
+fn zincrby_score<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    delta: f64,
+    member: Binary,
+) -> Term<'a> {
+    let mut inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.zincrby(db, key.as_slice(), delta, member.as_slice()) {
+        Ok(new_score) => (atoms::ok(), new_score).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
 rustler::init!(
     "Elixir.Vdr.TS",
     load = load_nif

@@ -164,10 +164,8 @@ defmodule VeidrodelisTSTest do
       # Wait a bit for any potential data
       :timer.sleep(100)
 
-      # Trying to access non-implemented operations should return error
-      # Note: lists are now implemented, so only hashes and sorted sets return not_implemented
-      assert Veidrodelis.hget(@id, 0, "myhash", "field") == {:error, :not_implemented}
-      assert Veidrodelis.zcard(@id, 0, "myzset") == {:error, :not_implemented}
+      # All major data types are now implemented!
+      # No more not_implemented errors for standard Redis types
 
       Veidrodelis.stop(pid)
     end
@@ -536,6 +534,530 @@ defmodule VeidrodelisTSTest do
       # Trying to access string as list should also return error
       assert Veidrodelis.llen(@id, 0, "mystring") == {:error, :wrong_type}
       assert Veidrodelis.lrange(@id, 0, "mystring", 0, -1) == {:error, :wrong_type}
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes basic hash commands", %{redis: redis} do
+      # Write hash data to Redis
+      Redix.command!(redis, ["HSET", "myhash", "field1", "value1", "field2", "value2"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify hash data
+      wait_happens_within 100 do
+        Veidrodelis.hlen(@id, 0, "myhash") == 2 &&
+          Veidrodelis.hget(@id, 0, "myhash", "field1") == "value1" &&
+          Veidrodelis.hget(@id, 0, "myhash", "field2") == "value2"
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes streaming hash commands", %{redis: redis} do
+      # Start Veidrodelis FIRST
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication to start
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # NOW write hash data (streaming)
+      Redix.command!(redis, ["HSET", "stream_hash", "f1", "v1", "f2", "v2"])
+
+      # Wait for commands to replicate
+      assert_happens_within 1000 do
+        Veidrodelis.hlen(@id, 0, "stream_hash") == 2
+      end
+
+      # Verify the hash
+      assert Veidrodelis.hget(@id, 0, "stream_hash", "f1") == "v1"
+      assert Veidrodelis.hget(@id, 0, "stream_hash", "f2") == "v2"
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "handles hget for non-existent fields", %{redis: redis} do
+      # Create a hash
+      Redix.command!(redis, ["HSET", "myhash", "field1", "value1"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for hash to replicate
+      wait_happens_within 100 do
+        Veidrodelis.hget(@id, 0, "myhash", "field1") == "value1"
+      end
+
+      # Non-existent field returns nil
+      assert Veidrodelis.hget(@id, 0, "myhash", "nonexistent") == nil
+
+      # Non-existent key returns nil
+      assert Veidrodelis.hget(@id, 0, "nonexistent", "field") == nil
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes hmget for multiple fields", %{redis: redis} do
+      # Create a hash
+      Redix.command!(redis, ["HSET", "myhash", "f1", "v1", "f2", "v2", "f3", "v3"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for hash to replicate
+      wait_happens_within 100 do
+        Veidrodelis.hlen(@id, 0, "myhash") == 3
+      end
+
+      # Get multiple fields (including non-existent)
+      assert Veidrodelis.hmget(@id, 0, "myhash", ["f1", "f3", "nonexistent"]) == ["v1", "v3", nil]
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes hgetall", %{redis: redis} do
+      # Create a hash
+      Redix.command!(redis, ["HSET", "myhash", "field1", "value1", "field2", "value2"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for hash to replicate
+      wait_happens_within 100 do
+        Veidrodelis.hlen(@id, 0, "myhash") == 2
+      end
+
+      # Get all fields
+      pairs = Veidrodelis.hgetall(@id, 0, "myhash")
+      assert length(pairs) == 2
+      assert {"field1", "value1"} in pairs
+      assert {"field2", "value2"} in pairs
+
+      # Non-existent key returns empty list
+      assert Veidrodelis.hgetall(@id, 0, "nonexistent") == []
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes hkeys and hvals", %{redis: redis} do
+      # Create a hash
+      Redix.command!(redis, ["HSET", "myhash", "field1", "value1", "field2", "value2"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for hash to replicate
+      wait_happens_within 100 do
+        Veidrodelis.hlen(@id, 0, "myhash") == 2
+      end
+
+      # Get all keys
+      keys = Veidrodelis.hkeys(@id, 0, "myhash")
+      assert length(keys) == 2
+      assert "field1" in keys
+      assert "field2" in keys
+
+      # Get all values
+      values = Veidrodelis.hvals(@id, 0, "myhash")
+      assert length(values) == 2
+      assert "value1" in values
+      assert "value2" in values
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes hdel command", %{redis: redis} do
+      # Create a hash
+      Redix.command!(redis, ["HSET", "myhash", "f1", "v1", "f2", "v2", "f3", "v3"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for hash to replicate
+      wait_happens_within 100 do
+        Veidrodelis.hlen(@id, 0, "myhash") == 3
+      end
+
+      # Delete a field
+      Redix.command!(redis, ["HDEL", "myhash", "f2"])
+
+      # Wait for deletion to replicate
+      wait_happens_within 500 do
+        Veidrodelis.hlen(@id, 0, "myhash") == 2 &&
+          Veidrodelis.hget(@id, 0, "myhash", "f2") == nil
+      end
+
+      # f1 and f3 should still exist
+      assert Veidrodelis.hget(@id, 0, "myhash", "f1") == "v1"
+      assert Veidrodelis.hget(@id, 0, "myhash", "f3") == "v3"
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "handles hash emptying", %{redis: redis} do
+      # Create a hash with one field
+      Redix.command!(redis, ["HSET", "myhash", "field1", "value1"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for hash to replicate
+      wait_happens_within 100 do
+        Veidrodelis.hlen(@id, 0, "myhash") == 1
+      end
+
+      # Delete the only field
+      Redix.command!(redis, ["HDEL", "myhash", "field1"])
+
+      # Wait for deletion to replicate (key should be deleted)
+      wait_happens_within 500 do
+        Veidrodelis.hlen(@id, 0, "myhash") == 0
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "handles hash field updates", %{redis: redis} do
+      # Create a hash
+      Redix.command!(redis, ["HSET", "myhash", "field1", "original"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for hash to replicate
+      wait_happens_within 100 do
+        Veidrodelis.hget(@id, 0, "myhash", "field1") == "original"
+      end
+
+      # Update the field
+      Redix.command!(redis, ["HSET", "myhash", "field1", "updated"])
+
+      # Wait for update to replicate
+      wait_happens_within 1000 do
+        Veidrodelis.hget(@id, 0, "myhash", "field1") == "updated"
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "handles hash type mismatches", %{redis: redis} do
+      # Create a string key
+      Redix.command!(redis, ["SET", "mystring", "value"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for string to replicate
+      wait_happens_within 100 do
+        Veidrodelis.get(@id, 0, "mystring") == "value"
+      end
+
+      # Trying to access string as hash should return error
+      assert Veidrodelis.hget(@id, 0, "mystring", "field") == {:error, :wrong_type}
+      assert Veidrodelis.hlen(@id, 0, "mystring") == {:error, :wrong_type}
+      assert Veidrodelis.hgetall(@id, 0, "mystring") == {:error, :wrong_type}
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes basic zset commands", %{redis: redis} do
+      # Write zset data to Redis
+      Redix.command!(redis, ["ZADD", "myzset", "1.0", "one", "2.0", "two", "3.0", "three"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Verify zset data
+      wait_happens_within 100 do
+        Veidrodelis.zcard(@id, 0, "myzset") == 3 &&
+          Veidrodelis.zscore(@id, 0, "myzset", "one") == 1.0 &&
+          Veidrodelis.zscore(@id, 0, "myzset", "two") == 2.0
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes streaming zset commands", %{redis: redis} do
+      # Start Veidrodelis FIRST
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication to start
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # NOW write zset data (streaming)
+      Redix.command!(redis, ["ZADD", "stream_zset", "1.5", "a", "2.5", "b"])
+
+      # Wait for commands to replicate
+      assert_happens_within 1000 do
+        Veidrodelis.zcard(@id, 0, "stream_zset") == 2
+      end
+
+      # Verify the zset
+      assert Veidrodelis.zscore(@id, 0, "stream_zset", "a") == 1.5
+      assert Veidrodelis.zscore(@id, 0, "stream_zset", "b") == 2.5
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "handles zscore for non-existent members", %{redis: redis} do
+      # Create a zset
+      Redix.command!(redis, ["ZADD", "myzset", "1.0", "member1"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for zset to replicate
+      wait_happens_within 100 do
+        Veidrodelis.zscore(@id, 0, "myzset", "member1") == 1.0
+      end
+
+      # Non-existent member returns nil
+      assert Veidrodelis.zscore(@id, 0, "myzset", "nonexistent") == nil
+
+      # Non-existent key returns nil
+      assert Veidrodelis.zscore(@id, 0, "nonexistent", "member") == nil
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes zrange", %{redis: redis} do
+      # Create a zset
+      Redix.command!(redis, ["ZADD", "myzset", "1.0", "one", "2.0", "two", "3.0", "three", "4.0", "four"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for zset to replicate
+      wait_happens_within 100 do
+        Veidrodelis.zcard(@id, 0, "myzset") == 4
+      end
+
+      # Get range with scores
+      result = Veidrodelis.zrange(@id, 0, "myzset", 0, 2)
+      assert length(result) == 3
+      assert {"one", 1.0} in result
+      assert {"two", 2.0} in result
+      assert {"three", 3.0} in result
+
+      # Get range with negative indices
+      result = Veidrodelis.zrange(@id, 0, "myzset", -2, -1)
+      assert length(result) == 2
+      assert {"three", 3.0} in result
+      assert {"four", 4.0} in result
+
+      # Non-existent key returns empty list
+      assert Veidrodelis.zrange(@id, 0, "nonexistent", 0, -1) == []
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "processes zrem command", %{redis: redis} do
+      # Create a zset
+      Redix.command!(redis, ["ZADD", "myzset", "1.0", "one", "2.0", "two", "3.0", "three"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for zset to replicate
+      wait_happens_within 100 do
+        Veidrodelis.zcard(@id, 0, "myzset") == 3
+      end
+
+      # Remove a member
+      Redix.command!(redis, ["ZREM", "myzset", "two"])
+
+      # Wait for removal to replicate
+      wait_happens_within 500 do
+        Veidrodelis.zcard(@id, 0, "myzset") == 2 &&
+          Veidrodelis.zscore(@id, 0, "myzset", "two") == nil
+      end
+
+      # one and three should still exist
+      assert Veidrodelis.zscore(@id, 0, "myzset", "one") == 1.0
+      assert Veidrodelis.zscore(@id, 0, "myzset", "three") == 3.0
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "handles zset emptying", %{redis: redis} do
+      # Create a zset with one member
+      Redix.command!(redis, ["ZADD", "myzset", "1.0", "member1"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for zset to replicate
+      wait_happens_within 100 do
+        Veidrodelis.zcard(@id, 0, "myzset") == 1
+      end
+
+      # Remove the only member
+      Redix.command!(redis, ["ZREM", "myzset", "member1"])
+
+      # Wait for removal to replicate (key should be deleted)
+      wait_happens_within 500 do
+        Veidrodelis.zcard(@id, 0, "myzset") == 0
+      end
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "handles zset score updates", %{redis: redis} do
+      # Create a zset
+      Redix.command!(redis, ["ZADD", "myzset", "1.0", "member"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for zset to replicate
+      wait_happens_within 100 do
+        Veidrodelis.zscore(@id, 0, "myzset", "member") == 1.0
+      end
+
+      # Update the score
+      Redix.command!(redis, ["ZADD", "myzset", "2.5", "member"])
+
+      # Wait for update to replicate
+      wait_happens_within 500 do
+        Veidrodelis.zscore(@id, 0, "myzset", "member") == 2.5
+      end
+
+      # Cardinality should still be 1
+      assert Veidrodelis.zcard(@id, 0, "myzset") == 1
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "handles zset with duplicate scores", %{redis: redis} do
+      # Create a zset with duplicate scores
+      Redix.command!(redis, ["ZADD", "myzset", "1.0", "a", "1.0", "b", "2.0", "c"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for zset to replicate
+      wait_happens_within 100 do
+        Veidrodelis.zcard(@id, 0, "myzset") == 3
+      end
+
+      # All members should exist with correct scores
+      assert Veidrodelis.zscore(@id, 0, "myzset", "a") == 1.0
+      assert Veidrodelis.zscore(@id, 0, "myzset", "b") == 1.0
+      assert Veidrodelis.zscore(@id, 0, "myzset", "c") == 2.0
+
+      # Range should return all members
+      result = Veidrodelis.zrange(@id, 0, "myzset", 0, -1)
+      assert length(result) == 3
+
+      Veidrodelis.stop(pid)
+    end
+
+    test "handles zset type mismatches", %{redis: redis} do
+      # Create a string key
+      Redix.command!(redis, ["SET", "mystring", "value"])
+
+      # Start Veidrodelis instance
+      {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
+
+      # Wait for replication
+      assert_happens_within 2000 do
+        Veidrodelis.get_replication_state(pid) == :streaming
+      end
+
+      # Wait for string to replicate
+      wait_happens_within 100 do
+        Veidrodelis.get(@id, 0, "mystring") == "value"
+      end
+
+      # Trying to access string as zset should return error
+      assert Veidrodelis.zscore(@id, 0, "mystring", "member") == {:error, :wrong_type}
+      assert Veidrodelis.zcard(@id, 0, "mystring") == {:error, :wrong_type}
+      assert Veidrodelis.zrange(@id, 0, "mystring", 0, -1) == {:error, :wrong_type}
 
       Veidrodelis.stop(pid)
     end
