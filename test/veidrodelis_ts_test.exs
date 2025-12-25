@@ -36,7 +36,7 @@ defmodule VeidrodelisTSTest do
     {:ok, redis: redis}
   end
 
-  describe "Veidrodelis with TSProj (string operations only)" do
+  describe "Veidrodelis with TSProj" do
     test "processes string commands", %{redis: redis} do
       # Write data to Redis
       Redix.command!(redis, ["SET", "key1", "value1"])

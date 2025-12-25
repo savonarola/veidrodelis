@@ -1,6 +1,7 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet as StdBTreeSet, HashMap};
 use std::cmp::Ordering;
 use im::Vector;
+use indexset::BTreeSet;
 
 type Score = f64;
 
@@ -49,17 +50,19 @@ impl Ord for OrderedFloat {
 #[derive(Clone)]
 pub struct ZSet {
     /// Sorted index for range queries and sorted iteration
+    /// Uses indexset::BTreeSet for efficient rank and range operations
     /// Ordered by (score, member) to handle duplicate scores
     index: BTreeSet<(OrderedFloat, Vec<u8>)>,
     /// Member to score mapping for quick lookups
-    entries: BTreeMap<Vec<u8>, Score>,
+    /// Uses HashMap for O(1) average case lookups
+    entries: HashMap<Vec<u8>, Score>,
 }
 
 impl ZSet {
     fn new() -> Self {
         ZSet {
             index: BTreeSet::new(),
-            entries: BTreeMap::new(),
+            entries: HashMap::new(),
         }
     }
 
@@ -76,7 +79,7 @@ impl ZSet {
 #[derive(Clone)]
 pub enum StorageValue {
     String(Vec<u8>),
-    Set(BTreeSet<Vec<u8>>),
+    Set(StdBTreeSet<Vec<u8>>),
     List(Vector<Vec<u8>>),
     Hash(BTreeMap<Vec<u8>, Vec<u8>>),
     ZSet(ZSet),
@@ -105,7 +108,7 @@ impl StorageInner {
     pub fn get(&self, db: u64, key: &[u8]) -> Result<Option<&[u8]>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::String(value)) => Ok(Some(value.as_slice())),
-            Some(StorageValue::Set(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) | Some(StorageValue::ZSet(_)) => {
+            Some(StorageValue::Set(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
                 Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
             None => Ok(None),
@@ -138,7 +141,7 @@ impl StorageInner {
         // Get or create the set
         let set = db_map
             .entry(key.to_vec())
-            .or_insert_with(|| StorageValue::Set(BTreeSet::new()));
+            .or_insert_with(|| StorageValue::Set(StdBTreeSet::new()));
 
         // Extract the set from the StorageValue
         let set = match set {
@@ -241,7 +244,7 @@ impl StorageInner {
                 }
             }
             std::collections::btree_map::Entry::Vacant(e) => {
-                let mut new_set = BTreeSet::new();
+                let mut new_set = StdBTreeSet::new();
                 new_set.insert(member.to_vec());
                 e.insert(StorageValue::Set(new_set));
             }
@@ -256,7 +259,7 @@ impl StorageInner {
         self.del(db, dest_key);
 
         // Collect all unique members from source sets
-        let mut union_set = BTreeSet::new();
+        let mut union_set = StdBTreeSet::new();
 
         if let Some(db_map) = self.map.get(&db) {
             for source_key in source_keys {
@@ -303,7 +306,7 @@ impl StorageInner {
             Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
-            None => BTreeSet::new(),
+            None => StdBTreeSet::new(),
         };
 
         // Intersect with remaining sets
@@ -353,7 +356,7 @@ impl StorageInner {
             Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
-            None => BTreeSet::new(),
+            None => StdBTreeSet::new(),
         };
 
         // Subtract remaining sets
@@ -977,11 +980,10 @@ impl StorageInner {
                     return Ok(Vec::new());
                 }
 
+                // Use indexset's efficient range_idx() method for O(log n) range access
                 let result: Vec<(Vec<u8>, Option<Score>)> = zset
                     .index
-                    .iter()
-                    .skip(start_pos)
-                    .take(stop_pos - start_pos + 1)
+                    .range_idx(start_pos..=stop_pos)
                     .map(|(score, member)| {
                         if with_scores {
                             (member.clone(), Some(score.get()))
@@ -1033,14 +1035,8 @@ impl StorageInner {
                     return Ok(None);
                 };
 
-                let score_ord = OrderedFloat::new(*score);
-                let member_vec = member.to_vec();
-                // Count how many entries come before this one
-                let rank = zset
-                    .index
-                    .iter()
-                    .take_while(|(s, m)| *s < score_ord || (*s == score_ord && m < &member_vec))
-                    .count();
+                // Use indexset's efficient rank() method - O(log n) instead of O(n)
+                let rank = zset.index.rank(&(OrderedFloat::new(*score), member.to_vec()));
 
                 Ok(Some(rank))
             }
@@ -1058,15 +1054,10 @@ impl StorageInner {
                     return Ok(None);
                 };
 
-                let score_ord = OrderedFloat::new(*score);
-                let member_vec = member.to_vec();
-                // Count how many entries come after this one (in reverse order)
-                let rev_rank = zset
-                    .index
-                    .iter()
-                    .rev()
-                    .take_while(|(s, m)| *s > score_ord || (*s == score_ord && m > &member_vec))
-                    .count();
+                // Use indexset's efficient rank() method, then convert to reverse rank
+                // Reverse rank = (total_count - 1) - rank
+                let rank = zset.index.rank(&(OrderedFloat::new(*score), member.to_vec()));
+                let rev_rank = zset.len() - 1 - rank;
 
                 Ok(Some(rev_rank))
             }
