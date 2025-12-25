@@ -1,14 +1,12 @@
 mod atoms;
 mod storage;
 
+use ordered_float::OrderedFloat;
 use rustler::types::Binary;
 use rustler::{Encoder, Env, Resource, ResourceArc, Term};
 use std::sync::{Arc, Mutex};
 
-use storage::StorageInner;
-
-// Type alias for reference-counted byte vectors
-type Bytes = Arc<Vec<u8>>;
+use storage::{Score, StorageInner};
 
 /// The term storage resource (wrapper around Mutex to satisfy orphan rule)
 pub struct TStorage(Mutex<StorageInner>);
@@ -60,9 +58,9 @@ fn get_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, db: u64, key: Bin
     // Get the value using encapsulated method
     match inner.get(db, &key_bytes) {
         Ok(Some(value)) => {
-            // Return the binary value - dereference Arc to get &Vec<u8>
+            // Return the binary value
             let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
-            binary.as_mut_slice().copy_from_slice(&value);
+            binary.as_mut_slice().copy_from_slice(value.as_slice());
             binary.release(env).encode(env)
         }
         Ok(None) => {
@@ -126,13 +124,12 @@ fn sadd_members<'a>(
 
     // Convert binaries to Bytes
     let key_bytes = Arc::new(key.as_slice().to_vec());
-    let members_bytes: Vec<Bytes> = members
+    let members_slices: Vec<&[u8]> = members
         .iter()
-        .map(|b| Arc::new(b.as_slice().to_vec()))
+        .map(|b| b.as_slice())
         .collect();
-    let members_refs: Vec<&Bytes> = members_bytes.iter().collect();
 
-    match inner.sadd(db, &key_bytes, &members_refs) {
+    match inner.sadd(db, &key_bytes, &members_slices) {
         Ok(_added) => atoms::ok().encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
@@ -152,13 +149,12 @@ fn srem_members<'a>(
     };
 
     let key_bytes = Arc::new(key.as_slice().to_vec());
-    let members_bytes: Vec<Bytes> = members
+    let members_slices: Vec<&[u8]> = members
         .iter()
-        .map(|b| Arc::new(b.as_slice().to_vec()))
+        .map(|b| b.as_slice())
         .collect();
-    let members_refs: Vec<&Bytes> = members_bytes.iter().collect();
 
-    match inner.srem(db, &key_bytes, &members_refs) {
+    match inner.srem(db, &key_bytes, &members_slices) {
         Ok(_removed) => atoms::ok().encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
@@ -202,13 +198,12 @@ fn sunionstore_sets<'a>(
     };
 
     let dest_bytes = Arc::new(dest_key.as_slice().to_vec());
-    let keys_bytes: Vec<Bytes> = source_keys
+    let keys_slices: Vec<&[u8]> = source_keys
         .iter()
-        .map(|b| Arc::new(b.as_slice().to_vec()))
+        .map(|b| b.as_slice())
         .collect();
-    let keys_refs: Vec<&Bytes> = keys_bytes.iter().collect();
 
-    match inner.sunionstore(db, &dest_bytes, &keys_refs) {
+    match inner.sunionstore(db, &dest_bytes, &keys_slices) {
         Ok(_cardinality) => atoms::ok().encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
@@ -228,13 +223,12 @@ fn sinterstore_sets<'a>(
     };
 
     let dest_bytes = Arc::new(dest_key.as_slice().to_vec());
-    let keys_bytes: Vec<Bytes> = source_keys
+    let keys_slices: Vec<&[u8]> = source_keys
         .iter()
-        .map(|b| Arc::new(b.as_slice().to_vec()))
+        .map(|b| b.as_slice())
         .collect();
-    let keys_refs: Vec<&Bytes> = keys_bytes.iter().collect();
 
-    match inner.sinterstore(db, &dest_bytes, &keys_refs) {
+    match inner.sinterstore(db, &dest_bytes, &keys_slices) {
         Ok(_cardinality) => atoms::ok().encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
@@ -254,13 +248,12 @@ fn sdiffstore_sets<'a>(
     };
 
     let dest_bytes = Arc::new(dest_key.as_slice().to_vec());
-    let keys_bytes: Vec<Bytes> = source_keys
+    let keys_slices: Vec<&[u8]> = source_keys
         .iter()
-        .map(|b| Arc::new(b.as_slice().to_vec()))
+        .map(|b| b.as_slice())
         .collect();
-    let keys_refs: Vec<&Bytes> = keys_bytes.iter().collect();
 
-    match inner.sdiffstore(db, &dest_bytes, &keys_refs) {
+    match inner.sdiffstore(db, &dest_bytes, &keys_slices) {
         Ok(_cardinality) => atoms::ok().encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
@@ -286,7 +279,7 @@ fn smembers_get<'a>(
                 .iter()
                 .map(|m| {
                     let mut binary = rustler::types::OwnedBinary::new(m.len()).unwrap();
-                    binary.as_mut_slice().copy_from_slice(m);
+                    binary.as_mut_slice().copy_from_slice(m.as_slice());
                     binary.release(env).encode(env)
                 })
                 .collect();
@@ -354,13 +347,12 @@ fn lpush_values<'a>(
     };
 
     let key_bytes = Arc::new(key.as_slice().to_vec());
-    let values_bytes: Vec<Bytes> = values
+    let values_slices: Vec<&[u8]> = values
         .iter()
-        .map(|b| Arc::new(b.as_slice().to_vec()))
+        .map(|b| b.as_slice())
         .collect();
-    let values_refs: Vec<&Bytes> = values_bytes.iter().collect();
 
-    match inner.lpush(db, &key_bytes, &values_refs) {
+    match inner.lpush(db, &key_bytes, &values_slices) {
         Ok(_len) => atoms::ok().encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
@@ -380,13 +372,12 @@ fn rpush_values<'a>(
     };
 
     let key_bytes = Arc::new(key.as_slice().to_vec());
-    let values_bytes: Vec<Bytes> = values
+    let values_slices: Vec<&[u8]> = values
         .iter()
-        .map(|b| Arc::new(b.as_slice().to_vec()))
+        .map(|b| b.as_slice())
         .collect();
-    let values_refs: Vec<&Bytes> = values_bytes.iter().collect();
 
-    match inner.rpush(db, &key_bytes, &values_refs) {
+    match inner.rpush(db, &key_bytes, &values_slices) {
         Ok(_len) => atoms::ok().encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
@@ -409,7 +400,7 @@ fn lpop_value<'a>(
     match inner.lpop(db, &key_bytes) {
         Ok(Some(value)) => {
             let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
-            binary.as_mut_slice().copy_from_slice(&value);
+            binary.as_mut_slice().copy_from_slice(value.as_slice());
             (atoms::ok(), binary.release(env)).encode(env)
         }
         Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
@@ -434,7 +425,7 @@ fn rpop_value<'a>(
     match inner.rpop(db, &key_bytes) {
         Ok(Some(value)) => {
             let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
-            binary.as_mut_slice().copy_from_slice(&value);
+            binary.as_mut_slice().copy_from_slice(value.as_slice());
             (atoms::ok(), binary.release(env)).encode(env)
         }
         Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
@@ -484,7 +475,7 @@ fn lrange_get<'a>(
                 .iter()
                 .map(|e| {
                     let mut binary = rustler::types::OwnedBinary::new(e.len()).unwrap();
-                    binary.as_mut_slice().copy_from_slice(e);
+                    binary.as_mut_slice().copy_from_slice(e.as_slice());
                     binary.release(env).encode(env)
                 })
                 .collect();
@@ -537,7 +528,7 @@ fn rpoplpush_value<'a>(
     match inner.rpoplpush(db, &source_bytes, &dest_bytes) {
         Ok(Some(value)) => {
             let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
-            binary.as_mut_slice().copy_from_slice(&value);
+            binary.as_mut_slice().copy_from_slice(value.as_slice());
             (atoms::ok(), binary.release(env)).encode(env)
         }
         Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
@@ -585,16 +576,12 @@ fn hmset_fields<'a>(
     };
 
     let key_bytes = Arc::new(key.as_slice().to_vec());
-    let fields_bytes: Vec<(Bytes, Bytes)> = fields
+    let fields_slices: Vec<(&[u8], &[u8])> = fields
         .iter()
-        .map(|(f, v)| (Arc::new(f.as_slice().to_vec()), Arc::new(v.as_slice().to_vec())))
-        .collect();
-    let fields_refs: Vec<(&Bytes, &Bytes)> = fields_bytes
-        .iter()
-        .map(|(f, v)| (f, v))
+        .map(|(f, v)| (f.as_slice(), v.as_slice()))
         .collect();
 
-    match inner.hmset(db, &key_bytes, &fields_refs) {
+    match inner.hmset(db, &key_bytes, &fields_slices) {
         Ok(_count) => atoms::ok().encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
@@ -619,7 +606,7 @@ fn hget_field<'a>(
     match inner.hget(db, &key_bytes, &field_bytes) {
         Ok(Some(value)) => {
             let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
-            binary.as_mut_slice().copy_from_slice(&value);
+            binary.as_mut_slice().copy_from_slice(value.as_slice());
             (atoms::ok(), binary.release(env)).encode(env)
         }
         Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
@@ -641,20 +628,19 @@ fn hmget_fields<'a>(
     };
 
     let key_bytes = Arc::new(key.as_slice().to_vec());
-    let fields_bytes: Vec<Bytes> = fields
+    let fields_slices: Vec<&[u8]> = fields
         .iter()
-        .map(|f| Arc::new(f.as_slice().to_vec()))
+        .map(|f| f.as_slice())
         .collect();
-    let fields_refs: Vec<&Bytes> = fields_bytes.iter().collect();
 
-    match inner.hmget(db, &key_bytes, &fields_refs) {
+    match inner.hmget(db, &key_bytes, &fields_slices) {
         Ok(values) => {
             let terms: Vec<Term> = values
                 .iter()
                 .map(|opt_val| match opt_val {
                     Some(val) => {
                         let mut binary = rustler::types::OwnedBinary::new(val.len()).unwrap();
-                        binary.as_mut_slice().copy_from_slice(val);
+                        binary.as_mut_slice().copy_from_slice(val.as_slice());
                         binary.release(env).encode(env)
                     }
                     None => atoms::nil().encode(env),
@@ -686,9 +672,9 @@ fn hgetall_fields<'a>(
                 .iter()
                 .map(|(k, v)| {
                     let mut key_bin = rustler::types::OwnedBinary::new(k.len()).unwrap();
-                    key_bin.as_mut_slice().copy_from_slice(k);
+                    key_bin.as_mut_slice().copy_from_slice(k.as_slice());
                     let mut val_bin = rustler::types::OwnedBinary::new(v.len()).unwrap();
-                    val_bin.as_mut_slice().copy_from_slice(v);
+                    val_bin.as_mut_slice().copy_from_slice(v.as_slice());
                     (key_bin.release(env).encode(env), val_bin.release(env).encode(env))
                 })
                 .collect();
@@ -718,7 +704,7 @@ fn hkeys_get<'a>(
                 .iter()
                 .map(|k| {
                     let mut binary = rustler::types::OwnedBinary::new(k.len()).unwrap();
-                    binary.as_mut_slice().copy_from_slice(k);
+                    binary.as_mut_slice().copy_from_slice(k.as_slice());
                     binary.release(env).encode(env)
                 })
                 .collect();
@@ -748,7 +734,7 @@ fn hvals_get<'a>(
                 .iter()
                 .map(|v| {
                     let mut binary = rustler::types::OwnedBinary::new(v.len()).unwrap();
-                    binary.as_mut_slice().copy_from_slice(v);
+                    binary.as_mut_slice().copy_from_slice(v.as_slice());
                     binary.release(env).encode(env)
                 })
                 .collect();
@@ -814,13 +800,12 @@ fn hdel_fields<'a>(
     };
 
     let key_bytes = Arc::new(key.as_slice().to_vec());
-    let fields_bytes: Vec<Bytes> = fields
+    let fields_slices: Vec<&[u8]> = fields
         .iter()
-        .map(|f| Arc::new(f.as_slice().to_vec()))
+        .map(|f| f.as_slice())
         .collect();
-    let fields_refs: Vec<&Bytes> = fields_bytes.iter().collect();
 
-    match inner.hdel(db, &key_bytes, &fields_refs) {
+    match inner.hdel(db, &key_bytes, &fields_slices) {
         Ok(deleted) => (atoms::ok(), deleted).encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
@@ -842,16 +827,12 @@ fn zadd_members<'a>(
     };
 
     let key_bytes = Arc::new(key.as_slice().to_vec());
-    let members_bytes: Vec<(f64, Bytes)> = members
+    let members_slices: Vec<(Score, &[u8])> = members
         .iter()
-        .map(|(score, member)| (*score, Arc::new(member.as_slice().to_vec())))
-        .collect();
-    let members_refs: Vec<(f64, &Bytes)> = members_bytes
-        .iter()
-        .map(|(score, member)| (*score, member))
+        .map(|(score, member)| (OrderedFloat(*score), member.as_slice()))
         .collect();
 
-    match inner.zadd(db, &key_bytes, &members_refs) {
+    match inner.zadd(db, &key_bytes, &members_slices) {
         Ok(added) => (atoms::ok(), added).encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
@@ -871,13 +852,12 @@ fn zrem_members<'a>(
     };
 
     let key_bytes = Arc::new(key.as_slice().to_vec());
-    let members_bytes: Vec<Bytes> = members
+    let members_slices: Vec<&[u8]> = members
         .iter()
-        .map(|m| Arc::new(m.as_slice().to_vec()))
+        .map(|m| m.as_slice())
         .collect();
-    let members_refs: Vec<&Bytes> = members_bytes.iter().collect();
 
-    match inner.zrem(db, &key_bytes, &members_refs) {
+    match inner.zrem(db, &key_bytes, &members_slices) {
         Ok(removed) => (atoms::ok(), removed).encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
@@ -900,7 +880,7 @@ fn zscore_get<'a>(
     let member_bytes = Arc::new(member.as_slice().to_vec());
 
     match inner.zscore(db, &key_bytes, &member_bytes) {
-        Ok(Some(score)) => (atoms::ok(), score).encode(env),
+        Ok(Some(score)) => (atoms::ok(), score.into_inner()).encode(env),
         Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
@@ -949,11 +929,11 @@ fn zrange_get<'a>(
                 .iter()
                 .flat_map(|(member, score_opt)| {
                     let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
-                    member_bin.as_mut_slice().copy_from_slice(member);
+                    member_bin.as_mut_slice().copy_from_slice(member.as_slice());
                     let member_term = member_bin.release(env).encode(env);
 
                     if let Some(score) = score_opt {
-                        vec![member_term, score.encode(env)]
+                        vec![member_term, score.into_inner().encode(env)]
                     } else {
                         vec![member_term]
                     }
@@ -982,17 +962,17 @@ fn zrangebyscore_get<'a>(
 
     let key_bytes = Arc::new(key.as_slice().to_vec());
 
-    match inner.zrangebyscore(db, &key_bytes, min, max, with_scores) {
+    match inner.zrangebyscore(db, &key_bytes, OrderedFloat(min), OrderedFloat(max), with_scores) {
         Ok(results) => {
             let terms: Vec<Term> = results
                 .iter()
                 .flat_map(|(member, score_opt)| {
                     let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
-                    member_bin.as_mut_slice().copy_from_slice(member);
+                    member_bin.as_mut_slice().copy_from_slice(member.as_slice());
                     let member_term = member_bin.release(env).encode(env);
 
                     if let Some(score) = score_opt {
-                        vec![member_term, score.encode(env)]
+                        vec![member_term, score.into_inner().encode(env)]
                     } else {
                         vec![member_term]
                     }
@@ -1066,7 +1046,7 @@ fn zcount_get<'a>(
 
     let key_bytes = Arc::new(key.as_slice().to_vec());
 
-    match inner.zcount(db, &key_bytes, min, max) {
+    match inner.zcount(db, &key_bytes, OrderedFloat(min), OrderedFloat(max)) {
         Ok(count) => (atoms::ok(), count).encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
@@ -1089,8 +1069,8 @@ fn zincrby_score<'a>(
     let key_bytes = Arc::new(key.as_slice().to_vec());
     let member_bytes = Arc::new(member.as_slice().to_vec());
 
-    match inner.zincrby(db, &key_bytes, delta, &member_bytes) {
-        Ok(new_score) => (atoms::ok(), new_score).encode(env),
+    match inner.zincrby(db, &key_bytes, OrderedFloat(delta), &member_bytes) {
+        Ok(new_score) => (atoms::ok(), new_score.into_inner()).encode(env),
         Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
 }
