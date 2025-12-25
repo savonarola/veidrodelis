@@ -14,6 +14,9 @@ clean:
     rm -rf priv/native/*
     mix clean
 
+clean-all: clean
+    mix clean --deps
+
 # Start Redis in Docker for testing
 dc-start:
     cd test/assets && docker compose up -d
