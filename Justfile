@@ -11,7 +11,8 @@ test-all:
 
 clean:
     rm -rf native/vdr_redis_nif/target/*
-    mix clean --deps
+    rm -rf priv/native/*
+    mix clean
 
 # Start Redis in Docker for testing
 dc-start:

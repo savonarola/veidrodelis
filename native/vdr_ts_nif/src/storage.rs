@@ -1,46 +1,127 @@
 use std::collections::{BTreeMap, BTreeSet as StdBTreeSet, HashMap};
 use std::cmp::Ordering;
+use std::sync::Arc;
 use im::Vector;
 use indexset::BTreeSet;
 
 type Score = f64;
+type Bytes = Arc<Vec<u8>>;
 
-/// Ordered wrapper for f64 to use in BTreeSet
-/// Treats NaN as equal to NaN and less than all other values
-#[derive(Clone, Copy, Debug)]
-struct OrderedFloat(f64);
+/// Index key for sorted set (zset) with support for range queries.
+///
+/// Ordering semantics:
+/// - MinKey < everything
+/// - MaxKey > everything
+/// - MinScoreKey(score) < Key{score, _} < MaxScoreKey(score)
+/// - Within Key entries with the same score, ordered by entry bytes (lexicographic)
+/// - NaN scores are treated as less than all other scores
+#[derive(Clone, Debug)]
+enum ZSetIndexKey {
+    /// Minimum sentinel key - less than any other key
+    #[allow(dead_code)]
+    MinKey,
+    /// Maximum sentinel key - greater than any other key
+    #[allow(dead_code)]
+    MaxKey,
+    /// Minimum key for a given score - less than any Key with the same score
+    MinScoreKey(f64),
+    /// Maximum key for a given score - greater than any Key with the same score
+    MaxScoreKey(f64),
+    /// Actual data entry with score and member (reference counted to avoid cloning)
+    Key { score: f64, entry: Bytes },
+}
 
-impl OrderedFloat {
-    fn new(f: f64) -> Self {
-        OrderedFloat(f)
-    }
-
-    fn get(&self) -> f64 {
-        self.0
+impl ZSetIndexKey {
+    /// Helper to compare two f64 scores with NaN handling
+    fn cmp_scores(a: f64, b: f64) -> Ordering {
+        match (a.is_nan(), b.is_nan()) {
+            (true, true) => Ordering::Equal,
+            (true, false) => Ordering::Less,
+            (false, true) => Ordering::Greater,
+            (false, false) => a.partial_cmp(&b).unwrap(),
+        }
     }
 }
 
-impl PartialEq for OrderedFloat {
+impl PartialEq for ZSetIndexKey {
     fn eq(&self, other: &Self) -> bool {
-        self.0 == other.0 || (self.0.is_nan() && other.0.is_nan())
+        matches!(self.cmp(other), Ordering::Equal)
     }
 }
 
-impl Eq for OrderedFloat {}
+impl Eq for ZSetIndexKey {}
 
-impl PartialOrd for OrderedFloat {
+impl PartialOrd for ZSetIndexKey {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for OrderedFloat {
+impl Ord for ZSetIndexKey {
     fn cmp(&self, other: &Self) -> Ordering {
-        match (self.0.is_nan(), other.0.is_nan()) {
-            (true, true) => Ordering::Equal,
-            (true, false) => Ordering::Less,
-            (false, true) => Ordering::Greater,
-            (false, false) => self.0.partial_cmp(&other.0).unwrap(),
+        use ZSetIndexKey::*;
+
+        match (self, other) {
+            // MinKey is less than everything except itself
+            (MinKey, MinKey) => Ordering::Equal,
+            (MinKey, _) => Ordering::Less,
+            (_, MinKey) => Ordering::Greater,
+
+            // MaxKey is greater than everything except itself
+            (MaxKey, MaxKey) => Ordering::Equal,
+            (MaxKey, _) => Ordering::Greater,
+            (_, MaxKey) => Ordering::Less,
+
+            // MinScoreKey comparisons
+            (MinScoreKey(s1), MinScoreKey(s2)) => Self::cmp_scores(*s1, *s2),
+            (MinScoreKey(s1), MaxScoreKey(s2)) => {
+                match Self::cmp_scores(*s1, *s2) {
+                    Ordering::Equal => Ordering::Less,  // MinScore < MaxScore for same score
+                    other => other,
+                }
+            }
+            (MinScoreKey(s1), Key { score: s2, .. }) => {
+                match Self::cmp_scores(*s1, *s2) {
+                    Ordering::Equal => Ordering::Less,  // MinScore < Key for same score
+                    other => other,
+                }
+            }
+
+            // MaxScoreKey comparisons
+            (MaxScoreKey(s1), MinScoreKey(s2)) => {
+                match Self::cmp_scores(*s1, *s2) {
+                    Ordering::Equal => Ordering::Greater,  // MaxScore > MinScore for same score
+                    other => other,
+                }
+            }
+            (MaxScoreKey(s1), MaxScoreKey(s2)) => Self::cmp_scores(*s1, *s2),
+            (MaxScoreKey(s1), Key { score: s2, .. }) => {
+                match Self::cmp_scores(*s1, *s2) {
+                    Ordering::Equal => Ordering::Greater,  // MaxScore > Key for same score
+                    other => other,
+                }
+            }
+
+            // Key comparisons
+            (Key { score: s1, .. }, MinScoreKey(s2)) => {
+                match Self::cmp_scores(*s1, *s2) {
+                    Ordering::Equal => Ordering::Greater,  // Key > MinScore for same score
+                    other => other,
+                }
+            }
+            (Key { score: s1, .. }, MaxScoreKey(s2)) => {
+                match Self::cmp_scores(*s1, *s2) {
+                    Ordering::Equal => Ordering::Less,  // Key < MaxScore for same score
+                    other => other,
+                }
+            }
+            (Key { score: s1, entry: e1 }, Key { score: s2, entry: e2 }) => {
+                // First compare scores, then entries lexicographically
+                match Self::cmp_scores(*s1, *s2) {
+                    Ordering::Equal => e1.cmp(e2),
+                    other => other,
+                }
+            }
         }
     }
 }
@@ -51,11 +132,12 @@ impl Ord for OrderedFloat {
 pub struct ZSet {
     /// Sorted index for range queries and sorted iteration
     /// Uses indexset::BTreeSet for efficient rank and range operations
-    /// Ordered by (score, member) to handle duplicate scores
-    index: BTreeSet<(OrderedFloat, Vec<u8>)>,
+    /// Ordered by ZSetIndexKey to support efficient range queries with sentinel keys
+    index: BTreeSet<ZSetIndexKey>,
     /// Member to score mapping for quick lookups
     /// Uses HashMap for O(1) average case lookups
-    entries: HashMap<Vec<u8>, Score>,
+    /// Keys are Arc to share with index entries
+    entries: HashMap<Bytes, Score>,
 }
 
 impl ZSet {
@@ -78,16 +160,16 @@ impl ZSet {
 /// Storage value types
 #[derive(Clone)]
 pub enum StorageValue {
-    String(Vec<u8>),
-    Set(StdBTreeSet<Vec<u8>>),
-    List(Vector<Vec<u8>>),
-    Hash(BTreeMap<Vec<u8>, Vec<u8>>),
+    String(Bytes),
+    Set(StdBTreeSet<Bytes>),
+    List(Vector<Bytes>),
+    Hash(BTreeMap<Bytes, Bytes>),
     ZSet(ZSet),
 }
 
 /// Inner storage structure
 pub struct StorageInner {
-    map: BTreeMap<u64, BTreeMap<Vec<u8>, StorageValue>>,
+    map: BTreeMap<u64, BTreeMap<Bytes, StorageValue>>,
 }
 
 impl StorageInner {
@@ -99,15 +181,15 @@ impl StorageInner {
     }
 
     /// Set a key-value pair in a specific database
-    pub fn set(&mut self, db: u64, key: &[u8], value: &[u8]) {
+    pub fn set(&mut self, db: u64, key: &Bytes, value: &Bytes) {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
-        db_map.insert(key.to_vec(), StorageValue::String(value.to_vec()));
+        db_map.insert(key.clone(), StorageValue::String(value.clone()));
     }
 
     /// Get a value by key from a specific database
-    pub fn get(&self, db: u64, key: &[u8]) -> Result<Option<&[u8]>, &'static str> {
+    pub fn get(&self, db: u64, key: &Bytes) -> Result<Option<Bytes>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::String(value)) => Ok(Some(value.as_slice())),
+            Some(StorageValue::String(value)) => Ok(Some(value.clone())),
             Some(StorageValue::Set(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
                 Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
@@ -116,7 +198,7 @@ impl StorageInner {
     }
 
     /// Delete a key from a specific database
-    pub fn del(&mut self, db: u64, key: &[u8]) {
+    pub fn del(&mut self, db: u64, key: &Bytes) {
         if let Some(db_map) = self.map.get_mut(&db) {
             db_map.remove(key);
         }
@@ -128,7 +210,7 @@ impl StorageInner {
     }
 
     /// Add members to a set. Returns number of members actually added (excluding duplicates).
-    pub fn sadd(&mut self, db: u64, key: &[u8], members: &[Vec<u8>]) -> Result<usize, &'static str> {
+    pub fn sadd(&mut self, db: u64, key: &Bytes, members: &[&Bytes]) -> Result<usize, &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -140,7 +222,7 @@ impl StorageInner {
 
         // Get or create the set
         let set = db_map
-            .entry(key.to_vec())
+            .entry(key.clone())
             .or_insert_with(|| StorageValue::Set(StdBTreeSet::new()));
 
         // Extract the set from the StorageValue
@@ -151,7 +233,7 @@ impl StorageInner {
 
         let mut added = 0;
         for member in members {
-            if set.insert(member.clone()) {
+            if set.insert((*member).clone()) {
                 added += 1;
             }
         }
@@ -160,7 +242,7 @@ impl StorageInner {
     }
 
     /// Remove members from a set. Removes key if set becomes empty.
-    pub fn srem(&mut self, db: u64, key: &[u8], members: &[Vec<u8>]) -> Result<usize, &'static str> {
+    pub fn srem(&mut self, db: u64, key: &Bytes, members: &[&Bytes]) -> Result<usize, &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(0);
         };
@@ -178,7 +260,7 @@ impl StorageInner {
 
         let mut removed = 0;
         for member in members {
-            if set.remove(member) {
+            if set.remove(*member) {
                 removed += 1;
             }
         }
@@ -192,33 +274,31 @@ impl StorageInner {
     }
 
     /// Move a member from source to destination set. Deletes source if it becomes empty.
-    pub fn smove(&mut self, db: u64, source_key: &[u8], dest_key: &[u8], member: &[u8]) -> Result<bool, &'static str> {
+    pub fn smove(&mut self, db: u64, source_key: &Bytes, dest_key: &Bytes, member: &Bytes) -> Result<bool, &'static str> {
         // Get mutable access to database
         let db_map = match self.map.get_mut(&db) {
             Some(map) => map,
             None => return Ok(false),
         };
 
-        // Check and remove member from source set
-        let member_existed = match db_map.get_mut(source_key) {
-            Some(StorageValue::Set(set)) => {
-                let existed = set.remove(member);
-                if existed && set.is_empty() {
-                    // Mark for deletion by setting a flag
-                    true
-                } else {
-                    existed
-                }
-            }
+        // Check source type
+        match db_map.get(source_key) {
+            Some(StorageValue::Set(_)) => {},
             Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
             None => return Ok(false),
         };
 
-        if !member_existed {
+        // Remove from source using take() which returns the Arc if it exists
+        let member_arc = match db_map.get_mut(source_key) {
+            Some(StorageValue::Set(set)) => set.take(member),
+            _ => None,
+        };
+
+        let Some(member_arc) = member_arc else {
             return Ok(false);
-        }
+        };
 
         // Check if source set is now empty and should be deleted
         let should_delete_source = match db_map.get(source_key) {
@@ -232,11 +312,11 @@ impl StorageInner {
         }
 
         // Add member to destination set
-        match db_map.entry(dest_key.to_vec()) {
+        match db_map.entry(dest_key.clone()) {
             std::collections::btree_map::Entry::Occupied(mut e) => {
                 match e.get_mut() {
                     StorageValue::Set(set) => {
-                        set.insert(member.to_vec());
+                        set.insert(member_arc);
                     }
                     StorageValue::String(_) | StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::ZSet(_) => {
                         return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
@@ -245,7 +325,7 @@ impl StorageInner {
             }
             std::collections::btree_map::Entry::Vacant(e) => {
                 let mut new_set = StdBTreeSet::new();
-                new_set.insert(member.to_vec());
+                new_set.insert(member_arc);
                 e.insert(StorageValue::Set(new_set));
             }
         }
@@ -254,7 +334,7 @@ impl StorageInner {
     }
 
     /// Store union of multiple sets in destination key.
-    pub fn sunionstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[Vec<u8>]) -> Result<usize, &'static str> {
+    pub fn sunionstore(&mut self, db: u64, dest_key: &Bytes, source_keys: &[&Bytes]) -> Result<usize, &'static str> {
         // First delete destination
         self.del(db, dest_key);
 
@@ -263,7 +343,7 @@ impl StorageInner {
 
         if let Some(db_map) = self.map.get(&db) {
             for source_key in source_keys {
-                if let Some(value) = db_map.get(source_key.as_slice()) {
+                if let Some(value) = db_map.get(*source_key) {
                     match value {
                         StorageValue::Set(set) => {
                             union_set.extend(set.iter().cloned());
@@ -281,14 +361,14 @@ impl StorageInner {
         // Store result if non-empty
         if !union_set.is_empty() {
             let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
-            db_map.insert(dest_key.to_vec(), StorageValue::Set(union_set));
+            db_map.insert(dest_key.clone(), StorageValue::Set(union_set));
         }
 
         Ok(cardinality)
     }
 
     /// Store intersection of multiple sets in destination key.
-    pub fn sinterstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[Vec<u8>]) -> Result<usize, &'static str> {
+    pub fn sinterstore(&mut self, db: u64, dest_key: &Bytes, source_keys: &[&Bytes]) -> Result<usize, &'static str> {
         // First delete destination
         self.del(db, dest_key);
 
@@ -301,7 +381,7 @@ impl StorageInner {
         };
 
         // Start with first set
-        let mut intersection_set = match db_map.get(source_keys[0].as_slice()) {
+        let mut intersection_set = match db_map.get(source_keys[0]) {
             Some(StorageValue::Set(set)) => set.clone(),
             Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
@@ -311,7 +391,7 @@ impl StorageInner {
 
         // Intersect with remaining sets
         for source_key in &source_keys[1..] {
-            match db_map.get(source_key.as_slice()) {
+            match db_map.get(*source_key) {
                 Some(StorageValue::Set(set)) => {
                     intersection_set = intersection_set.intersection(set).cloned().collect();
                 }
@@ -331,14 +411,14 @@ impl StorageInner {
         // Store result if non-empty
         if !intersection_set.is_empty() {
             let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
-            db_map.insert(dest_key.to_vec(), StorageValue::Set(intersection_set));
+            db_map.insert(dest_key.clone(), StorageValue::Set(intersection_set));
         }
 
         Ok(cardinality)
     }
 
     /// Store difference of sets in destination key.
-    pub fn sdiffstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[Vec<u8>]) -> Result<usize, &'static str> {
+    pub fn sdiffstore(&mut self, db: u64, dest_key: &Bytes, source_keys: &[&Bytes]) -> Result<usize, &'static str> {
         // First delete destination
         self.del(db, dest_key);
 
@@ -351,7 +431,7 @@ impl StorageInner {
         };
 
         // Start with first set
-        let mut diff_set = match db_map.get(source_keys[0].as_slice()) {
+        let mut diff_set = match db_map.get(source_keys[0]) {
             Some(StorageValue::Set(set)) => set.clone(),
             Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
@@ -361,7 +441,7 @@ impl StorageInner {
 
         // Subtract remaining sets
         for source_key in &source_keys[1..] {
-            match db_map.get(source_key.as_slice()) {
+            match db_map.get(*source_key) {
                 Some(StorageValue::Set(set)) => {
                     diff_set = diff_set.difference(set).cloned().collect();
                 }
@@ -380,14 +460,14 @@ impl StorageInner {
         // Store result if non-empty
         if !diff_set.is_empty() {
             let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
-            db_map.insert(dest_key.to_vec(), StorageValue::Set(diff_set));
+            db_map.insert(dest_key.clone(), StorageValue::Set(diff_set));
         }
 
         Ok(cardinality)
     }
 
     /// Get all members of a set.
-    pub fn smembers(&self, db: u64, key: &[u8]) -> Result<Vec<Vec<u8>>, &'static str> {
+    pub fn smembers(&self, db: u64, key: &Bytes) -> Result<Vec<Bytes>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::Set(set)) => Ok(set.iter().cloned().collect()),
             Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
@@ -398,7 +478,7 @@ impl StorageInner {
     }
 
     /// Check if member exists in set.
-    pub fn sismember(&self, db: u64, key: &[u8], member: &[u8]) -> Result<bool, &'static str> {
+    pub fn sismember(&self, db: u64, key: &Bytes, member: &Bytes) -> Result<bool, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::Set(set)) => Ok(set.contains(member)),
             Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
@@ -409,7 +489,7 @@ impl StorageInner {
     }
 
     /// Get the number of members in a set.
-    pub fn scard(&self, db: u64, key: &[u8]) -> Result<usize, &'static str> {
+    pub fn scard(&self, db: u64, key: &Bytes) -> Result<usize, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::Set(set)) => Ok(set.len()),
             Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
@@ -422,7 +502,7 @@ impl StorageInner {
     // List operations
 
     /// Push elements to the left (head) of the list.
-    pub fn lpush(&mut self, db: u64, key: &[u8], values: &[Vec<u8>]) -> Result<usize, &'static str> {
+    pub fn lpush(&mut self, db: u64, key: &Bytes, values: &[&Bytes]) -> Result<usize, &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -434,7 +514,7 @@ impl StorageInner {
 
         // Get or create the list
         let list = db_map
-            .entry(key.to_vec())
+            .entry(key.clone())
             .or_insert_with(|| StorageValue::List(Vector::new()));
 
         // Extract the list from the StorageValue
@@ -445,14 +525,14 @@ impl StorageInner {
 
         // Push values to the front in order (each one becomes the new head)
         for value in values {
-            list.push_front(value.clone());
+            list.push_front((*value).clone());
         }
 
         Ok(list.len())
     }
 
     /// Push elements to the right (tail) of the list.
-    pub fn rpush(&mut self, db: u64, key: &[u8], values: &[Vec<u8>]) -> Result<usize, &'static str> {
+    pub fn rpush(&mut self, db: u64, key: &Bytes, values: &[&Bytes]) -> Result<usize, &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -464,7 +544,7 @@ impl StorageInner {
 
         // Get or create the list
         let list = db_map
-            .entry(key.to_vec())
+            .entry(key.clone())
             .or_insert_with(|| StorageValue::List(Vector::new()));
 
         // Extract the list from the StorageValue
@@ -475,14 +555,14 @@ impl StorageInner {
 
         // Push values to the back
         for value in values {
-            list.push_back(value.clone());
+            list.push_back((*value).clone());
         }
 
         Ok(list.len())
     }
 
     /// Pop element from the left (head) of the list. Returns the element or None.
-    pub fn lpop(&mut self, db: u64, key: &[u8]) -> Result<Option<Vec<u8>>, &'static str> {
+    pub fn lpop(&mut self, db: u64, key: &Bytes) -> Result<Option<Bytes>, &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(None);
         };
@@ -511,7 +591,7 @@ impl StorageInner {
     }
 
     /// Pop element from the right (tail) of the list. Returns the element or None.
-    pub fn rpop(&mut self, db: u64, key: &[u8]) -> Result<Option<Vec<u8>>, &'static str> {
+    pub fn rpop(&mut self, db: u64, key: &Bytes) -> Result<Option<Bytes>, &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(None);
         };
@@ -540,7 +620,7 @@ impl StorageInner {
     }
 
     /// Get the length of a list.
-    pub fn llen(&self, db: u64, key: &[u8]) -> Result<usize, &'static str> {
+    pub fn llen(&self, db: u64, key: &Bytes) -> Result<usize, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::List(list)) => Ok(list.len()),
             Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
@@ -550,7 +630,7 @@ impl StorageInner {
 
     /// Get a range of elements from the list.
     /// Both start and stop are inclusive and support negative indices.
-    pub fn lrange(&self, db: u64, key: &[u8], start: i64, stop: i64) -> Result<Vec<Vec<u8>>, &'static str> {
+    pub fn lrange(&self, db: u64, key: &Bytes, start: i64, stop: i64) -> Result<Vec<Bytes>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::List(list)) => {
                 let len = list.len() as i64;
@@ -576,7 +656,7 @@ impl StorageInner {
                     return Ok(Vec::new());
                 }
 
-                let result: Vec<Vec<u8>> = list
+                let result: Vec<Bytes> = list
                     .iter()
                     .skip(start_pos)
                     .take(stop_pos - start_pos + 1)
@@ -591,7 +671,7 @@ impl StorageInner {
     }
 
     /// Set the list element at index to value.
-    pub fn lset(&mut self, db: u64, key: &[u8], index: i64, value: &[u8]) -> Result<bool, &'static str> {
+    pub fn lset(&mut self, db: u64, key: &Bytes, index: i64, value: &Bytes) -> Result<bool, &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(false);
         };
@@ -618,14 +698,14 @@ impl StorageInner {
             return Ok(false);
         }
 
-        *list = list.update(pos as usize, value.to_vec());
+        *list = list.update(pos as usize, value.clone());
         Ok(true)
     }
 
     /// Atomically pop from the right of source and push to the left of destination.
-    pub fn rpoplpush(&mut self, db: u64, source_key: &[u8], dest_key: &[u8]) -> Result<Option<Vec<u8>>, &'static str> {
+    pub fn rpoplpush(&mut self, db: u64, source_key: &Bytes, dest_key: &Bytes) -> Result<Option<Bytes>, &'static str> {
         // Special case: same key means rotate
-        if source_key == dest_key {
+        if **source_key == **dest_key {
             let Some(db_map) = self.map.get_mut(&db) else {
                 return Ok(None);
             };
@@ -689,7 +769,7 @@ impl StorageInner {
         }
 
         let dest_list = db_map
-            .entry(dest_key.to_vec())
+            .entry(dest_key.clone())
             .or_insert_with(|| StorageValue::List(Vector::new()));
 
         let dest_list = match dest_list {
@@ -705,7 +785,7 @@ impl StorageInner {
     // Hash operations
 
     /// Set field in hash to value. Creates hash if it doesn't exist.
-    pub fn hset(&mut self, db: u64, key: &[u8], field: &[u8], value: &[u8]) -> Result<bool, &'static str> {
+    pub fn hset(&mut self, db: u64, key: &Bytes, field: &Bytes, value: &Bytes) -> Result<bool, &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -717,7 +797,7 @@ impl StorageInner {
 
         // Get or create the hash
         let hash = db_map
-            .entry(key.to_vec())
+            .entry(key.clone())
             .or_insert_with(|| StorageValue::Hash(BTreeMap::new()));
 
         let hash = match hash {
@@ -726,12 +806,12 @@ impl StorageInner {
         };
 
         // Insert returns None if field didn't exist (new field)
-        let is_new = hash.insert(field.to_vec(), value.to_vec()).is_none();
+        let is_new = hash.insert(field.clone(), value.clone()).is_none();
         Ok(is_new)
     }
 
     /// Set multiple fields in hash. Returns number of new fields added.
-    pub fn hmset(&mut self, db: u64, key: &[u8], fields: &[(Vec<u8>, Vec<u8>)]) -> Result<usize, &'static str> {
+    pub fn hmset(&mut self, db: u64, key: &Bytes, fields: &[(&Bytes, &Bytes)]) -> Result<usize, &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -743,7 +823,7 @@ impl StorageInner {
 
         // Get or create the hash
         let hash = db_map
-            .entry(key.to_vec())
+            .entry(key.clone())
             .or_insert_with(|| StorageValue::Hash(BTreeMap::new()));
 
         let hash = match hash {
@@ -753,7 +833,7 @@ impl StorageInner {
 
         let mut new_fields = 0;
         for (field, value) in fields {
-            if hash.insert(field.clone(), value.clone()).is_none() {
+            if hash.insert((*field).clone(), (*value).clone()).is_none() {
                 new_fields += 1;
             }
         }
@@ -762,7 +842,7 @@ impl StorageInner {
     }
 
     /// Get field value from hash. Returns None if key or field doesn't exist.
-    pub fn hget(&self, db: u64, key: &[u8], field: &[u8]) -> Result<Option<Vec<u8>>, &'static str> {
+    pub fn hget(&self, db: u64, key: &Bytes, field: &Bytes) -> Result<Option<Bytes>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::Hash(hash)) => Ok(hash.get(field).cloned()),
             Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
@@ -771,10 +851,10 @@ impl StorageInner {
     }
 
     /// Get multiple field values from hash.
-    pub fn hmget(&self, db: u64, key: &[u8], fields: &[Vec<u8>]) -> Result<Vec<Option<Vec<u8>>>, &'static str> {
+    pub fn hmget(&self, db: u64, key: &Bytes, fields: &[&Bytes]) -> Result<Vec<Option<Bytes>>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::Hash(hash)) => {
-                let values = fields.iter().map(|field| hash.get(field).cloned()).collect();
+                let values = fields.iter().map(|field| hash.get(*field).cloned()).collect();
                 Ok(values)
             }
             Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
@@ -786,7 +866,7 @@ impl StorageInner {
     }
 
     /// Get all field-value pairs from hash.
-    pub fn hgetall(&self, db: u64, key: &[u8]) -> Result<Vec<(Vec<u8>, Vec<u8>)>, &'static str> {
+    pub fn hgetall(&self, db: u64, key: &Bytes) -> Result<Vec<(Bytes, Bytes)>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::Hash(hash)) => {
                 let pairs = hash.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
@@ -798,7 +878,7 @@ impl StorageInner {
     }
 
     /// Get all field names from hash.
-    pub fn hkeys(&self, db: u64, key: &[u8]) -> Result<Vec<Vec<u8>>, &'static str> {
+    pub fn hkeys(&self, db: u64, key: &Bytes) -> Result<Vec<Bytes>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::Hash(hash)) => Ok(hash.keys().cloned().collect()),
             Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
@@ -807,7 +887,7 @@ impl StorageInner {
     }
 
     /// Get all values from hash.
-    pub fn hvals(&self, db: u64, key: &[u8]) -> Result<Vec<Vec<u8>>, &'static str> {
+    pub fn hvals(&self, db: u64, key: &Bytes) -> Result<Vec<Bytes>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::Hash(hash)) => Ok(hash.values().cloned().collect()),
             Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
@@ -816,7 +896,7 @@ impl StorageInner {
     }
 
     /// Get number of fields in hash.
-    pub fn hlen(&self, db: u64, key: &[u8]) -> Result<usize, &'static str> {
+    pub fn hlen(&self, db: u64, key: &Bytes) -> Result<usize, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::Hash(hash)) => Ok(hash.len()),
             Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
@@ -825,7 +905,7 @@ impl StorageInner {
     }
 
     /// Check if field exists in hash.
-    pub fn hexists(&self, db: u64, key: &[u8], field: &[u8]) -> Result<bool, &'static str> {
+    pub fn hexists(&self, db: u64, key: &Bytes, field: &Bytes) -> Result<bool, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::Hash(hash)) => Ok(hash.contains_key(field)),
             Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
@@ -834,7 +914,7 @@ impl StorageInner {
     }
 
     /// Delete fields from hash. Returns number of fields deleted.
-    pub fn hdel(&mut self, db: u64, key: &[u8], fields: &[Vec<u8>]) -> Result<usize, &'static str> {
+    pub fn hdel(&mut self, db: u64, key: &Bytes, fields: &[&Bytes]) -> Result<usize, &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(0);
         };
@@ -850,7 +930,7 @@ impl StorageInner {
 
         let mut deleted = 0;
         for field in fields {
-            if hash.remove(field).is_some() {
+            if hash.remove(*field).is_some() {
                 deleted += 1;
             }
         }
@@ -866,7 +946,7 @@ impl StorageInner {
     // Sorted set (zset) operations
 
     /// Add members with scores to sorted set. Returns number of new members added.
-    pub fn zadd(&mut self, db: u64, key: &[u8], members: &[(Score, Vec<u8>)]) -> Result<usize, &'static str> {
+    pub fn zadd(&mut self, db: u64, key: &Bytes, members: &[(Score, &Bytes)]) -> Result<usize, &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -878,7 +958,7 @@ impl StorageInner {
 
         // Get or create the zset
         let zset = db_map
-            .entry(key.to_vec())
+            .entry(key.clone())
             .or_insert_with(|| StorageValue::ZSet(ZSet::new()));
 
         let zset = match zset {
@@ -888,23 +968,35 @@ impl StorageInner {
 
         let mut added = 0;
         for (score, member) in members {
-            // If member exists, remove old index entry
-            if let Some(old_score) = zset.entries.get(member) {
-                zset.index.remove(&(OrderedFloat::new(*old_score), member.clone()));
-            } else {
-                added += 1;
-            }
+            // Check if member exists - use direct HashMap lookup
+            if let Some(old_score) = zset.entries.get(*member) {
+                // Member exists - update score
+                zset.index.remove(&ZSetIndexKey::Key {
+                    score: *old_score,
+                    entry: (*member).clone(),
+                });
 
-            // Add new entries
-            zset.entries.insert(member.clone(), *score);
-            zset.index.insert((OrderedFloat::new(*score), member.clone()));
+                zset.entries.insert((*member).clone(), *score);
+                zset.index.insert(ZSetIndexKey::Key {
+                    score: *score,
+                    entry: (*member).clone(),
+                });
+            } else {
+                // New member
+                added += 1;
+                zset.entries.insert((*member).clone(), *score);
+                zset.index.insert(ZSetIndexKey::Key {
+                    score: *score,
+                    entry: (*member).clone(),
+                });
+            }
         }
 
         Ok(added)
     }
 
     /// Remove members from sorted set. Returns number of members removed.
-    pub fn zrem(&mut self, db: u64, key: &[u8], members: &[Vec<u8>]) -> Result<usize, &'static str> {
+    pub fn zrem(&mut self, db: u64, key: &Bytes, members: &[&Bytes]) -> Result<usize, &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(0);
         };
@@ -920,8 +1012,12 @@ impl StorageInner {
 
         let mut removed = 0;
         for member in members {
-            if let Some(score) = zset.entries.remove(member) {
-                zset.index.remove(&(OrderedFloat::new(score), member.clone()));
+            // Use direct HashMap removal
+            if let Some(score) = zset.entries.remove(*member) {
+                zset.index.remove(&ZSetIndexKey::Key {
+                    score,
+                    entry: (*member).clone(),
+                });
                 removed += 1;
             }
         }
@@ -935,7 +1031,7 @@ impl StorageInner {
     }
 
     /// Get the score of a member in sorted set.
-    pub fn zscore(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<Score>, &'static str> {
+    pub fn zscore(&self, db: u64, key: &Bytes, member: &Bytes) -> Result<Option<Score>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::ZSet(zset)) => Ok(zset.entries.get(member).copied()),
             Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
@@ -944,7 +1040,7 @@ impl StorageInner {
     }
 
     /// Get the cardinality (number of members) of sorted set.
-    pub fn zcard(&self, db: u64, key: &[u8]) -> Result<usize, &'static str> {
+    pub fn zcard(&self, db: u64, key: &Bytes) -> Result<usize, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::ZSet(zset)) => Ok(zset.len()),
             Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
@@ -954,7 +1050,7 @@ impl StorageInner {
 
     /// Get range of members by index (rank). Supports negative indices.
     /// Returns list of (member, score) tuples.
-    pub fn zrange(&self, db: u64, key: &[u8], start: i64, stop: i64, with_scores: bool) -> Result<Vec<(Vec<u8>, Option<Score>)>, &'static str> {
+    pub fn zrange(&self, db: u64, key: &Bytes, start: i64, stop: i64, with_scores: bool) -> Result<Vec<(Bytes, Option<Score>)>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::ZSet(zset)) => {
                 let len = zset.len() as i64;
@@ -981,14 +1077,18 @@ impl StorageInner {
                 }
 
                 // Use indexset's efficient range_idx() method for O(log n) range access
-                let result: Vec<(Vec<u8>, Option<Score>)> = zset
+                let result: Vec<(Bytes, Option<Score>)> = zset
                     .index
                     .range_idx(start_pos..=stop_pos)
-                    .map(|(score, member)| {
-                        if with_scores {
-                            (member.clone(), Some(score.get()))
+                    .filter_map(|key| {
+                        if let ZSetIndexKey::Key { score, entry } = key {
+                            if with_scores {
+                                Some((entry.clone(), Some(*score)))
+                            } else {
+                                Some((entry.clone(), None))
+                            }
                         } else {
-                            (member.clone(), None)
+                            None
                         }
                     })
                     .collect();
@@ -1001,20 +1101,26 @@ impl StorageInner {
     }
 
     /// Get range of members by score. Returns list of (member, score) tuples.
-    pub fn zrangebyscore(&self, db: u64, key: &[u8], min: Score, max: Score, with_scores: bool) -> Result<Vec<(Vec<u8>, Option<Score>)>, &'static str> {
+    pub fn zrangebyscore(&self, db: u64, key: &Bytes, min: Score, max: Score, with_scores: bool) -> Result<Vec<(Bytes, Option<Score>)>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::ZSet(zset)) => {
-                let min_ord = OrderedFloat::new(min);
-                let max_ord = OrderedFloat::new(max);
-                let result: Vec<(Vec<u8>, Option<Score>)> = zset
+                let min_key = ZSetIndexKey::MinScoreKey(min);
+                let max_key = ZSetIndexKey::MaxScoreKey(max);
+
+                let result: Vec<(Bytes, Option<Score>)> = zset
                     .index
                     .iter()
-                    .filter(|(score, _)| *score >= min_ord && *score <= max_ord)
-                    .map(|(score, member)| {
-                        if with_scores {
-                            (member.clone(), Some(score.get()))
+                    .skip_while(|key| *key < &min_key)
+                    .take_while(|key| *key <= &max_key)
+                    .filter_map(|key| {
+                        if let ZSetIndexKey::Key { score, entry } = key {
+                            if with_scores {
+                                Some((entry.clone(), Some(*score)))
+                            } else {
+                                Some((entry.clone(), None))
+                            }
                         } else {
-                            (member.clone(), None)
+                            None
                         }
                     })
                     .collect();
@@ -1027,16 +1133,19 @@ impl StorageInner {
     }
 
     /// Get the rank (index) of a member in sorted set (0-based, ascending order).
-    pub fn zrank(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<usize>, &'static str> {
+    pub fn zrank(&self, db: u64, key: &Bytes, member: &Bytes) -> Result<Option<usize>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::ZSet(zset)) => {
-                // Get the score for this member
+                // Use direct HashMap lookup for score
                 let Some(score) = zset.entries.get(member) else {
                     return Ok(None);
                 };
 
                 // Use indexset's efficient rank() method - O(log n) instead of O(n)
-                let rank = zset.index.rank(&(OrderedFloat::new(*score), member.to_vec()));
+                let rank = zset.index.rank(&ZSetIndexKey::Key {
+                    score: *score,
+                    entry: member.clone(),
+                });
 
                 Ok(Some(rank))
             }
@@ -1046,17 +1155,20 @@ impl StorageInner {
     }
 
     /// Get the reverse rank (index from highest to lowest) of a member.
-    pub fn zrevrank(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<usize>, &'static str> {
+    pub fn zrevrank(&self, db: u64, key: &Bytes, member: &Bytes) -> Result<Option<usize>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::ZSet(zset)) => {
-                // Get the score for this member
+                // Use direct HashMap lookup for score
                 let Some(score) = zset.entries.get(member) else {
                     return Ok(None);
                 };
 
                 // Use indexset's efficient rank() method, then convert to reverse rank
                 // Reverse rank = (total_count - 1) - rank
-                let rank = zset.index.rank(&(OrderedFloat::new(*score), member.to_vec()));
+                let rank = zset.index.rank(&ZSetIndexKey::Key {
+                    score: *score,
+                    entry: member.clone(),
+                });
                 let rev_rank = zset.len() - 1 - rank;
 
                 Ok(Some(rev_rank))
@@ -1067,15 +1179,18 @@ impl StorageInner {
     }
 
     /// Count members in sorted set with scores between min and max (inclusive).
-    pub fn zcount(&self, db: u64, key: &[u8], min: Score, max: Score) -> Result<usize, &'static str> {
+    pub fn zcount(&self, db: u64, key: &Bytes, min: Score, max: Score) -> Result<usize, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::ZSet(zset)) => {
-                let min_ord = OrderedFloat::new(min);
-                let max_ord = OrderedFloat::new(max);
+                let min_key = ZSetIndexKey::MinScoreKey(min);
+                let max_key = ZSetIndexKey::MaxScoreKey(max);
+
                 let count = zset
                     .index
                     .iter()
-                    .filter(|(score, _)| *score >= min_ord && *score <= max_ord)
+                    .skip_while(|key| *key < &min_key)
+                    .take_while(|key| *key <= &max_key)
+                    .filter(|key| matches!(key, ZSetIndexKey::Key { .. }))
                     .count();
                 Ok(count)
             }
@@ -1085,7 +1200,7 @@ impl StorageInner {
     }
 
     /// Increment the score of a member by delta. Creates member if it doesn't exist.
-    pub fn zincrby(&mut self, db: u64, key: &[u8], delta: Score, member: &[u8]) -> Result<Score, &'static str> {
+    pub fn zincrby(&mut self, db: u64, key: &Bytes, delta: Score, member: &Bytes) -> Result<Score, &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -1097,7 +1212,7 @@ impl StorageInner {
 
         // Get or create the zset
         let zset = db_map
-            .entry(key.to_vec())
+            .entry(key.clone())
             .or_insert_with(|| StorageValue::ZSet(ZSet::new()));
 
         let zset = match zset {
@@ -1105,18 +1220,24 @@ impl StorageInner {
             _ => unreachable!(),
         };
 
-        // Get current score or default to 0.0
+        // Use direct HashMap lookup for old score
         let old_score = zset.entries.get(member).copied().unwrap_or(0.0);
         let new_score = old_score + delta;
 
-        // Remove old index entry if exists
-        if zset.entries.contains_key(member) {
-            zset.index.remove(&(OrderedFloat::new(old_score), member.to_vec()));
+        // Remove old index entry if member existed
+        if old_score != 0.0 || zset.entries.contains_key(member) {
+            zset.index.remove(&ZSetIndexKey::Key {
+                score: old_score,
+                entry: member.clone(),
+            });
         }
 
         // Add new entries
-        zset.entries.insert(member.to_vec(), new_score);
-        zset.index.insert((OrderedFloat::new(new_score), member.to_vec()));
+        zset.entries.insert(member.clone(), new_score);
+        zset.index.insert(ZSetIndexKey::Key {
+            score: new_score,
+            entry: member.clone(),
+        });
 
         Ok(new_score)
     }
