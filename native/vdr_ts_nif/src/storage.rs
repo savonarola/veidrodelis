@@ -86,16 +86,16 @@ enum ZSetIndexKeyData {
 }
 
 #[self_referencing]
-struct ZSetIndexKeyN {
+struct ZSetIndexKey {
     data: ZSetIndexKeyData,
     #[borrows(data)]
     #[covariant]
     ref_view: ZSetIndexKeyRef<'this>,
 }
 
-impl ZSetIndexKeyN {
+impl ZSetIndexKey {
     fn create(score: Score, data: &[u8]) -> Self {
-        ZSetIndexKeyNBuilder {
+        ZSetIndexKeyBuilder {
             data: ZSetIndexKeyData::Key { score: score, entry: Bytes::new(data)},
             ref_view_builder: |data: &ZSetIndexKeyData| match data {
                 ZSetIndexKeyData::Key { score, entry } => ZSetIndexKeyRef::Key { score: *score, entry: entry.borrow() },
@@ -106,7 +106,7 @@ impl ZSetIndexKeyN {
     }
 
     fn min_score_key(score: Score) -> Self {
-        ZSetIndexKeyNBuilder {
+        ZSetIndexKeyBuilder {
             data: ZSetIndexKeyData::MinScoreKey(score),
             ref_view_builder: |data: &ZSetIndexKeyData| match data {
                 ZSetIndexKeyData::MinScoreKey(score) => ZSetIndexKeyRef::MinScoreKey(*score),
@@ -117,7 +117,7 @@ impl ZSetIndexKeyN {
     }
 
     fn max_score_key(score: Score) -> Self {
-        ZSetIndexKeyNBuilder {
+        ZSetIndexKeyBuilder {
             data: ZSetIndexKeyData::MaxScoreKey(score),
             ref_view_builder: |data: &ZSetIndexKeyData| match data {
                 ZSetIndexKeyData::MaxScoreKey(score) => ZSetIndexKeyRef::MaxScoreKey(*score),
@@ -138,7 +138,7 @@ impl ZSetIndexKeyN {
     }
 }
 
-impl Borrow<ZSetIndexKeyRef<'static>> for ZSetIndexKeyN {
+impl Borrow<ZSetIndexKeyRef<'static>> for ZSetIndexKey {
     fn borrow(&self) -> &ZSetIndexKeyRef<'static> {
         unsafe { std::mem::transmute(self.borrow_ref_view()) }
     }
@@ -150,28 +150,28 @@ impl<'a> ZSetIndexKeyRef<'a> {
     }
 }
 
-impl ZSetIndexKeyN {
+impl ZSetIndexKey {
     fn as_ref<'a>(&'a self) -> &'a ZSetIndexKeyRef<'a> {
         self.borrow_ref_view()
     }
 }
 
 // Implement ordering traits by delegating to the contained ZSetIndexKeyRef
-impl PartialEq for ZSetIndexKeyN {
+impl PartialEq for ZSetIndexKey {
     fn eq(&self, other: &Self) -> bool {
         self.as_ref() == other.as_ref()
     }
 }
 
-impl Eq for ZSetIndexKeyN {}
+impl Eq for ZSetIndexKey {}
 
-impl PartialOrd for ZSetIndexKeyN {
+impl PartialOrd for ZSetIndexKey {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
 }
 
-impl Ord for ZSetIndexKeyN {
+impl Ord for ZSetIndexKey {
     fn cmp(&self, other: &Self) -> Ordering {
         self.as_ref().cmp(other.as_ref())
     }
@@ -266,8 +266,8 @@ impl<'a> Ord for ZSetIndexKeyRef<'a> {
 pub struct ZSet {
     /// Sorted index for range queries and sorted iteration
     /// Uses indexset::BTreeSet for efficient rank and range operations
-    /// Ordered by ZSetIndexKeyN which contains ZSetIndexKeyRef for zero-copy lookups
-    index: BTreeSet<ZSetIndexKeyN>,
+    /// Ordered by ZSetIndexKey which contains ZSetIndexKeyRef for zero-copy lookups
+    index: BTreeSet<ZSetIndexKey>,
     /// Member to score mapping for quick lookups
     /// Uses HashMap for O(1) average case lookups
     /// Keys are Bytes which implement Borrow<[u8]> for zero-copy lookups
@@ -1109,14 +1109,14 @@ impl StorageInner {
                 zset.index.remove(&lookup_key);
 
                 zset.entries.insert(Bytes::new(member), *score);
-                // Use ZSetIndexKeyN for insertion
-                zset.index.insert(ZSetIndexKeyN::create(*score, member));
+                // Use ZSetIndexKey for insertion
+                zset.index.insert(ZSetIndexKey::create(*score, member));
             } else {
                 // New member
                 added += 1;
                 zset.entries.insert(Bytes::new(member), *score);
-                // Use ZSetIndexKeyN for insertion
-                zset.index.insert(ZSetIndexKeyN::create(*score, member));
+                // Use ZSetIndexKey for insertion
+                zset.index.insert(ZSetIndexKey::create(*score, member));
             }
         }
 
@@ -1232,14 +1232,14 @@ impl StorageInner {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::ZSet(zset)) => {
                 // Create boundary keys for efficient range query
-                let min_key = ZSetIndexKeyN::min_score_key(min);
-                let max_key = ZSetIndexKeyN::max_score_key(max);
+                let min_key = ZSetIndexKey::min_score_key(min);
+                let max_key = ZSetIndexKey::max_score_key(max);
 
                 // Use range() for O(log n) seek + O(k) iteration, avoiding full tree scan
                 // Explicitly specify the query type to resolve type inference
                 let result: Vec<(Bytes, Option<Score>)> = zset
                     .index
-                    .range::<_, ZSetIndexKeyN>((Bound::Included(&min_key), Bound::Included(&max_key)))
+                    .range::<_, ZSetIndexKey>((Bound::Included(&min_key), Bound::Included(&max_key)))
                     .filter_map(|key| {
                         // Clone the Arc-wrapped Bytes directly instead of reconstructing
                         key.get_entry_and_score().map(|(entry, score)| {
@@ -1309,8 +1309,8 @@ impl StorageInner {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::ZSet(zset)) => {
                 // Create boundary keys for the score range
-                let min_key = ZSetIndexKeyN::min_score_key(min);
-                let max_key = ZSetIndexKeyN::max_score_key(max);
+                let min_key = ZSetIndexKey::min_score_key(min);
+                let max_key = ZSetIndexKey::max_score_key(max);
 
                 // Get ranks: min_rank is where first element >= min starts,
                 // max_rank is where last element <= max ends
@@ -1364,8 +1364,8 @@ impl StorageInner {
 
         // Add new entries
         zset.entries.insert(Bytes::new(member), new_score);
-        // Use ZSetIndexKeyN for insertion
-        zset.index.insert(ZSetIndexKeyN::create(new_score, member));
+        // Use ZSetIndexKey for insertion
+        zset.index.insert(ZSetIndexKey::create(new_score, member));
 
         Ok(new_score)
     }
