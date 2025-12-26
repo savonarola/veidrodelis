@@ -284,4 +284,183 @@ defmodule Vdr.TSTest do
       assert ^value = TS.get(storage, 0, key)
     end
   end
+
+  describe "zcount/5" do
+    test "returns 0 for empty zset" do
+      storage = TS.create()
+      assert {:ok, 0} == TS.zcount(storage, 0, "nonexistent", 0.0, 10.0)
+    end
+
+    test "returns 0 when no elements in range" do
+      storage = TS.create()
+      {:ok, 3} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+
+      # Range before all elements
+      assert {:ok, 0} == TS.zcount(storage, 0, "myzset", -10.0, 0.5)
+
+      # Range after all elements
+      assert {:ok, 0} == TS.zcount(storage, 0, "myzset", 5.0, 10.0)
+
+      # Range between elements
+      assert {:ok, 0} == TS.zcount(storage, 0, "myzset", 1.5, 1.9)
+    end
+
+    test "counts all elements when range covers all" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}])
+
+      # Range that covers all elements
+      assert {:ok, 5} == TS.zcount(storage, 0, "myzset", 0.0, 10.0)
+      assert {:ok, 5} == TS.zcount(storage, 0, "myzset", 1.0, 5.0)
+    end
+
+    test "min boundary is inclusive" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}])
+
+      # Min boundary exactly at element - should include it
+      assert {:ok, 4} == TS.zcount(storage, 0, "myzset", 2.0, 10.0)
+      assert {:ok, 5} == TS.zcount(storage, 0, "myzset", 1.0, 10.0)
+      assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 5.0, 10.0)
+    end
+
+    test "max boundary is inclusive" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}])
+
+      # Max boundary exactly at element - should include it
+      assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 0.0, 3.0)
+      assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 0.0, 1.0)
+      assert {:ok, 5} == TS.zcount(storage, 0, "myzset", 0.0, 5.0)
+    end
+
+    test "both boundaries are inclusive" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}])
+
+      # Both boundaries exactly at elements - should include both
+      assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 2.0, 4.0)
+      assert {:ok, 5} == TS.zcount(storage, 0, "myzset", 1.0, 5.0)
+      assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 3.0, 3.0)
+    end
+
+    test "single element exact match" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{2.5, "x"}])
+
+      # Exact match for single element
+      assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 2.5, 2.5)
+
+      # Range that includes the element
+      assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 2.0, 3.0)
+
+      # Range that excludes the element
+      assert {:ok, 0} == TS.zcount(storage, 0, "myzset", 3.0, 4.0)
+      assert {:ok, 0} == TS.zcount(storage, 0, "myzset", 1.0, 2.0)
+    end
+
+    test "multiple elements with same score" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b1"}, {2.0, "b2"}, {2.0, "b3"}, {3.0, "c"}])
+
+      # Range that includes all elements with score 2.0
+      assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 2.0, 2.0)
+
+      # Range that includes elements with score 2.0 and others
+      assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 1.5, 2.5)
+      assert {:ok, 4} == TS.zcount(storage, 0, "myzset", 2.0, 3.0)
+      assert {:ok, 4} == TS.zcount(storage, 0, "myzset", 1.0, 2.0)
+    end
+
+    test "negative and positive scores" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{-5.0, "a"}, {-2.0, "b"}, {0.0, "c"}, {2.0, "d"}, {5.0, "e"}])
+
+      # Range spanning negative to positive
+      assert {:ok, 3} == TS.zcount(storage, 0, "myzset", -3.0, 3.0)
+
+      # Only negative scores
+      assert {:ok, 2} == TS.zcount(storage, 0, "myzset", -10.0, -1.0)
+
+      # Only positive scores
+      assert {:ok, 2} == TS.zcount(storage, 0, "myzset", 1.0, 10.0)
+
+      # Including zero
+      assert {:ok, 1} == TS.zcount(storage, 0, "myzset", -1.0, 1.0)
+      assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 0.0, 0.0)
+    end
+
+    test "fractional boundaries" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}])
+
+      # Boundaries between integer scores
+      assert {:ok, 2} == TS.zcount(storage, 0, "myzset", 1.5, 3.5)
+      assert {:ok, 2} == TS.zcount(storage, 0, "myzset", 0.5, 2.5)
+      assert {:ok, 2} == TS.zcount(storage, 0, "myzset", 2.1, 4.9)
+    end
+
+    test "inverted range returns 0" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+
+      # Min > Max should return 0
+      assert {:ok, 0} == TS.zcount(storage, 0, "myzset", 3.0, 1.0)
+    end
+
+    test "large dataset" do
+      storage = TS.create()
+
+      # Create 1000 members with scores from 0 to 999
+      members = for i <- 0..999, do: {i * 1.0, "member#{i}"}
+      {:ok, _} = TS.zadd(storage, 0, "large_zset", members)
+
+      # Test various ranges
+      assert {:ok, 1000} == TS.zcount(storage, 0, "large_zset", 0.0, 999.0)
+      assert {:ok, 100} == TS.zcount(storage, 0, "large_zset", 100.0, 199.0)
+      assert {:ok, 1} == TS.zcount(storage, 0, "large_zset", 500.0, 500.0)
+      assert {:ok, 500} == TS.zcount(storage, 0, "large_zset", 250.0, 749.0)
+    end
+
+    test "returns error for wrong type" do
+      storage = TS.create()
+      :ok = TS.set(storage, 0, "mystring", "value")
+
+      assert {:error, :wrong_type} == TS.zcount(storage, 0, "mystring", 0.0, 10.0)
+    end
+
+    test "handles boundary precision with floats" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.1, "a"}, {1.5, "b"}, {1.9, "c"}, {2.0, "d"}])
+
+      # Test precise boundaries
+      assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 1.1, 1.9)
+      assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 1.5, 2.0)
+      assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 1.9, 1.9)
+    end
+
+    test "empty range at exact score" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {3.0, "b"}])
+
+      # Range at a score where no element exists
+      assert {:ok, 0} == TS.zcount(storage, 0, "myzset", 2.0, 2.0)
+    end
+
+    test "very large score values" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0e10, "a"}, {2.0e10, "b"}, {3.0e10, "c"}])
+
+      assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 1.5e10, 2.5e10)
+      assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 0.0, 1.0e11)
+    end
+
+    test "very small score differences" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{0.001, "a"}, {0.002, "b"}, {0.003, "c"}])
+
+      assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 0.0015, 0.0025)
+      assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 0.001, 0.001)
+    end
+  end
 end

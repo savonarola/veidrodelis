@@ -95,6 +95,22 @@ impl ZSetIndexKeyN {
         }
         .build()
     }
+
+    fn min_score_key(score: Score) -> Self {
+        ZSetIndexKeyNBuilder {
+            data: ZSetIndexKeyData { score, entry: Bytes::new(&[]) },
+            ref_view_builder: |data: &ZSetIndexKeyData| ZSetIndexKeyRef::MinScoreKey(data.score),
+        }
+        .build()
+    }
+
+    fn max_score_key(score: Score) -> Self {
+        ZSetIndexKeyNBuilder {
+            data: ZSetIndexKeyData { score, entry: Bytes::new(&[]) },
+            ref_view_builder: |data: &ZSetIndexKeyData| ZSetIndexKeyRef::MaxScoreKey(data.score),
+        }
+        .build()
+    }
 }
 
 impl Borrow<ZSetIndexKeyRef<'static>> for ZSetIndexKeyN {
@@ -1264,20 +1280,26 @@ impl StorageInner {
     }
 
     /// Count members in sorted set with scores between min and max (inclusive).
+    /// Optimized to use rank difference instead of iteration: O(log n) instead of O(n).
     pub fn zcount(&self, db: u64, key: &[u8], min: Score, max: Score) -> Result<usize, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::ZSet(zset)) => {
-                let min_key = ZSetIndexKeyRef::MinScoreKey(min);
-                let max_key = ZSetIndexKeyRef::MaxScoreKey(max);
+                // Create boundary keys for the score range
+                let min_key = ZSetIndexKeyN::min_score_key(min);
+                let max_key = ZSetIndexKeyN::max_score_key(max);
 
-                let count = zset
-                    .index
-                    .iter()
-                    .skip_while(|key| key.as_ref() < &min_key)
-                    .take_while(|key| key.as_ref() <= &max_key)
-                    .filter(|key| matches!(key.as_ref(), ZSetIndexKeyRef::Key { .. }))
-                    .count();
-                Ok(count)
+                // Get ranks: min_rank is where first element >= min starts,
+                // max_rank is where last element <= max ends
+                let min_rank = zset.index.rank(&min_key);
+                let max_rank = zset.index.rank(&max_key);
+
+                // Count is the difference of ranks
+                // Handle inverted range (min > max) by returning 0
+                if max_rank < min_rank {
+                    Ok(0)
+                } else {
+                    Ok(max_rank - min_rank)
+                }
             }
             Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
             None => Ok(0),
