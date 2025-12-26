@@ -6,6 +6,7 @@ use indexset::BTreeSet;
 use ordered_float::OrderedFloat;
 use ouroboros::self_referencing;
 use std::borrow::Borrow;
+use std::ops::Bound;
 
 
 pub type Score = OrderedFloat<f64>;
@@ -74,9 +75,14 @@ enum ZSetIndexKeyRef<'a> {
     Key { score: Score, entry: &'a [u8] },
 }
 
-struct ZSetIndexKeyData {
-    score: Score,
-    entry: Bytes,
+enum ZSetIndexKeyData {
+    #[allow(dead_code)]
+    MinKey,
+    #[allow(dead_code)]
+    MaxKey,
+    MinScoreKey(Score),
+    MaxScoreKey(Score),
+    Key{ score: Score, entry: Bytes },
 }
 
 #[self_referencing]
@@ -90,26 +96,45 @@ struct ZSetIndexKeyN {
 impl ZSetIndexKeyN {
     fn create(score: Score, data: &[u8]) -> Self {
         ZSetIndexKeyNBuilder {
-            data: ZSetIndexKeyData{ score: score, entry: Bytes::new(data)},
-            ref_view_builder: |data: &ZSetIndexKeyData| ZSetIndexKeyRef::Key { score: data.score, entry: data.entry.borrow() },
+            data: ZSetIndexKeyData::Key { score: score, entry: Bytes::new(data)},
+            ref_view_builder: |data: &ZSetIndexKeyData| match data {
+                ZSetIndexKeyData::Key { score, entry } => ZSetIndexKeyRef::Key { score: *score, entry: entry.borrow() },
+                _ => unreachable!(),
+            },
         }
         .build()
     }
 
     fn min_score_key(score: Score) -> Self {
         ZSetIndexKeyNBuilder {
-            data: ZSetIndexKeyData { score, entry: Bytes::new(&[]) },
-            ref_view_builder: |data: &ZSetIndexKeyData| ZSetIndexKeyRef::MinScoreKey(data.score),
+            data: ZSetIndexKeyData::MinScoreKey(score),
+            ref_view_builder: |data: &ZSetIndexKeyData| match data {
+                ZSetIndexKeyData::MinScoreKey(score) => ZSetIndexKeyRef::MinScoreKey(*score),
+                _ => unreachable!(),
+            },
         }
         .build()
     }
 
     fn max_score_key(score: Score) -> Self {
         ZSetIndexKeyNBuilder {
-            data: ZSetIndexKeyData { score, entry: Bytes::new(&[]) },
-            ref_view_builder: |data: &ZSetIndexKeyData| ZSetIndexKeyRef::MaxScoreKey(data.score),
+            data: ZSetIndexKeyData::MaxScoreKey(score),
+            ref_view_builder: |data: &ZSetIndexKeyData| match data {
+                ZSetIndexKeyData::MaxScoreKey(score) => ZSetIndexKeyRef::MaxScoreKey(*score),
+                _ => unreachable!(),
+            },
         }
         .build()
+    }
+
+    fn get_entry_and_score(&self) -> Option<(Bytes, Score)> {
+        self.with_data(|data| {
+            if let ZSetIndexKeyData::Key { score, entry } = data {
+                Some((entry.clone(), *score))
+            } else {
+                None
+            }
+        })
     }
 }
 
@@ -1183,16 +1208,14 @@ impl StorageInner {
                     .index
                     .range_idx(start_pos..=stop_pos)
                     .filter_map(|key| {
-                        // Access via as_ref() to get ZSetIndexKeyRef
-                        if let ZSetIndexKeyRef::Key { score, entry } = key.as_ref() {
+                        // Clone the Arc-wrapped Bytes directly instead of reconstructing
+                        key.get_entry_and_score().map(|(entry, score)| {
                             if with_scores {
-                                Some((Bytes::new(entry), Some(*score)))
+                                (entry, Some(score))
                             } else {
-                                Some((Bytes::new(entry), None))
+                                (entry, None)
                             }
-                        } else {
-                            None
-                        }
+                        })
                     })
                     .collect();
 
@@ -1204,27 +1227,28 @@ impl StorageInner {
     }
 
     /// Get range of members by score. Returns list of (member, score) tuples.
+    /// Optimized to use BTreeSet::range() for O(log n + k) instead of O(n) where k is result size.
     pub fn zrangebyscore(&self, db: u64, key: &[u8], min: Score, max: Score, with_scores: bool) -> Result<Vec<(Bytes, Option<Score>)>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::ZSet(zset)) => {
-                let min_key = ZSetIndexKeyRef::MinScoreKey(min);
-                let max_key = ZSetIndexKeyRef::MaxScoreKey(max);
+                // Create boundary keys for efficient range query
+                let min_key = ZSetIndexKeyN::min_score_key(min);
+                let max_key = ZSetIndexKeyN::max_score_key(max);
 
+                // Use range() for O(log n) seek + O(k) iteration, avoiding full tree scan
+                // Explicitly specify the query type to resolve type inference
                 let result: Vec<(Bytes, Option<Score>)> = zset
                     .index
-                    .iter()
-                    .skip_while(|key| key.as_ref() < &min_key)
-                    .take_while(|key| key.as_ref() <= &max_key)
+                    .range::<_, ZSetIndexKeyN>((Bound::Included(&min_key), Bound::Included(&max_key)))
                     .filter_map(|key| {
-                        if let ZSetIndexKeyRef::Key { score, entry } = key.as_ref() {
+                        // Clone the Arc-wrapped Bytes directly instead of reconstructing
+                        key.get_entry_and_score().map(|(entry, score)| {
                             if with_scores {
-                                Some((Bytes::new(entry), Some(*score)))
+                                (entry, Some(score))
                             } else {
-                                Some((Bytes::new(entry), None))
+                                (entry, None)
                             }
-                        } else {
-                            None
-                        }
+                        })
                     })
                     .collect();
 
