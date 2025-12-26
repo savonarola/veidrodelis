@@ -120,7 +120,13 @@ defmodule Vdr.TS do
       #=> <<0, 1, 2, 255, 254, 253>>
   """
   @spec get(reference(), non_neg_integer(), binary()) :: binary() | nil
-  def get(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+  def get(storage, db, key) do
+    [result] = commands(storage, [{db, :get, key}])
+    case result do
+      {:ok, value} -> value
+      {:error, _} -> nil
+    end
+  end
 
   @doc """
   Deletes a key from a specific database.
@@ -175,6 +181,61 @@ defmodule Vdr.TS do
   @spec destroy(reference()) :: :ok
   def destroy(_storage), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc """
+  Executes multiple commands atomically under a single mutex lock.
+
+  This function takes a list of command tuples and executes them all while
+  holding the storage mutex, making the entire batch atomic.
+
+  Each command tuple has the format: `{db, command_atom, ...args}`
+
+  Returns a list of results, one for each command.
+
+  ## Supported Commands
+
+  - `{db, :set, key, value}` - Set a string value
+  - `{db, :del, key}` - Delete a key
+  - `{db, :sadd, key, members}` - Add members to a set
+  - `{db, :srem, key, members}` - Remove members from a set
+  - `{db, :smove, source_key, dest_key, member}` - Move member between sets
+  - `{db, :sunionstore, dest_key, source_keys}` - Store union of sets
+  - `{db, :sinterstore, dest_key, source_keys}` - Store intersection of sets
+  - `{db, :sdiffstore, dest_key, source_keys}` - Store difference of sets
+  - `{db, :lpush, key, values}` - Push values to list head
+  - `{db, :rpush, key, values}` - Push values to list tail
+  - `{db, :lpop, key}` - Pop value from list head
+  - `{db, :rpop, key}` - Pop value from list tail
+  - `{db, :lset, key, index, value}` - Set list element at index
+  - `{db, :rpoplpush, source_key, dest_key}` - Pop from source and push to dest
+  - `{db, :hset, key, field, value}` - Set hash field
+  - `{db, :hmset, key, fields}` - Set multiple hash fields
+  - `{db, :hdel, key, fields}` - Delete hash fields
+  - `{db, :zadd, key, members}` - Add members to sorted set (members is `[{score, member}, ...]`)
+  - `{db, :zrem, key, members}` - Remove members from sorted set
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+
+      # Execute multiple commands atomically
+      results = Vdr.TS.commands(storage, [
+        {0, :sadd, "set1", ["a", "b"]},
+        {0, :sadd, "set2", ["c", "d"]},
+        {0, :set, "key1", "value1"}
+      ])
+      #=> [:ok, :ok, :ok]
+
+      # Mix different command types
+      results = Vdr.TS.commands(storage, [
+        {0, :zadd, "myzset", [{1.0, "one"}, {2.0, "two"}]},
+        {0, :hset, "myhash", "field1", "value1"},
+        {0, :del, "oldkey"}
+      ])
+      #=> [{:ok, 2}, :ok, :ok]
+  """
+  @spec commands(reference(), [tuple()]) :: [term()]
+  def commands(_storage, _commands), do: :erlang.nif_error(:nif_not_loaded)
+
   # Set operations
 
   @doc """
@@ -195,7 +256,10 @@ defmodule Vdr.TS do
   """
   @spec sadd(reference(), non_neg_integer(), binary(), [binary()]) ::
           :ok | {:error, :wrong_type}
-  def sadd(_storage, _db, _key, _members), do: :erlang.nif_error(:nif_not_loaded)
+  def sadd(storage, db, key, members) do
+    [result] = commands(storage, [{db, :sadd, key, members}])
+    result
+  end
 
   @doc """
   Removes one or more members from the set stored at key.
@@ -212,7 +276,10 @@ defmodule Vdr.TS do
   """
   @spec srem(reference(), non_neg_integer(), binary(), [binary()]) ::
           :ok | {:error, :wrong_type}
-  def srem(_storage, _db, _key, _members), do: :erlang.nif_error(:nif_not_loaded)
+  def srem(storage, db, key, members) do
+    [result] = commands(storage, [{db, :srem, key, members}])
+    result
+  end
 
   @doc """
   Moves a member from the source set to the destination set.
@@ -230,8 +297,10 @@ defmodule Vdr.TS do
   """
   @spec smove(reference(), non_neg_integer(), binary(), binary(), binary()) ::
           :ok | {:error, :wrong_type}
-  def smove(_storage, _db, _source_key, _dest_key, _member),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def smove(storage, db, source_key, dest_key, member) do
+    [result] = commands(storage, [{db, :smove, source_key, dest_key, member}])
+    result
+  end
 
   @doc """
   Stores the union of multiple sets in the destination key.
@@ -249,8 +318,10 @@ defmodule Vdr.TS do
   """
   @spec sunionstore(reference(), non_neg_integer(), binary(), [binary()]) ::
           :ok | {:error, :wrong_type}
-  def sunionstore(_storage, _db, _dest_key, _source_keys),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def sunionstore(storage, db, dest_key, source_keys) do
+    [result] = commands(storage, [{db, :sunionstore, dest_key, source_keys}])
+    result
+  end
 
   @doc """
   Stores the intersection of multiple sets in the destination key.
@@ -268,8 +339,10 @@ defmodule Vdr.TS do
   """
   @spec sinterstore(reference(), non_neg_integer(), binary(), [binary()]) ::
           :ok | {:error, :wrong_type}
-  def sinterstore(_storage, _db, _dest_key, _source_keys),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def sinterstore(storage, db, dest_key, source_keys) do
+    [result] = commands(storage, [{db, :sinterstore, dest_key, source_keys}])
+    result
+  end
 
   @doc """
   Stores the difference of sets in the destination key.
@@ -289,8 +362,10 @@ defmodule Vdr.TS do
   """
   @spec sdiffstore(reference(), non_neg_integer(), binary(), [binary()]) ::
           :ok | {:error, :wrong_type}
-  def sdiffstore(_storage, _db, _dest_key, _source_keys),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def sdiffstore(storage, db, dest_key, source_keys) do
+    [result] = commands(storage, [{db, :sdiffstore, dest_key, source_keys}])
+    result
+  end
 
   @doc """
   Returns all members of the set stored at key.
@@ -309,7 +384,10 @@ defmodule Vdr.TS do
   """
   @spec smembers(reference(), non_neg_integer(), binary()) ::
           {:ok, [binary()]} | {:error, :wrong_type}
-  def smembers(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+  def smembers(storage, db, key) do
+    [result] = commands(storage, [{db, :smembers, key}])
+    result
+  end
 
   @doc """
   Checks if a member exists in the set stored at key.
@@ -326,7 +404,10 @@ defmodule Vdr.TS do
   """
   @spec sismember(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, boolean()} | {:error, :wrong_type}
-  def sismember(_storage, _db, _key, _member), do: :erlang.nif_error(:nif_not_loaded)
+  def sismember(storage, db, key, member) do
+    [result] = commands(storage, [{db, :sismember, key, member}])
+    result
+  end
 
   @doc """
   Returns the cardinality (number of members) of the set stored at key.
@@ -344,7 +425,10 @@ defmodule Vdr.TS do
   """
   @spec scard(reference(), non_neg_integer(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
-  def scard(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+  def scard(storage, db, key) do
+    [result] = commands(storage, [{db, :scard, key}])
+    result
+  end
 
   # List operations
 
@@ -366,7 +450,10 @@ defmodule Vdr.TS do
   """
   @spec lpush(reference(), non_neg_integer(), binary(), [binary()]) ::
           :ok | {:error, :wrong_type}
-  def lpush(_storage, _db, _key, _values), do: :erlang.nif_error(:nif_not_loaded)
+  def lpush(storage, db, key, values) do
+    [result] = commands(storage, [{db, :lpush, key, values}])
+    result
+  end
 
   @doc """
   Pushes one or more values to the tail (right) of the list.
@@ -386,7 +473,10 @@ defmodule Vdr.TS do
   """
   @spec rpush(reference(), non_neg_integer(), binary(), [binary()]) ::
           :ok | {:error, :wrong_type}
-  def rpush(_storage, _db, _key, _values), do: :erlang.nif_error(:nif_not_loaded)
+  def rpush(storage, db, key, values) do
+    [result] = commands(storage, [{db, :rpush, key, values}])
+    result
+  end
 
   @doc """
   Removes and returns the first element from the head (left) of the list.
@@ -404,7 +494,10 @@ defmodule Vdr.TS do
   """
   @spec lpop(reference(), non_neg_integer(), binary()) ::
           {:ok, binary() | nil} | {:error, :wrong_type}
-  def lpop(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+  def lpop(storage, db, key) do
+    [result] = commands(storage, [{db, :lpop, key}])
+    result
+  end
 
   @doc """
   Removes and returns the last element from the tail (right) of the list.
@@ -422,7 +515,10 @@ defmodule Vdr.TS do
   """
   @spec rpop(reference(), non_neg_integer(), binary()) ::
           {:ok, binary() | nil} | {:error, :wrong_type}
-  def rpop(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+  def rpop(storage, db, key) do
+    [result] = commands(storage, [{db, :rpop, key}])
+    result
+  end
 
   @doc """
   Returns the length of the list stored at key.
@@ -440,7 +536,10 @@ defmodule Vdr.TS do
   """
   @spec llen(reference(), non_neg_integer(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
-  def llen(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+  def llen(storage, db, key) do
+    [result] = commands(storage, [{db, :llen, key}])
+    result
+  end
 
   @doc """
   Returns a range of elements from the list stored at key.
@@ -460,7 +559,10 @@ defmodule Vdr.TS do
   """
   @spec lrange(reference(), non_neg_integer(), binary(), integer(), integer()) ::
           {:ok, [binary()]} | {:error, :wrong_type}
-  def lrange(_storage, _db, _key, _start, _stop), do: :erlang.nif_error(:nif_not_loaded)
+  def lrange(storage, db, key, start, stop) do
+    [result] = commands(storage, [{db, :lrange, key, start, stop}])
+    result
+  end
 
   @doc """
   Sets the list element at index to value.
@@ -477,7 +579,10 @@ defmodule Vdr.TS do
   """
   @spec lset(reference(), non_neg_integer(), binary(), integer(), binary()) ::
           :ok | {:error, :wrong_type}
-  def lset(_storage, _db, _key, _index, _value), do: :erlang.nif_error(:nif_not_loaded)
+  def lset(storage, db, key, index, value) do
+    [result] = commands(storage, [{db, :lset, key, index, value}])
+    result
+  end
 
   @doc """
   Atomically pops the last element from source list and pushes it to the head of destination list.
@@ -496,8 +601,10 @@ defmodule Vdr.TS do
   """
   @spec rpoplpush(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, binary() | nil} | {:error, :wrong_type}
-  def rpoplpush(_storage, _db, _source_key, _dest_key),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def rpoplpush(storage, db, source_key, dest_key) do
+    [result] = commands(storage, [{db, :rpoplpush, source_key, dest_key}])
+    result
+  end
 
   # Hash operations
 
@@ -519,7 +626,10 @@ defmodule Vdr.TS do
   """
   @spec hset(reference(), non_neg_integer(), binary(), binary(), binary()) ::
           :ok | {:error, :wrong_type}
-  def hset(_storage, _db, _key, _field, _value), do: :erlang.nif_error(:nif_not_loaded)
+  def hset(storage, db, key, field, value) do
+    [result] = commands(storage, [{db, :hset, key, field, value}])
+    result
+  end
 
   @doc """
   Sets multiple fields in the hash stored at key.
@@ -534,7 +644,10 @@ defmodule Vdr.TS do
   """
   @spec hmset(reference(), non_neg_integer(), binary(), [{binary(), binary()}]) ::
           :ok | {:error, :wrong_type}
-  def hmset(_storage, _db, _key, _fields), do: :erlang.nif_error(:nif_not_loaded)
+  def hmset(storage, db, key, fields) do
+    [result] = commands(storage, [{db, :hmset, key, fields}])
+    result
+  end
 
   @doc """
   Gets the value of a field in the hash stored at key.
@@ -551,7 +664,10 @@ defmodule Vdr.TS do
   """
   @spec hget(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, binary() | nil} | {:error, :wrong_type}
-  def hget(_storage, _db, _key, _field), do: :erlang.nif_error(:nif_not_loaded)
+  def hget(storage, db, key, field) do
+    [result] = commands(storage, [{db, :hget, key, field}])
+    result
+  end
 
   @doc """
   Gets the values of multiple fields in the hash stored at key.
@@ -567,7 +683,10 @@ defmodule Vdr.TS do
   """
   @spec hmget(reference(), non_neg_integer(), binary(), [binary()]) ::
           {:ok, [binary() | nil]} | {:error, :wrong_type}
-  def hmget(_storage, _db, _key, _fields), do: :erlang.nif_error(:nif_not_loaded)
+  def hmget(storage, db, key, fields) do
+    [result] = commands(storage, [{db, :hmget, key, fields}])
+    result
+  end
 
   @doc """
   Gets all field-value pairs in the hash stored at key.
@@ -584,7 +703,10 @@ defmodule Vdr.TS do
   """
   @spec hgetall(reference(), non_neg_integer(), binary()) ::
           {:ok, [{binary(), binary()}]} | {:error, :wrong_type}
-  def hgetall(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+  def hgetall(storage, db, key) do
+    [result] = commands(storage, [{db, :hgetall, key}])
+    result
+  end
 
   @doc """
   Gets all field names in the hash stored at key.
@@ -600,7 +722,10 @@ defmodule Vdr.TS do
   """
   @spec hkeys(reference(), non_neg_integer(), binary()) ::
           {:ok, [binary()]} | {:error, :wrong_type}
-  def hkeys(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+  def hkeys(storage, db, key) do
+    [result] = commands(storage, [{db, :hkeys, key}])
+    result
+  end
 
   @doc """
   Gets all values in the hash stored at key.
@@ -617,7 +742,10 @@ defmodule Vdr.TS do
   """
   @spec hvals(reference(), non_neg_integer(), binary()) ::
           {:ok, [binary()]} | {:error, :wrong_type}
-  def hvals(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+  def hvals(storage, db, key) do
+    [result] = commands(storage, [{db, :hvals, key}])
+    result
+  end
 
   @doc """
   Gets the number of fields in the hash stored at key.
@@ -634,7 +762,10 @@ defmodule Vdr.TS do
   """
   @spec hlen(reference(), non_neg_integer(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
-  def hlen(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+  def hlen(storage, db, key) do
+    [result] = commands(storage, [{db, :hlen, key}])
+    result
+  end
 
   @doc """
   Checks if field exists in the hash stored at key.
@@ -651,7 +782,10 @@ defmodule Vdr.TS do
   """
   @spec hexists(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, boolean()} | {:error, :wrong_type}
-  def hexists(_storage, _db, _key, _field), do: :erlang.nif_error(:nif_not_loaded)
+  def hexists(storage, db, key, field) do
+    [result] = commands(storage, [{db, :hexists, key, field}])
+    result
+  end
 
   @doc """
   Deletes one or more fields from the hash stored at key.
@@ -668,7 +802,10 @@ defmodule Vdr.TS do
   """
   @spec hdel(reference(), non_neg_integer(), binary(), [binary()]) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
-  def hdel(_storage, _db, _key, _fields), do: :erlang.nif_error(:nif_not_loaded)
+  def hdel(storage, db, key, fields) do
+    [result] = commands(storage, [{db, :hdel, key, fields}])
+    result
+  end
 
   # Sorted set (zset) operations
 
@@ -686,7 +823,10 @@ defmodule Vdr.TS do
   """
   @spec zadd(reference(), non_neg_integer(), binary(), [{float(), binary()}]) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
-  def zadd(_storage, _db, _key, _members), do: :erlang.nif_error(:nif_not_loaded)
+  def zadd(storage, db, key, members) do
+    [result] = commands(storage, [{db, :zadd, key, members}])
+    result
+  end
 
   @doc """
   Removes members from the sorted set stored at key.
@@ -702,7 +842,10 @@ defmodule Vdr.TS do
   """
   @spec zrem(reference(), non_neg_integer(), binary(), [binary()]) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
-  def zrem(_storage, _db, _key, _members), do: :erlang.nif_error(:nif_not_loaded)
+  def zrem(storage, db, key, members) do
+    [result] = commands(storage, [{db, :zrem, key, members}])
+    result
+  end
 
   @doc """
   Gets the score of a member in the sorted set stored at key.
@@ -719,7 +862,10 @@ defmodule Vdr.TS do
   """
   @spec zscore(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, float() | nil} | {:error, :wrong_type}
-  def zscore(_storage, _db, _key, _member), do: :erlang.nif_error(:nif_not_loaded)
+  def zscore(storage, db, key, member) do
+    [result] = commands(storage, [{db, :zscore, key, member}])
+    result
+  end
 
   @doc """
   Gets the cardinality (number of members) of the sorted set stored at key.
@@ -736,7 +882,10 @@ defmodule Vdr.TS do
   """
   @spec zcard(reference(), non_neg_integer(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
-  def zcard(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+  def zcard(storage, db, key) do
+    [result] = commands(storage, [{db, :zcard, key}])
+    result
+  end
 
   @doc """
   Gets a range of members from the sorted set by rank (index).
@@ -757,8 +906,19 @@ defmodule Vdr.TS do
   """
   @spec zrange(reference(), non_neg_integer(), binary(), integer(), integer(), boolean()) ::
           {:ok, [binary() | float()]} | {:error, :wrong_type}
-  def zrange(_storage, _db, _key, _start, _stop, _with_scores),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def zrange(storage, db, key, start, stop, with_scores) do
+    [result] = commands(storage, [{db, :zrange, key, start, stop, with_scores}])
+    case result do
+      {:ok, tuples} when with_scores ->
+        # Convert list of tuples to flat list: [{m1, s1}, {m2, s2}] -> [m1, s1, m2, s2]
+        flat_list = Enum.flat_map(tuples, fn
+          {member, score} -> [member, score]
+          member -> [member]
+        end)
+        {:ok, flat_list}
+      other -> other
+    end
+  end
 
   @doc """
   Gets members from the sorted set with scores between min and max (inclusive).
@@ -778,8 +938,19 @@ defmodule Vdr.TS do
   """
   @spec zrangebyscore(reference(), non_neg_integer(), binary(), float(), float(), boolean()) ::
           {:ok, [binary() | float()]} | {:error, :wrong_type}
-  def zrangebyscore(_storage, _db, _key, _min, _max, _with_scores),
-    do: :erlang.nif_error(:nif_not_loaded)
+  def zrangebyscore(storage, db, key, min, max, with_scores) do
+    [result] = commands(storage, [{db, :zrangebyscore, key, min, max, with_scores}])
+    case result do
+      {:ok, tuples} when with_scores ->
+        # Convert list of tuples to flat list: [{m1, s1}, {m2, s2}] -> [m1, s1, m2, s2]
+        flat_list = Enum.flat_map(tuples, fn
+          {member, score} -> [member, score]
+          member -> [member]
+        end)
+        {:ok, flat_list}
+      other -> other
+    end
+  end
 
   @doc """
   Gets the rank (0-based index) of a member in the sorted set (ascending order).
@@ -796,7 +967,10 @@ defmodule Vdr.TS do
   """
   @spec zrank(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, non_neg_integer() | nil} | {:error, :wrong_type}
-  def zrank(_storage, _db, _key, _member), do: :erlang.nif_error(:nif_not_loaded)
+  def zrank(storage, db, key, member) do
+    [result] = commands(storage, [{db, :zrank, key, member}])
+    result
+  end
 
   @doc """
   Gets the reverse rank of a member in the sorted set (descending order).
@@ -813,7 +987,10 @@ defmodule Vdr.TS do
   """
   @spec zrevrank(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, non_neg_integer() | nil} | {:error, :wrong_type}
-  def zrevrank(_storage, _db, _key, _member), do: :erlang.nif_error(:nif_not_loaded)
+  def zrevrank(storage, db, key, member) do
+    [result] = commands(storage, [{db, :zrevrank, key, member}])
+    result
+  end
 
   @doc """
   Counts members in the sorted set with scores between min and max (inclusive).
@@ -829,7 +1006,10 @@ defmodule Vdr.TS do
   """
   @spec zcount(reference(), non_neg_integer(), binary(), float(), float()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
-  def zcount(_storage, _db, _key, _min, _max), do: :erlang.nif_error(:nif_not_loaded)
+  def zcount(storage, db, key, min, max) do
+    [result] = commands(storage, [{db, :zcount, key, min, max}])
+    result
+  end
 
   @doc """
   Increments the score of a member in the sorted set by delta.
@@ -846,7 +1026,10 @@ defmodule Vdr.TS do
   """
   @spec zincrby(reference(), non_neg_integer(), binary(), float(), binary()) ::
           {:ok, float()} | {:error, :wrong_type}
-  def zincrby(_storage, _db, _key, _delta, _member), do: :erlang.nif_error(:nif_not_loaded)
+  def zincrby(storage, db, key, delta, member) do
+    [result] = commands(storage, [{db, :zincrby, key, delta, member}])
+    result
+  end
 
   @doc """
   Gets the first (minimum score) member from the sorted set.
@@ -864,7 +1047,10 @@ defmodule Vdr.TS do
   """
   @spec zfirst(reference(), non_neg_integer(), binary()) ::
           {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
-  def zfirst(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+  def zfirst(storage, db, key) do
+    [result] = commands(storage, [{db, :zfirst, key}])
+    result
+  end
 
   @doc """
   Gets the last (maximum score) member from the sorted set.
@@ -882,7 +1068,10 @@ defmodule Vdr.TS do
   """
   @spec zlast(reference(), non_neg_integer(), binary()) ::
           {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
-  def zlast(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+  def zlast(storage, db, key) do
+    [result] = commands(storage, [{db, :zlast, key}])
+    result
+  end
 
   @doc """
   Gets the next member after the given (score, member) in the sorted set.
@@ -900,7 +1089,10 @@ defmodule Vdr.TS do
   """
   @spec znext(reference(), non_neg_integer(), binary(), float(), binary()) ::
           {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
-  def znext(_storage, _db, _key, _score, _member), do: :erlang.nif_error(:nif_not_loaded)
+  def znext(storage, db, key, score, member) do
+    [result] = commands(storage, [{db, :znext, key, score, member}])
+    result
+  end
 
   @doc """
   Gets the previous member before the given (score, member) in the sorted set.
@@ -918,5 +1110,8 @@ defmodule Vdr.TS do
   """
   @spec zprev(reference(), non_neg_integer(), binary(), float(), binary()) ::
           {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
-  def zprev(_storage, _db, _key, _score, _member), do: :erlang.nif_error(:nif_not_loaded)
+  def zprev(storage, db, key, score, member) do
+    [result] = commands(storage, [{db, :zprev, key, score, member}])
+    result
+  end
 end

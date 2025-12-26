@@ -287,164 +287,104 @@ defmodule Vdr.TSProj do
     end
   end
 
-  # String command handlers
-  defp do_handle_command(ts_storage, db, %RedisCommand.Set{key: key, value: value}) do
-    Vdr.TS.set(ts_storage, db, key, value)
+  # Convert RedisCommand to tuple format for NIF
+  defp convert_command(db, %RedisCommand.Set{key: key, value: value}) do
+    {db, :set, key, value}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.Del{keys: keys}) do
-    Enum.each(keys, fn key ->
-      Vdr.TS.del(ts_storage, db, key)
-    end)
+  defp convert_command(db, %RedisCommand.Del{keys: keys}) do
+    {db, :del, keys}
   end
 
-  # Set command handlers
-  defp do_handle_command(ts_storage, db, %RedisCommand.SAdd{key: key, members: members}) do
-    case Vdr.TS.sadd(ts_storage, db, key, members) do
-      :ok -> :ok
-      {:error, _} -> :ok  # Ignore errors during replication
-    end
+  defp convert_command(db, %RedisCommand.SAdd{key: key, members: members}) do
+    {db, :sadd, key, members}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.SRem{key: key, members: members}) do
-    case Vdr.TS.srem(ts_storage, db, key, members) do
-      :ok -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.SRem{key: key, members: members}) do
+    {db, :srem, key, members}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.SMove{
-         source: source_key,
-         destination: dest_key,
-         member: member
-       }) do
-    case Vdr.TS.smove(ts_storage, db, source_key, dest_key, member) do
-      :ok -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.SMove{source: source_key, destination: dest_key, member: member}) do
+    {db, :smove, source_key, dest_key, member}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.SUnionStore{
-         destination: dest_key,
-         keys: source_keys
-       }) do
-    case Vdr.TS.sunionstore(ts_storage, db, dest_key, source_keys) do
-      :ok -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.SUnionStore{destination: dest_key, keys: source_keys}) do
+    {db, :sunionstore, dest_key, source_keys}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.SInterStore{
-         destination: dest_key,
-         keys: source_keys
-       }) do
-    case Vdr.TS.sinterstore(ts_storage, db, dest_key, source_keys) do
-      :ok -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.SInterStore{destination: dest_key, keys: source_keys}) do
+    {db, :sinterstore, dest_key, source_keys}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.SDiffStore{
-         destination: dest_key,
-         keys: source_keys
-       }) do
-    case Vdr.TS.sdiffstore(ts_storage, db, dest_key, source_keys) do
-      :ok -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.SDiffStore{destination: dest_key, keys: source_keys}) do
+    {db, :sdiffstore, dest_key, source_keys}
   end
 
-  # List command handlers
-  defp do_handle_command(ts_storage, db, %RedisCommand.LPush{key: key, values: values}) do
-    case Vdr.TS.lpush(ts_storage, db, key, values) do
-      :ok -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.LPush{key: key, values: values}) do
+    {db, :lpush, key, values}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.RPush{key: key, values: values}) do
-    case Vdr.TS.rpush(ts_storage, db, key, values) do
-      :ok -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.RPush{key: key, values: values}) do
+    {db, :rpush, key, values}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.LPushX{key: key, values: values}) do
-    # LPushX only pushes if key exists - for simplicity during replication, treat like LPush
-    case Vdr.TS.lpush(ts_storage, db, key, values) do
-      :ok -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.LPushX{key: key, values: values}) do
+    {db, :lpush, key, values}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.RPushX{key: key, values: values}) do
-    # RPushX only pushes if key exists - for simplicity during replication, treat like RPush
-    case Vdr.TS.rpush(ts_storage, db, key, values) do
-      :ok -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.RPushX{key: key, values: values}) do
+    {db, :rpush, key, values}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.LPop{key: key}) do
-    case Vdr.TS.lpop(ts_storage, db, key) do
-      {:ok, _} -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.LPop{key: key}) do
+    {db, :lpop, key}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.RPop{key: key}) do
-    case Vdr.TS.rpop(ts_storage, db, key) do
-      {:ok, _} -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.RPop{key: key}) do
+    {db, :rpop, key}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.LSet{key: key, index: index, value: value}) do
-    case Vdr.TS.lset(ts_storage, db, key, index, value) do
-      :ok -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.LSet{key: key, index: index, value: value}) do
+    {db, :lset, key, index, value}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.RPopLPush{source: source_key, destination: dest_key}) do
-    case Vdr.TS.rpoplpush(ts_storage, db, source_key, dest_key) do
-      {:ok, _} -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.RPopLPush{source: source_key, destination: dest_key}) do
+    {db, :rpoplpush, source_key, dest_key}
   end
 
-  # Hash command handlers
-  defp do_handle_command(ts_storage, db, %RedisCommand.HSet{key: key, fields: fields}) do
-    case Vdr.TS.hmset(ts_storage, db, key, fields) do
-      :ok -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.HSet{key: key, fields: fields}) do
+    {db, :hmset, key, fields}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.HDel{key: key, fields: fields}) do
-    case Vdr.TS.hdel(ts_storage, db, key, fields) do
-      {:ok, _} -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.HDel{key: key, fields: fields}) do
+    {db, :hdel, key, fields}
   end
 
-  # Sorted set command handlers
-  defp do_handle_command(ts_storage, db, %RedisCommand.ZAdd{key: key, members: members}) do
-    case Vdr.TS.zadd(ts_storage, db, key, members) do
-      {:ok, _} -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.ZAdd{key: key, members: members}) do
+    {db, :zadd, key, members}
   end
 
-  defp do_handle_command(ts_storage, db, %RedisCommand.ZRem{key: key, members: members}) do
-    case Vdr.TS.zrem(ts_storage, db, key, members) do
-      {:ok, _} -> :ok
-      {:error, _} -> :ok
-    end
+  defp convert_command(db, %RedisCommand.ZRem{key: key, members: members}) do
+    {db, :zrem, key, members}
   end
 
   # Ignore all other commands
-  defp do_handle_command(_ts_storage, _db, _command) do
-    :ok
+  defp convert_command(_db, _command) do
+    nil
+  end
+
+  # Unified command handler using the common NIF
+  defp do_handle_command(ts_storage, db, command) do
+    # Convert the command to tuple format
+    case convert_command(db, command) do
+      nil ->
+        # Command not supported, ignore
+        :ok
+
+      cmd_tuple ->
+        # Execute the command via the common NIF
+        [_result] = Vdr.TS.commands(ts_storage, [cmd_tuple])
+        :ok
+    end
   end
 end

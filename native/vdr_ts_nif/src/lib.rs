@@ -40,33 +40,6 @@ fn set_value<'a>(
     atoms::ok().encode(env)
 }
 
-#[rustler::nif(name = "get")]
-fn get_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, db: u64, key: Binary) -> Term<'a> {
-    // Lock the storage
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    // Get the value using encapsulated method
-    match inner.get(db, key.as_slice()) {
-        Ok(Some(value)) => {
-            // Return the binary value
-            let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
-            binary.as_mut_slice().copy_from_slice(value.as_slice());
-            binary.release(env).encode(env)
-        }
-        Ok(None) => {
-            // Return nil for missing keys
-            atoms::nil().encode(env)
-        }
-        Err(_err_msg) => {
-            // Return {:error, :wrong_type}
-            (atoms::error(), atoms::wrong_type()).encode(env)
-        }
-    }
-}
-
 #[rustler::nif(name = "del")]
 fn delete_value<'a>(env: Env<'a>, storage: ResourceArc<TStorage>, db: u64, key: Binary) -> Term<'a> {
     // Lock the storage
@@ -97,993 +70,757 @@ fn destroy_storage<'a>(env: Env<'a>, storage: ResourceArc<TStorage>) -> Term<'a>
     atoms::ok().encode(env)
 }
 
-// Set operation NIFs
-
-#[rustler::nif(name = "sadd")]
-fn sadd_members<'a>(
+// Batch command execution NIF
+// Executes multiple commands under a single mutex lock
+#[rustler::nif(name = "commands")]
+fn execute_commands<'a>(
     env: Env<'a>,
     storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    members: Vec<Binary>,
+    commands: Vec<Term<'a>>,
 ) -> Term<'a> {
+    // Lock the storage once for all commands
     let mut inner = match storage.0.lock() {
         Ok(guard) => guard,
         Err(poisoned) => poisoned.into_inner(),
     };
 
-    // Convert binaries to Bytes
-    let members_slices: Vec<&[u8]> = members
-        .iter()
-        .map(|b| b.as_slice())
-        .collect();
+    let mut results = Vec::new();
 
-    match inner.sadd(db, key.as_slice(), &members_slices) {
-        Ok(_added) => atoms::ok().encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    // Execute each command
+    for cmd_term in commands {
+        let result = execute_single_command(env, &mut inner, cmd_term);
+        results.push(result);
     }
+
+    results.encode(env)
 }
 
-#[rustler::nif(name = "srem")]
-fn srem_members<'a>(
+fn execute_single_command<'a>(
     env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    members: Vec<Binary>,
+    inner: &mut StorageInner,
+    cmd_term: Term<'a>,
 ) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
+    use rustler::types::tuple;
 
-    let members_slices: Vec<&[u8]> = members
-        .iter()
-        .map(|b| b.as_slice())
-        .collect();
+    // Decode the command tuple: {db, command_atom, arg1, arg2, ...}
+    // Get tuple elements
+    let terms: Result<Vec<Term>, _> = tuple::get_tuple(cmd_term);
 
-    match inner.srem(db, key.as_slice(), &members_slices) {
-        Ok(_removed) => atoms::ok().encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "smove")]
-fn smove_member<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    source_key: Binary,
-    dest_key: Binary,
-    member: Binary,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.smove(db, source_key.as_slice(), dest_key.as_slice(), member.as_slice()) {
-        Ok(_moved) => atoms::ok().encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "sunionstore")]
-fn sunionstore_sets<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    dest_key: Binary,
-    source_keys: Vec<Binary>,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    let keys_slices: Vec<&[u8]> = source_keys
-        .iter()
-        .map(|b| b.as_slice())
-        .collect();
-
-    match inner.sunionstore(db, dest_key.as_slice(), &keys_slices) {
-        Ok(_cardinality) => atoms::ok().encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "sinterstore")]
-fn sinterstore_sets<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    dest_key: Binary,
-    source_keys: Vec<Binary>,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    let keys_slices: Vec<&[u8]> = source_keys
-        .iter()
-        .map(|b| b.as_slice())
-        .collect();
-
-    match inner.sinterstore(db, dest_key.as_slice(), &keys_slices) {
-        Ok(_cardinality) => atoms::ok().encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "sdiffstore")]
-fn sdiffstore_sets<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    dest_key: Binary,
-    source_keys: Vec<Binary>,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    let keys_slices: Vec<&[u8]> = source_keys
-        .iter()
-        .map(|b| b.as_slice())
-        .collect();
-
-    match inner.sdiffstore(db, dest_key.as_slice(), &keys_slices) {
-        Ok(_cardinality) => atoms::ok().encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "smembers")]
-fn smembers_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.smembers(db, key.as_slice()) {
-        Ok(members) => {
-            let binaries: Vec<Term> = members
-                .iter()
-                .map(|m| {
-                    let mut binary = rustler::types::OwnedBinary::new(m.len()).unwrap();
-                    binary.as_mut_slice().copy_from_slice(m.as_slice());
-                    binary.release(env).encode(env)
-                })
-                .collect();
-            (atoms::ok(), binaries).encode(env)
+    if let Ok(terms) = terms {
+        if terms.len() < 2 {
+            return (atoms::error(), rustler::types::atom::error().encode(env)).encode(env);
         }
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
 
-#[rustler::nif(name = "sismember")]
-fn sismember_check<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    member: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.sismember(db, key.as_slice(), member.as_slice()) {
-        Ok(is_member) => (atoms::ok(), is_member).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "scard")]
-fn scard_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.scard(db, key.as_slice()) {
-        Ok(count) => (atoms::ok(), count).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-// List operation NIFs
-
-#[rustler::nif(name = "lpush")]
-fn lpush_values<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    values: Vec<Binary>,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    let values_slices: Vec<&[u8]> = values
-        .iter()
-        .map(|b| b.as_slice())
-        .collect();
-
-    match inner.lpush(db, key.as_slice(), &values_slices) {
-        Ok(_len) => atoms::ok().encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "rpush")]
-fn rpush_values<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    values: Vec<Binary>,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    let values_slices: Vec<&[u8]> = values
-        .iter()
-        .map(|b| b.as_slice())
-        .collect();
-
-    match inner.rpush(db, key.as_slice(), &values_slices) {
-        Ok(_len) => atoms::ok().encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "lpop")]
-fn lpop_value<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.lpop(db, key.as_slice()) {
-        Ok(Some(value)) => {
-            let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
-            binary.as_mut_slice().copy_from_slice(value.as_slice());
-            (atoms::ok(), binary.release(env)).encode(env)
+        // First element is db (u64)
+        let db: Result<u64, _> = terms[0].decode();
+        if db.is_err() {
+            return (atoms::error(), rustler::types::atom::error().encode(env)).encode(env);
         }
-        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
+        let db = db.unwrap();
 
-#[rustler::nif(name = "rpop")]
-fn rpop_value<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
+        // Second element is command atom
+        let cmd_atom: Result<rustler::types::Atom, _> = terms[1].decode();
 
-    match inner.rpop(db, key.as_slice()) {
-        Ok(Some(value)) => {
-            let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
-            binary.as_mut_slice().copy_from_slice(value.as_slice());
-            (atoms::ok(), binary.release(env)).encode(env)
-        }
-        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "llen")]
-fn llen_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.llen(db, key.as_slice()) {
-        Ok(len) => (atoms::ok(), len).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "lrange")]
-fn lrange_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    start: i64,
-    stop: i64,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.lrange(db, key.as_slice(), start, stop) {
-        Ok(elements) => {
-            let binaries: Vec<Term> = elements
-                .iter()
-                .map(|e| {
-                    let mut binary = rustler::types::OwnedBinary::new(e.len()).unwrap();
-                    binary.as_mut_slice().copy_from_slice(e.as_slice());
-                    binary.release(env).encode(env)
-                })
-                .collect();
-            (atoms::ok(), binaries).encode(env)
-        }
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "lset")]
-fn lset_value<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    index: i64,
-    value: Binary,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.lset(db, key.as_slice(), index, value.as_slice()) {
-        Ok(true) => atoms::ok().encode(env),
-        Ok(false) => atoms::ok().encode(env), // Redis LSET returns error on out of range, but we return :ok for now
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "rpoplpush")]
-fn rpoplpush_value<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    source_key: Binary,
-    dest_key: Binary,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.rpoplpush(db, source_key.as_slice(), dest_key.as_slice()) {
-        Ok(Some(value)) => {
-            let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
-            binary.as_mut_slice().copy_from_slice(value.as_slice());
-            (atoms::ok(), binary.release(env)).encode(env)
-        }
-        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-// Hash operation NIFs
-
-#[rustler::nif(name = "hset")]
-fn hset_field<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    field: Binary,
-    value: Binary,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.hset(db, key.as_slice(), field.as_slice(), value.as_slice()) {
-        Ok(_is_new) => atoms::ok().encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "hmset")]
-fn hmset_fields<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    fields: Vec<(Binary, Binary)>,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    let fields_slices: Vec<(&[u8], &[u8])> = fields
-        .iter()
-        .map(|(f, v)| (f.as_slice(), v.as_slice()))
-        .collect();
-
-    match inner.hmset(db, key.as_slice(), &fields_slices) {
-        Ok(_count) => atoms::ok().encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "hget")]
-fn hget_field<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    field: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.hget(db, key.as_slice(), field.as_slice()) {
-        Ok(Some(value)) => {
-            let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
-            binary.as_mut_slice().copy_from_slice(value.as_slice());
-            (atoms::ok(), binary.release(env)).encode(env)
-        }
-        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "hmget")]
-fn hmget_fields<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    fields: Vec<Binary>,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    let fields_slices: Vec<&[u8]> = fields
-        .iter()
-        .map(|f| f.as_slice())
-        .collect();
-
-    match inner.hmget(db, key.as_slice(), &fields_slices) {
-        Ok(values) => {
-            let terms: Vec<Term> = values
-                .iter()
-                .map(|opt_val| match opt_val {
-                    Some(val) => {
-                        let mut binary = rustler::types::OwnedBinary::new(val.len()).unwrap();
-                        binary.as_mut_slice().copy_from_slice(val.as_slice());
-                        binary.release(env).encode(env)
+        if let Ok(cmd_atom) = cmd_atom {
+            // Rest are arguments
+            let args = &terms[2..];
+            // Use direct atom comparison
+            if cmd_atom == atoms::set() {
+                // {db, :set, key, value}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(value)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        inner.set(db, key.as_slice(), value.as_slice());
+                        return atoms::ok().encode(env);
                     }
-                    None => atoms::nil().encode(env),
-                })
-                .collect();
-            (atoms::ok(), terms).encode(env)
-        }
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "hgetall")]
-fn hgetall_fields<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.hgetall(db, key.as_slice()) {
-        Ok(pairs) => {
-            let terms: Vec<(Term, Term)> = pairs
-                .iter()
-                .map(|(k, v)| {
-                    let mut key_bin = rustler::types::OwnedBinary::new(k.len()).unwrap();
-                    key_bin.as_mut_slice().copy_from_slice(k.as_slice());
-                    let mut val_bin = rustler::types::OwnedBinary::new(v.len()).unwrap();
-                    val_bin.as_mut_slice().copy_from_slice(v.as_slice());
-                    (key_bin.release(env).encode(env), val_bin.release(env).encode(env))
-                })
-                .collect();
-            (atoms::ok(), terms).encode(env)
-        }
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "hkeys")]
-fn hkeys_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.hkeys(db, key.as_slice()) {
-        Ok(keys) => {
-            let binaries: Vec<Term> = keys
-                .iter()
-                .map(|k| {
-                    let mut binary = rustler::types::OwnedBinary::new(k.len()).unwrap();
-                    binary.as_mut_slice().copy_from_slice(k.as_slice());
-                    binary.release(env).encode(env)
-                })
-                .collect();
-            (atoms::ok(), binaries).encode(env)
-        }
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "hvals")]
-fn hvals_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.hvals(db, key.as_slice()) {
-        Ok(values) => {
-            let binaries: Vec<Term> = values
-                .iter()
-                .map(|v| {
-                    let mut binary = rustler::types::OwnedBinary::new(v.len()).unwrap();
-                    binary.as_mut_slice().copy_from_slice(v.as_slice());
-                    binary.release(env).encode(env)
-                })
-                .collect();
-            (atoms::ok(), binaries).encode(env)
-        }
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "hlen")]
-fn hlen_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.hlen(db, key.as_slice()) {
-        Ok(len) => (atoms::ok(), len).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "hexists")]
-fn hexists_check<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    field: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.hexists(db, key.as_slice(), field.as_slice()) {
-        Ok(exists) => (atoms::ok(), exists).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "hdel")]
-fn hdel_fields<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    fields: Vec<Binary>,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    let fields_slices: Vec<&[u8]> = fields
-        .iter()
-        .map(|f| f.as_slice())
-        .collect();
-
-    match inner.hdel(db, key.as_slice(), &fields_slices) {
-        Ok(deleted) => (atoms::ok(), deleted).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-// Sorted set (zset) operation NIFs
-
-#[rustler::nif(name = "zadd")]
-fn zadd_members<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    members: Vec<(f64, Binary)>,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    let members_slices: Vec<(Score, &[u8])> = members
-        .iter()
-        .map(|(score, member)| (OrderedFloat(*score), member.as_slice()))
-        .collect();
-
-    match inner.zadd(db, key.as_slice(), &members_slices) {
-        Ok(added) => (atoms::ok(), added).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "zrem")]
-fn zrem_members<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    members: Vec<Binary>,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    let members_slices: Vec<&[u8]> = members
-        .iter()
-        .map(|m| m.as_slice())
-        .collect();
-
-    match inner.zrem(db, key.as_slice(), &members_slices) {
-        Ok(removed) => (atoms::ok(), removed).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "zscore")]
-fn zscore_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    member: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.zscore(db, key.as_slice(), member.as_slice()) {
-        Ok(Some(score)) => (atoms::ok(), score.into_inner()).encode(env),
-        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "zcard")]
-fn zcard_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.zcard(db, key.as_slice()) {
-        Ok(count) => (atoms::ok(), count).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "zrange")]
-fn zrange_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    start: i64,
-    stop: i64,
-    with_scores: bool,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.zrange(db, key.as_slice(), start, stop, with_scores) {
-        Ok(results) => {
-            let terms: Vec<Term> = results
-                .iter()
-                .flat_map(|(member, score_opt)| {
-                    let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
-                    member_bin.as_mut_slice().copy_from_slice(member.as_slice());
-                    let member_term = member_bin.release(env).encode(env);
-
-                    if let Some(score) = score_opt {
-                        vec![member_term, score.into_inner().encode(env)]
-                    } else {
-                        vec![member_term]
+                }
+            } else if cmd_atom == atoms::del() {
+                // {db, :del, keys} where keys is a list
+                if args.len() == 1 {
+                    if let Ok(keys) = args[0].decode::<Vec<Binary>>() {
+                        for key in keys.iter() {
+                            inner.del(db, key.as_slice());
+                        }
+                        return atoms::ok().encode(env);
                     }
-                })
-                .collect();
-            (atoms::ok(), terms).encode(env)
-        }
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "zrangebyscore")]
-fn zrangebyscore_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    min: f64,
-    max: f64,
-    with_scores: bool,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.zrangebyscore(db, key.as_slice(), OrderedFloat(min), OrderedFloat(max), with_scores) {
-        Ok(results) => {
-            let terms: Vec<Term> = results
-                .iter()
-                .flat_map(|(member, score_opt)| {
-                    let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
-                    member_bin.as_mut_slice().copy_from_slice(member.as_slice());
-                    let member_term = member_bin.release(env).encode(env);
-
-                    if let Some(score) = score_opt {
-                        vec![member_term, score.into_inner().encode(env)]
-                    } else {
-                        vec![member_term]
+                }
+            } else if cmd_atom == atoms::sadd() {
+                // {db, :sadd, key, members}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(members)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let members_slices: Vec<&[u8]> = members.iter().map(|b| b.as_slice()).collect();
+                        return match inner.sadd(db, key.as_slice(), &members_slices) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
                     }
-                })
-                .collect();
-            (atoms::ok(), terms).encode(env)
+                }
+            } else if cmd_atom == atoms::srem() {
+                // {db, :srem, key, members}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(members)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let members_slices: Vec<&[u8]> = members.iter().map(|b| b.as_slice()).collect();
+                        return match inner.srem(db, key.as_slice(), &members_slices) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::smove() {
+                // {db, :smove, source_key, dest_key, member}
+                if args.len() == 3 {
+                    if let (Ok(source_key), Ok(dest_key), Ok(member)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>(),
+                        args[2].decode::<Binary>()
+                    ) {
+                        return match inner.smove(db, source_key.as_slice(), dest_key.as_slice(), member.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::sunionstore() {
+                // {db, :sunionstore, dest_key, source_keys}
+                if args.len() == 2 {
+                    if let (Ok(dest_key), Ok(source_keys)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let keys_slices: Vec<&[u8]> = source_keys.iter().map(|b| b.as_slice()).collect();
+                        return match inner.sunionstore(db, dest_key.as_slice(), &keys_slices) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::sinterstore() {
+                // {db, :sinterstore, dest_key, source_keys}
+                if args.len() == 2 {
+                    if let (Ok(dest_key), Ok(source_keys)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let keys_slices: Vec<&[u8]> = source_keys.iter().map(|b| b.as_slice()).collect();
+                        return match inner.sinterstore(db, dest_key.as_slice(), &keys_slices) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::sdiffstore() {
+                // {db, :sdiffstore, dest_key, source_keys}
+                if args.len() == 2 {
+                    if let (Ok(dest_key), Ok(source_keys)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let keys_slices: Vec<&[u8]> = source_keys.iter().map(|b| b.as_slice()).collect();
+                        return match inner.sdiffstore(db, dest_key.as_slice(), &keys_slices) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::lpush() {
+                // {db, :lpush, key, values}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(values)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
+                        return match inner.lpush(db, key.as_slice(), &values_slices) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::rpush() {
+                // {db, :rpush, key, values}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(values)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
+                        return match inner.rpush(db, key.as_slice(), &values_slices) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::lpop() {
+                // {db, :lpop, key}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.lpop(db, key.as_slice()) {
+                            Ok(Some(value)) => {
+                                let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                                binary.as_mut_slice().copy_from_slice(value.as_slice());
+                                (atoms::ok(), binary.release(env)).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::rpop() {
+                // {db, :rpop, key}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.rpop(db, key.as_slice()) {
+                            Ok(Some(value)) => {
+                                let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                                binary.as_mut_slice().copy_from_slice(value.as_slice());
+                                (atoms::ok(), binary.release(env)).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::lset() {
+                // {db, :lset, key, index, value}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(index), Ok(value)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<i64>(),
+                        args[2].decode::<Binary>()
+                    ) {
+                        return match inner.lset(db, key.as_slice(), index, value.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::rpoplpush() {
+                // {db, :rpoplpush, source_key, dest_key}
+                if args.len() == 2 {
+                    if let (Ok(source_key), Ok(dest_key)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.rpoplpush(db, source_key.as_slice(), dest_key.as_slice()) {
+                            Ok(Some(value)) => {
+                                let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                                binary.as_mut_slice().copy_from_slice(value.as_slice());
+                                (atoms::ok(), binary.release(env)).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hset() {
+                // {db, :hset, key, field, value}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(field), Ok(value)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>(),
+                        args[2].decode::<Binary>()
+                    ) {
+                        return match inner.hset(db, key.as_slice(), field.as_slice(), value.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hmset() {
+                // {db, :hmset, key, fields}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(fields)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<(Binary, Binary)>>()
+                    ) {
+                        let fields_slices: Vec<(&[u8], &[u8])> = fields
+                            .iter()
+                            .map(|(f, v)| (f.as_slice(), v.as_slice()))
+                            .collect();
+                        return match inner.hmset(db, key.as_slice(), &fields_slices) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hdel() {
+                // {db, :hdel, key, fields}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(fields)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let fields_slices: Vec<&[u8]> = fields.iter().map(|f| f.as_slice()).collect();
+                        return match inner.hdel(db, key.as_slice(), &fields_slices) {
+                            Ok(deleted) => (atoms::ok(), deleted).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zadd() {
+                // {db, :zadd, key, members}  where members is [{score, member}, ...]
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(members)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<(f64, Binary)>>()
+                    ) {
+                        let members_slices: Vec<(Score, &[u8])> = members
+                            .iter()
+                            .map(|(score, member)| (OrderedFloat(*score), member.as_slice()))
+                            .collect();
+                        return match inner.zadd(db, key.as_slice(), &members_slices) {
+                            Ok(added) => (atoms::ok(), added).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zrem() {
+                // {db, :zrem, key, members}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(members)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let members_slices: Vec<&[u8]> = members.iter().map(|m| m.as_slice()).collect();
+                        return match inner.zrem(db, key.as_slice(), &members_slices) {
+                            Ok(removed) => (atoms::ok(), removed).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            // READ OPERATIONS
+            } else if cmd_atom == atoms::get() {
+                // {db, :get, key}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.get(db, key.as_slice()) {
+                            Ok(Some(value)) => {
+                                let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                                binary.as_mut_slice().copy_from_slice(value.as_slice());
+                                (atoms::ok(), binary.release(env)).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::smembers() {
+                // {db, :smembers, key}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.smembers(db, key.as_slice()) {
+                            Ok(members) => {
+                                let binaries: Vec<Binary> = members.iter().map(|m| {
+                                    let mut binary = rustler::types::OwnedBinary::new(m.len()).unwrap();
+                                    binary.as_mut_slice().copy_from_slice(m.as_slice());
+                                    binary.release(env)
+                                }).collect();
+                                (atoms::ok(), binaries).encode(env)
+                            }
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::sismember() {
+                // {db, :sismember, key, member}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(member)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.sismember(db, key.as_slice(), member.as_slice()) {
+                            Ok(is_member) => (atoms::ok(), is_member).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::scard() {
+                // {db, :scard, key}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.scard(db, key.as_slice()) {
+                            Ok(count) => (atoms::ok(), count).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::llen() {
+                // {db, :llen, key}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.llen(db, key.as_slice()) {
+                            Ok(len) => (atoms::ok(), len).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::lrange() {
+                // {db, :lrange, key, start, stop}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(start), Ok(stop)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<i64>(),
+                        args[2].decode::<i64>()
+                    ) {
+                        return match inner.lrange(db, key.as_slice(), start, stop) {
+                            Ok(elements) => {
+                                let binaries: Vec<Binary> = elements.iter().map(|e| {
+                                    let mut binary = rustler::types::OwnedBinary::new(e.len()).unwrap();
+                                    binary.as_mut_slice().copy_from_slice(e.as_slice());
+                                    binary.release(env)
+                                }).collect();
+                                (atoms::ok(), binaries).encode(env)
+                            }
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hget() {
+                // {db, :hget, key, field}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(field)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.hget(db, key.as_slice(), field.as_slice()) {
+                            Ok(Some(value)) => {
+                                let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                                binary.as_mut_slice().copy_from_slice(value.as_slice());
+                                (atoms::ok(), binary.release(env)).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hmget() {
+                // {db, :hmget, key, fields}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(fields)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let fields_slices: Vec<&[u8]> = fields.iter().map(|f| f.as_slice()).collect();
+                        return match inner.hmget(db, key.as_slice(), &fields_slices) {
+                            Ok(values) => {
+                                let results: Vec<Term> = values.iter().map(|opt_v| {
+                                    match opt_v {
+                                        Some(v) => {
+                                            let mut binary = rustler::types::OwnedBinary::new(v.len()).unwrap();
+                                            binary.as_mut_slice().copy_from_slice(v.as_slice());
+                                            binary.release(env).encode(env)
+                                        }
+                                        None => atoms::nil().encode(env)
+                                    }
+                                }).collect();
+                                (atoms::ok(), results).encode(env)
+                            }
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hgetall() {
+                // {db, :hgetall, key}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.hgetall(db, key.as_slice()) {
+                            Ok(pairs) => {
+                                let tuples: Vec<(Binary, Binary)> = pairs.iter().map(|(f, v)| {
+                                    let mut field_bin = rustler::types::OwnedBinary::new(f.len()).unwrap();
+                                    field_bin.as_mut_slice().copy_from_slice(f.as_slice());
+                                    let mut value_bin = rustler::types::OwnedBinary::new(v.len()).unwrap();
+                                    value_bin.as_mut_slice().copy_from_slice(v.as_slice());
+                                    (field_bin.release(env), value_bin.release(env))
+                                }).collect();
+                                (atoms::ok(), tuples).encode(env)
+                            }
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hkeys() {
+                // {db, :hkeys, key}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.hkeys(db, key.as_slice()) {
+                            Ok(keys) => {
+                                let binaries: Vec<Binary> = keys.iter().map(|k| {
+                                    let mut binary = rustler::types::OwnedBinary::new(k.len()).unwrap();
+                                    binary.as_mut_slice().copy_from_slice(k.as_slice());
+                                    binary.release(env)
+                                }).collect();
+                                (atoms::ok(), binaries).encode(env)
+                            }
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hvals() {
+                // {db, :hvals, key}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.hvals(db, key.as_slice()) {
+                            Ok(vals) => {
+                                let binaries: Vec<Binary> = vals.iter().map(|v| {
+                                    let mut binary = rustler::types::OwnedBinary::new(v.len()).unwrap();
+                                    binary.as_mut_slice().copy_from_slice(v.as_slice());
+                                    binary.release(env)
+                                }).collect();
+                                (atoms::ok(), binaries).encode(env)
+                            }
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hlen() {
+                // {db, :hlen, key}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.hlen(db, key.as_slice()) {
+                            Ok(len) => (atoms::ok(), len).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hexists() {
+                // {db, :hexists, key, field}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(field)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.hexists(db, key.as_slice(), field.as_slice()) {
+                            Ok(exists) => (atoms::ok(), exists).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zscore() {
+                // {db, :zscore, key, member}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(member)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.zscore(db, key.as_slice(), member.as_slice()) {
+                            Ok(Some(score)) => (atoms::ok(), score.into_inner()).encode(env),
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zcard() {
+                // {db, :zcard, key}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.zcard(db, key.as_slice()) {
+                            Ok(count) => (atoms::ok(), count).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zrange() {
+                // {db, :zrange, key, start, stop, with_scores}
+                if args.len() == 4 {
+                    if let (Ok(key), Ok(start), Ok(stop), Ok(with_scores)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<i64>(),
+                        args[2].decode::<i64>(),
+                        args[3].decode::<bool>()
+                    ) {
+                        return match inner.zrange(db, key.as_slice(), start, stop, with_scores) {
+                            Ok(members) => {
+                                let results: Vec<Term> = members.iter().map(|(member, opt_score)| {
+                                    let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+                                    member_bin.as_mut_slice().copy_from_slice(member.as_slice());
+                                    let member_term = member_bin.release(env);
+
+                                    if with_scores {
+                                        if let Some(score) = opt_score {
+                                            (member_term, score.into_inner()).encode(env)
+                                        } else {
+                                            member_term.encode(env)
+                                        }
+                                    } else {
+                                        member_term.encode(env)
+                                    }
+                                }).collect();
+                                (atoms::ok(), results).encode(env)
+                            }
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zrangebyscore() {
+                // {db, :zrangebyscore, key, min, max, with_scores}
+                if args.len() == 4 {
+                    if let (Ok(key), Ok(min), Ok(max), Ok(with_scores)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<f64>(),
+                        args[2].decode::<f64>(),
+                        args[3].decode::<bool>()
+                    ) {
+                        return match inner.zrangebyscore(db, key.as_slice(), OrderedFloat(min), OrderedFloat(max), with_scores) {
+                            Ok(members) => {
+                                let results: Vec<Term> = members.iter().map(|(member, opt_score)| {
+                                    let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+                                    member_bin.as_mut_slice().copy_from_slice(member.as_slice());
+                                    let member_term = member_bin.release(env);
+
+                                    if with_scores {
+                                        if let Some(score) = opt_score {
+                                            (member_term, score.into_inner()).encode(env)
+                                        } else {
+                                            member_term.encode(env)
+                                        }
+                                    } else {
+                                        member_term.encode(env)
+                                    }
+                                }).collect();
+                                (atoms::ok(), results).encode(env)
+                            }
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zrank() {
+                // {db, :zrank, key, member}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(member)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.zrank(db, key.as_slice(), member.as_slice()) {
+                            Ok(Some(rank)) => (atoms::ok(), rank).encode(env),
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zrevrank() {
+                // {db, :zrevrank, key, member}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(member)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.zrevrank(db, key.as_slice(), member.as_slice()) {
+                            Ok(Some(rank)) => (atoms::ok(), rank).encode(env),
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zcount() {
+                // {db, :zcount, key, min, max}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(min), Ok(max)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<f64>(),
+                        args[2].decode::<f64>()
+                    ) {
+                        return match inner.zcount(db, key.as_slice(), OrderedFloat(min), OrderedFloat(max)) {
+                            Ok(count) => (atoms::ok(), count).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zincrby() {
+                // {db, :zincrby, key, delta, member}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(delta), Ok(member)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<f64>(),
+                        args[2].decode::<Binary>()
+                    ) {
+                        return match inner.zincrby(db, key.as_slice(), OrderedFloat(delta), member.as_slice()) {
+                            Ok(new_score) => (atoms::ok(), new_score.into_inner()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zfirst() {
+                // {db, :zfirst, key}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.zfirst(db, key.as_slice()) {
+                            Ok(Some((score, member))) => {
+                                let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+                                member_bin.as_mut_slice().copy_from_slice(member.as_slice());
+                                (atoms::ok(), (score.into_inner(), member_bin.release(env))).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zlast() {
+                // {db, :zlast, key}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.zlast(db, key.as_slice()) {
+                            Ok(Some((score, member))) => {
+                                let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+                                member_bin.as_mut_slice().copy_from_slice(member.as_slice());
+                                (atoms::ok(), (score.into_inner(), member_bin.release(env))).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::znext() {
+                // {db, :znext, key, score, member}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(score), Ok(member)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<f64>(),
+                        args[2].decode::<Binary>()
+                    ) {
+                        return match inner.znext(db, key.as_slice(), OrderedFloat(score), member.as_slice()) {
+                            Ok(Some((new_score, new_member))) => {
+                                let mut member_bin = rustler::types::OwnedBinary::new(new_member.len()).unwrap();
+                                member_bin.as_mut_slice().copy_from_slice(new_member.as_slice());
+                                (atoms::ok(), (new_score.into_inner(), member_bin.release(env))).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zprev() {
+                // {db, :zprev, key, score, member}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(score), Ok(member)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<f64>(),
+                        args[2].decode::<Binary>()
+                    ) {
+                        return match inner.zprev(db, key.as_slice(), OrderedFloat(score), member.as_slice()) {
+                            Ok(Some((new_score, new_member))) => {
+                                let mut member_bin = rustler::types::OwnedBinary::new(new_member.len()).unwrap();
+                                member_bin.as_mut_slice().copy_from_slice(new_member.as_slice());
+                                (atoms::ok(), (new_score.into_inner(), member_bin.release(env))).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            }
         }
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
     }
-}
 
-#[rustler::nif(name = "zrank")]
-fn zrank_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    member: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.zrank(db, key.as_slice(), member.as_slice()) {
-        Ok(Some(rank)) => (atoms::ok(), rank).encode(env),
-        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "zrevrank")]
-fn zrevrank_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    member: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.zrevrank(db, key.as_slice(), member.as_slice()) {
-        Ok(Some(rank)) => (atoms::ok(), rank).encode(env),
-        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "zcount")]
-fn zcount_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    min: f64,
-    max: f64,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.zcount(db, key.as_slice(), OrderedFloat(min), OrderedFloat(max)) {
-        Ok(count) => (atoms::ok(), count).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "zincrby")]
-fn zincrby_score<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    delta: f64,
-    member: Binary,
-) -> Term<'a> {
-    let mut inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.zincrby(db, key.as_slice(), OrderedFloat(delta), member.as_slice()) {
-        Ok(new_score) => (atoms::ok(), new_score.into_inner()).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "zfirst")]
-fn zfirst_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.zfirst(db, key.as_slice()) {
-        Ok(Some((score, member))) => {
-            let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
-            member_bin.as_mut_slice().copy_from_slice(member.as_slice());
-            (atoms::ok(), (score.into_inner(), member_bin.release(env))).encode(env)
-        }
-        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "zlast")]
-fn zlast_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.zlast(db, key.as_slice()) {
-        Ok(Some((score, member))) => {
-            let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
-            member_bin.as_mut_slice().copy_from_slice(member.as_slice());
-            (atoms::ok(), (score.into_inner(), member_bin.release(env))).encode(env)
-        }
-        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "znext")]
-fn znext_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    score: f64,
-    member: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.znext(db, key.as_slice(), OrderedFloat(score), member.as_slice()) {
-        Ok(Some((next_score, next_member))) => {
-            let mut member_bin = rustler::types::OwnedBinary::new(next_member.len()).unwrap();
-            member_bin.as_mut_slice().copy_from_slice(next_member.as_slice());
-            (atoms::ok(), (next_score.into_inner(), member_bin.release(env))).encode(env)
-        }
-        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
-}
-
-#[rustler::nif(name = "zprev")]
-fn zprev_get<'a>(
-    env: Env<'a>,
-    storage: ResourceArc<TStorage>,
-    db: u64,
-    key: Binary,
-    score: f64,
-    member: Binary,
-) -> Term<'a> {
-    let inner = match storage.0.lock() {
-        Ok(guard) => guard,
-        Err(poisoned) => poisoned.into_inner(),
-    };
-
-    match inner.zprev(db, key.as_slice(), OrderedFloat(score), member.as_slice()) {
-        Ok(Some((prev_score, prev_member))) => {
-            let mut member_bin = rustler::types::OwnedBinary::new(prev_member.len()).unwrap();
-            member_bin.as_mut_slice().copy_from_slice(prev_member.as_slice());
-            (atoms::ok(), (prev_score.into_inner(), member_bin.release(env))).encode(env)
-        }
-        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
-        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
-    }
+    // If we get here, the command was malformed or unknown
+    (atoms::error(), rustler::types::atom::error().encode(env)).encode(env)
 }
 
 rustler::init!(
