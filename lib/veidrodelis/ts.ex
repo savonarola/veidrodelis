@@ -847,4 +847,76 @@ defmodule Vdr.TS do
   @spec zincrby(reference(), non_neg_integer(), binary(), float(), binary()) ::
           {:ok, float()} | {:error, :wrong_type}
   def zincrby(_storage, _db, _key, _delta, _member), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets the first (minimum score) member from the sorted set.
+
+  Returns `{:ok, {score, member}}` if the set is not empty, `{:ok, nil}` if the set
+  is empty or doesn't exist. Returns `{:error, :wrong_type}` if the key exists and
+  holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      {:ok, {1.0, "one"}} = Vdr.TS.zfirst(storage, 0, "myzset")
+      {:ok, nil} = Vdr.TS.zfirst(storage, 0, "nonexistent")
+  """
+  @spec zfirst(reference(), non_neg_integer(), binary()) ::
+          {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
+  def zfirst(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets the last (maximum score) member from the sorted set.
+
+  Returns `{:ok, {score, member}}` if the set is not empty, `{:ok, nil}` if the set
+  is empty or doesn't exist. Returns `{:error, :wrong_type}` if the key exists and
+  holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      {:ok, {3.0, "three"}} = Vdr.TS.zlast(storage, 0, "myzset")
+      {:ok, nil} = Vdr.TS.zlast(storage, 0, "nonexistent")
+  """
+  @spec zlast(reference(), non_neg_integer(), binary()) ::
+          {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
+  def zlast(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets the next member after the given (score, member) in the sorted set.
+
+  Returns `{:ok, {score, member}}` if there is a next member, `{:ok, nil}` if there
+  is no next member or the set doesn't exist. Returns `{:error, :wrong_type}` if the
+  key exists and holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      {:ok, {2.0, "two"}} = Vdr.TS.znext(storage, 0, "myzset", 1.0, "one")
+      {:ok, nil} = Vdr.TS.znext(storage, 0, "myzset", 3.0, "three")
+  """
+  @spec znext(reference(), non_neg_integer(), binary(), float(), binary()) ::
+          {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
+  def znext(_storage, _db, _key, _score, _member), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Gets the previous member before the given (score, member) in the sorted set.
+
+  Returns `{:ok, {score, member}}` if there is a previous member, `{:ok, nil}` if there
+  is no previous member or the set doesn't exist. Returns `{:error, :wrong_type}` if the
+  key exists and holds a non-zset value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      {:ok, {2.0, "two"}} = Vdr.TS.zprev(storage, 0, "myzset", 3.0, "three")
+      {:ok, nil} = Vdr.TS.zprev(storage, 0, "myzset", 1.0, "one")
+  """
+  @spec zprev(reference(), non_neg_integer(), binary(), float(), binary()) ::
+          {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
+  def zprev(_storage, _db, _key, _score, _member), do: :erlang.nif_error(:nif_not_loaded)
 end

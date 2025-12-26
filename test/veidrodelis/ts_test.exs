@@ -463,4 +463,222 @@ defmodule Vdr.TSTest do
       assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 0.001, 0.001)
     end
   end
+
+  describe "zfirst/3" do
+    test "returns first member from sorted set" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{3.0, "three"}, {1.0, "one"}, {2.0, "two"}])
+
+      assert {:ok, {1.0, "one"}} == TS.zfirst(storage, 0, "myzset")
+    end
+
+    test "returns nil for empty set" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [])
+
+      assert {:ok, nil} == TS.zfirst(storage, 0, "myzset")
+    end
+
+    test "returns nil for nonexistent key" do
+      storage = TS.create()
+
+      assert {:ok, nil} == TS.zfirst(storage, 0, "nonexistent")
+    end
+
+    test "returns error for wrong type" do
+      storage = TS.create()
+      :ok = TS.set(storage, 0, "mystring", "value")
+
+      assert {:error, :wrong_type} == TS.zfirst(storage, 0, "mystring")
+    end
+
+    test "handles members with same score" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {1.0, "b"}, {1.0, "c"}])
+
+      # Should return lexicographically first member at the minimum score
+      assert {:ok, {1.0, member}} = TS.zfirst(storage, 0, "myzset")
+      assert member == "a"
+    end
+  end
+
+  describe "zlast/3" do
+    test "returns last member from sorted set" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {3.0, "three"}, {2.0, "two"}])
+
+      assert {:ok, {3.0, "three"}} == TS.zlast(storage, 0, "myzset")
+    end
+
+    test "returns nil for empty set" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [])
+
+      assert {:ok, nil} == TS.zlast(storage, 0, "myzset")
+    end
+
+    test "returns nil for nonexistent key" do
+      storage = TS.create()
+
+      assert {:ok, nil} == TS.zlast(storage, 0, "nonexistent")
+    end
+
+    test "returns error for wrong type" do
+      storage = TS.create()
+      :ok = TS.set(storage, 0, "mystring", "value")
+
+      assert {:error, :wrong_type} == TS.zlast(storage, 0, "mystring")
+    end
+
+    test "handles members with same score" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "x"}, {1.0, "y"}, {1.0, "z"}])
+
+      # Should return lexicographically last member at the maximum score
+      assert {:ok, {1.0, member}} = TS.zlast(storage, 0, "myzset")
+      assert member == "z"
+    end
+  end
+
+  describe "znext/5" do
+    test "returns next member after given position" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+
+      assert {:ok, {2.0, "two"}} == TS.znext(storage, 0, "myzset", 1.0, "one")
+      assert {:ok, {3.0, "three"}} == TS.znext(storage, 0, "myzset", 2.0, "two")
+    end
+
+    test "returns nil when at the end" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+
+      assert {:ok, nil} == TS.znext(storage, 0, "myzset", 3.0, "three")
+    end
+
+    test "returns nil for nonexistent key" do
+      storage = TS.create()
+
+      assert {:ok, nil} == TS.znext(storage, 0, "nonexistent", 1.0, "member")
+    end
+
+    test "returns error for wrong type" do
+      storage = TS.create()
+      :ok = TS.set(storage, 0, "mystring", "value")
+
+      assert {:error, :wrong_type} == TS.znext(storage, 0, "mystring", 1.0, "member")
+    end
+
+    test "handles members with same score" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {1.0, "b"}, {1.0, "c"}, {2.0, "d"}])
+
+      # Should navigate through members lexicographically at same score
+      assert {:ok, {1.0, "b"}} == TS.znext(storage, 0, "myzset", 1.0, "a")
+      assert {:ok, {1.0, "c"}} == TS.znext(storage, 0, "myzset", 1.0, "b")
+      assert {:ok, {2.0, "d"}} == TS.znext(storage, 0, "myzset", 1.0, "c")
+    end
+
+    test "navigates through entire set" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}])
+
+      assert {:ok, {2.0, "b"}} = TS.znext(storage, 0, "myzset", 1.0, "a")
+      assert {:ok, {3.0, "c"}} = TS.znext(storage, 0, "myzset", 2.0, "b")
+      assert {:ok, {4.0, "d"}} = TS.znext(storage, 0, "myzset", 3.0, "c")
+      assert {:ok, nil} = TS.znext(storage, 0, "myzset", 4.0, "d")
+    end
+  end
+
+  describe "zprev/5" do
+    test "returns previous member before given position" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+
+      assert {:ok, {2.0, "two"}} == TS.zprev(storage, 0, "myzset", 3.0, "three")
+      assert {:ok, {1.0, "one"}} == TS.zprev(storage, 0, "myzset", 2.0, "two")
+    end
+
+    test "returns nil when at the beginning" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+
+      assert {:ok, nil} == TS.zprev(storage, 0, "myzset", 1.0, "one")
+    end
+
+    test "returns nil for nonexistent key" do
+      storage = TS.create()
+
+      assert {:ok, nil} == TS.zprev(storage, 0, "nonexistent", 1.0, "member")
+    end
+
+    test "returns error for wrong type" do
+      storage = TS.create()
+      :ok = TS.set(storage, 0, "mystring", "value")
+
+      assert {:error, :wrong_type} == TS.zprev(storage, 0, "mystring", 1.0, "member")
+    end
+
+    test "handles members with same score" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {2.0, "c"}, {2.0, "d"}])
+
+      # Should navigate through members lexicographically at same score
+      assert {:ok, {2.0, "c"}} == TS.zprev(storage, 0, "myzset", 2.0, "d")
+      assert {:ok, {2.0, "b"}} == TS.zprev(storage, 0, "myzset", 2.0, "c")
+      assert {:ok, {1.0, "a"}} == TS.zprev(storage, 0, "myzset", 2.0, "b")
+    end
+
+    test "navigates through entire set backwards" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}])
+
+      assert {:ok, {3.0, "c"}} = TS.zprev(storage, 0, "myzset", 4.0, "d")
+      assert {:ok, {2.0, "b"}} = TS.zprev(storage, 0, "myzset", 3.0, "c")
+      assert {:ok, {1.0, "a"}} = TS.zprev(storage, 0, "myzset", 2.0, "b")
+      assert {:ok, nil} = TS.zprev(storage, 0, "myzset", 1.0, "a")
+    end
+  end
+
+  describe "zset navigation integration" do
+    test "traverse entire set forward with znext" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+
+      # Start from first
+      {:ok, {score1, member1}} = TS.zfirst(storage, 0, "myzset")
+      assert {score1, member1} == {1.0, "a"}
+
+      # Navigate to next
+      {:ok, {score2, member2}} = TS.znext(storage, 0, "myzset", score1, member1)
+      assert {score2, member2} == {2.0, "b"}
+
+      # Navigate to next again
+      {:ok, {score3, member3}} = TS.znext(storage, 0, "myzset", score2, member2)
+      assert {score3, member3} == {3.0, "c"}
+
+      # No more elements
+      {:ok, nil} = TS.znext(storage, 0, "myzset", score3, member3)
+    end
+
+    test "traverse entire set backward with zprev" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+
+      # Start from last
+      {:ok, {score3, member3}} = TS.zlast(storage, 0, "myzset")
+      assert {score3, member3} == {3.0, "c"}
+
+      # Navigate to previous
+      {:ok, {score2, member2}} = TS.zprev(storage, 0, "myzset", score3, member3)
+      assert {score2, member2} == {2.0, "b"}
+
+      # Navigate to previous again
+      {:ok, {score1, member1}} = TS.zprev(storage, 0, "myzset", score2, member2)
+      assert {score1, member1} == {1.0, "a"}
+
+      # No more elements
+      {:ok, nil} = TS.zprev(storage, 0, "myzset", score1, member1)
+    end
+  end
 end

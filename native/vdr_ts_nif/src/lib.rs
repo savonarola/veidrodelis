@@ -990,6 +990,102 @@ fn zincrby_score<'a>(
     }
 }
 
+#[rustler::nif(name = "zfirst")]
+fn zfirst_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.zfirst(db, key.as_slice()) {
+        Ok(Some((score, member))) => {
+            let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+            member_bin.as_mut_slice().copy_from_slice(member.as_slice());
+            (atoms::ok(), (score.into_inner(), member_bin.release(env))).encode(env)
+        }
+        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "zlast")]
+fn zlast_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.zlast(db, key.as_slice()) {
+        Ok(Some((score, member))) => {
+            let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+            member_bin.as_mut_slice().copy_from_slice(member.as_slice());
+            (atoms::ok(), (score.into_inner(), member_bin.release(env))).encode(env)
+        }
+        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "znext")]
+fn znext_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    score: f64,
+    member: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.znext(db, key.as_slice(), OrderedFloat(score), member.as_slice()) {
+        Ok(Some((next_score, next_member))) => {
+            let mut member_bin = rustler::types::OwnedBinary::new(next_member.len()).unwrap();
+            member_bin.as_mut_slice().copy_from_slice(next_member.as_slice());
+            (atoms::ok(), (next_score.into_inner(), member_bin.release(env))).encode(env)
+        }
+        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
+#[rustler::nif(name = "zprev")]
+fn zprev_get<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    key: Binary,
+    score: f64,
+    member: Binary,
+) -> Term<'a> {
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    match inner.zprev(db, key.as_slice(), OrderedFloat(score), member.as_slice()) {
+        Ok(Some((prev_score, prev_member))) => {
+            let mut member_bin = rustler::types::OwnedBinary::new(prev_member.len()).unwrap();
+            member_bin.as_mut_slice().copy_from_slice(prev_member.as_slice());
+            (atoms::ok(), (prev_score.into_inner(), member_bin.release(env))).encode(env)
+        }
+        Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+        Err(_err_msg) => (atoms::error(), atoms::wrong_type()).encode(env),
+    }
+}
+
 rustler::init!(
     "Elixir.Vdr.TS",
     load = load_nif

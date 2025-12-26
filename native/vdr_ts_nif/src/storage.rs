@@ -1369,4 +1369,77 @@ impl StorageInner {
 
         Ok(new_score)
     }
+
+    /// Get the first (minimum) member from sorted set.
+    /// Returns Some((score, member)) or None if set is empty/doesn't exist.
+    pub fn zfirst(&self, db: u64, key: &[u8]) -> Result<Option<(Score, Bytes)>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::ZSet(zset)) => {
+                let result = zset.index.first().and_then(|key| {
+                    key.get_entry_and_score().map(|(entry, score)| (score, entry))
+                });
+                Ok(result)
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
+
+    /// Get the last (maximum) member from sorted set.
+    /// Returns Some((score, member)) or None if set is empty/doesn't exist.
+    pub fn zlast(&self, db: u64, key: &[u8]) -> Result<Option<(Score, Bytes)>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::ZSet(zset)) => {
+                let result = zset.index.last().and_then(|key| {
+                    key.get_entry_and_score().map(|(entry, score)| (score, entry))
+                });
+                Ok(result)
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
+
+    /// Get the next member after the given (score, member) in sorted set.
+    /// Returns Some((score, member)) or None if no next element exists.
+    pub fn znext(&self, db: u64, key: &[u8], score: Score, member: &[u8]) -> Result<Option<(Score, Bytes)>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::ZSet(zset)) => {
+                let current_key = ZSetIndexKey::create(score, member);
+                // Use range starting after the current key
+                let range = zset.index.range::<_, ZSetIndexKey>((Bound::Excluded(&current_key), Bound::Unbounded));
+                let result = range.take(1).next().and_then(|key| {
+                    key.get_entry_and_score().map(|(entry, score)| (score, entry))
+                });
+                Ok(result)
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
+
+    /// Get the previous member before the given (score, member) in sorted set.
+    /// Returns Some((score, member)) or None if no previous element exists.
+    pub fn zprev(&self, db: u64, key: &[u8], score: Score, member: &[u8]) -> Result<Option<(Score, Bytes)>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::ZSet(zset)) => {
+                let current_key = ZSetIndexKey::create(score, member);
+                // Use range ending before the current key, get last element
+                let range = zset.index.range::<_, ZSetIndexKey>((Bound::Unbounded, Bound::Excluded(&current_key)));
+                let result = range.last().and_then(|key| {
+                    key.get_entry_and_score().and_then(|(entry, ret_score)| {
+                        // Verify the returned element is actually different from the input
+                        if ret_score == score && entry.as_slice() == member {
+                            None
+                        } else {
+                            Some((ret_score, entry))
+                        }
+                    })
+                });
+                Ok(result)
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
 }
