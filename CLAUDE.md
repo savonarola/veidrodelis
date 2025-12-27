@@ -4,25 +4,44 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Veidrodelis is an Elixir library for parsing Redis RDB (Redis Database) files. It implements a complete RDB parser supporting format versions 1-12, with a callback-based architecture for extensible data processing.
+Veidrodelis is an Elixir library that replicates Redis data into an in-process storage for instant, low-latency access.
 
-The project is implemented in **pure Elixir** with C NIFs for LZF compression/decompression performance.
+The project is implemented in **Elixir** with **Rust NIFs** for critical parts:
+- **vdr_ts_nif**: High-performance, thread-safe Term Storage (TS) for all Redis data types
+- **vdr_redis_nif**: Streaming RDB parser and replication protocol handler
+
+### Key Features
+- Full Redis replication protocol support (PSYNC)
+- Two storage backends: TSProj (Rust-based) and MapProj (pure Elixir)
+- Replica-side transaction support via `__vdr_tx` marker protocol
+- Batch command execution for atomic multi-operation updates
+- Direct NIF access for high-performance reads (TSProj)
+- Support for all Redis data types: strings, lists, sets, sorted sets, hashes
+- Efficient sorted set iteration without loading entire sets
+- Automatic reconnection with exponential backoff
+- SSL/TLS support for secure replication
 
 ## Build and Development Commands
 
 ### Building
 ```bash
-# Fetch dependencies and compile everything (including C NIFs)
+# Fetch dependencies and compile everything (including Rust NIFs)
 mix deps.get
 mix compile
 
-# The compile step automatically builds the C NIF via elixir_make
+# The compile step automatically builds:
+# - Rust NIF: vdr_redis_nif (RDB and replication parser)
+# - Rust NIF: vdr_ts_nif (Term Storage)
+# - C code: LZF compression (legacy, wrapped by vdr_redis_nif)
 ```
 
-### Running
+### Benchmarking
 ```bash
-# Start IEx with the application loaded
-iex -S mix
+# Run benchmarks
+mix benchmark
+
+# Benchmarks test replication performance with different scenarios
+# See benchmark/ directory for scenario definitions
 ```
 
 ### Testing
@@ -49,44 +68,129 @@ mix format --check-formatted
 ## Project Structure
 
 ```
-lib/                          # Elixir source code
-├── veidrodelis.ex           # Main module with documentation
-├── veidrodelis/
-│   ├── application.ex       # OTP application
-│   ├── redis_stream/
-│   │   ├── rdb.ex          # RDB parser implementation
-│   │   ├── command.ex      # Redis command structs
-│   │   ├── nif.ex          # Rust NIF interface
-│   │   ├── parser.ex       # Replica parser (replication stream)
-│   │   ├── callback.ex     # RedisStream callback behaviour
-│   │   └── replica.ex      # Replica client
-│   └── lzf.ex              # LZF NIF wrapper and interface
-
-c_src/                        # C source for NIFs
-├── Makefile                 # C build configuration
-├── vdr_lzf_nif.c           # LZF NIF implementation
-├── lzf_c.c, lzf_d.c        # LZF algorithm
-└── lzf.h, lzfP.h           # LZF headers
-
-test/                         # ExUnit tests
-├── test_helper.exs          # Test configuration
-├── veidrodelis/
-│   ├── rdb_test.exs        # RDB parser tests
-│   └── lzf_test.exs        # LZF compression tests
-└── assets/
-    └── dump.rdb             # Test RDB file
+/home/av/dev/veidrodelis/
+├── lib/                          # Elixir source code
+│   ├── veidrodelis.ex            # Main API entry point
+│   ├── veidrodelis/
+│   │   ├── application.ex        # OTP Application (starts Registry)
+│   │   ├── handle.ex             # Handle struct for registry lookups
+│   │   ├── registry.ex           # ETS-based instance registry
+│   │   ├── ts.ex                 # Rust-based Term Storage (TS) NIF interface
+│   │   ├── ts_proj.ex            # TS-based projection implementation
+│   │   ├── map_proj.ex           # Map-based projection (pure Elixir)
+│   │   ├── map_proj/             # Map-based stores for each data type
+│   │   ├── redis_stream/         # Redis replication stream components
+│   │   │   ├── callback.ex       # Behavior definition for callbacks
+│   │   │   ├── replica.ex        # Main replica client (GenServer)
+│   │   │   ├── replica_command.ex # Command wrapper with context
+│   │   │   ├── parser.ex         # Rust NIF wrapper for parsing
+│   │   │   ├── rdb.ex            # RDB parsing interface
+│   │   │   ├── command.ex        # Command structs
+│   │   │   ├── command_parser.ex # Command parsing utilities
+│   │   │   └── command_filter.ex # Command filtering
+│   │   └── benchmark/            # Benchmarking infrastructure
+│   └── mix/tasks/
+│       └── benchmark.ex          # Mix task for benchmarking
+├── native/                       # Rust NIFs (2 crates)
+│   ├── vdr_redis_nif/           # Redis parsing NIF
+│   │   ├── c_src/               # LZF compression (C code)
+│   │   └── src/
+│   │       ├── rdb.rs           # RDB parser
+│   │       └── replica.rs       # Replica parser
+│   └── vdr_ts_nif/              # Term Storage NIF
+│       └── src/
+│           ├── lib.rs           # Main NIF entry point
+│           └── storage.rs       # Core storage implementation
+├── test/                         # Test suite
+│   ├── veidrodelis/
+│   │   ├── transaction_test.exs  # Transaction tests
+│   │   ├── ts_test.exs           # TS tests
+│   │   ├── rdb_test.exs          # RDB parser tests
+│   │   ├── replica_test.exs      # Replica client tests
+│   │   ├── map_proj/             # Map-based store tests
+│   │   └── ts_proj/              # TS-based store tests
+│   └── support/                  # Test helpers
+└── benchmark/                    # Benchmark scenarios
 ```
 
 ## Architecture
 
-### Pure Elixir Design
+Veidrodelis provides two storage backend implementations:
+1. **TSProj** - Rust-based, high-performance storage using the Term Storage (TS) NIF
+2. **MapProj** - Pure Elixir implementation using maps (easier debugging)
 
-The project is implemented entirely in Elixir, leveraging the language's excellent binary pattern matching and functional programming capabilities for efficient RDB parsing.
+### Replication Flow
+
+```
+Redis Master → TCP/SSL → Vdr.RedisStream.Replica →
+  RDB/Command Stream → Vdr.RedisStream.Parser (Rust) →
+  Commands → Callback (TSProj/MapProj) →
+  Storage (TS Rust NIF / Elixir Maps)
+```
+
+### Read Path (TSProj)
+
+```
+Veidrodelis API → Registry Lookup →
+  TSProj.get(ts_storage, db, key) →
+  Vdr.TS.get(ts_storage, db, key) (direct NIF call, no GenServer)
+```
 
 ### Core Components
 
+**Vdr.TS - Term Storage ([lib/veidrodelis/ts.ex](lib/veidrodelis/ts.ex))**
+- High-performance, thread-safe Rust-native storage for all Redis data types
+- NIF implementation: [native/vdr_ts_nif/src/lib.rs](native/vdr_ts_nif/src/lib.rs)
+- Multi-database support (db parameter)
+- **Batch command execution** via `commands/2` - executes multiple commands under single mutex lock
+- Direct read/write operations (no GenServer overhead)
+- Arc-based reference counting for efficient memory management
+- Supported operations:
+  - **Strings**: `set/4`, `get/3`, `del/3`
+  - **Lists**: `lpush/4`, `rpush/4`, `lpop/3`, `rpop/3`, `llen/3`, `lrange/5`, `lset/5`, `rpoplpush/4`
+  - **Sets**: `sadd/4`, `srem/4`, `smove/5`, `sunionstore/4`, `sinterstore/4`, `sdiffstore/4`, `smembers/3`, `sismember/4`, `scard/3`
+  - **Hashes**: `hset/5`, `hmset/4`, `hdel/4`, `hget/4`, `hmget/4`, `hgetall/3`, `hkeys/3`, `hvals/3`, `hlen/3`, `hexists/4`
+  - **Sorted Sets**: `zadd/4`, `zrem/4`, `zscore/4`, `zcard/3`, `zrange/6`, `zrangebyscore/6`, `zrank/4`, `zrevrank/4`, `zcount/5`, `zincrby/5`
+  - **Sorted Set Iteration**: `zfirst/3`, `zlast/3`, `znext/5`, `zprev/5` - efficient iteration without loading entire set
+- Rust dependencies: `im` (immutable data structures), `indexset`, `ordered-float`, `ouroboros`
+
+**Vdr.TSProj - TS-based Projection ([lib/veidrodelis/ts_proj.ex](lib/veidrodelis/ts_proj.ex))**
+- Redis replication processor using Rust-native TS storage
+- **Replica-side transaction support** via `__vdr_tx` marker key protocol:
+  - Transaction start: `SET __vdr_tx <value>` - begins buffering commands
+  - Commands buffered during transaction
+  - Transaction end: `DEL __vdr_tx` - atomically applies all buffered commands via `Vdr.TS.commands/2`
+- Double-buffering during RDB transfer (new_ts_storage/ts_storage swap)
+- Direct TS storage access for reads (no GenServer calls)
+- All Redis command types supported
+
+**Vdr.MapProj - Map-based Projection ([lib/veidrodelis/map_proj.ex](lib/veidrodelis/map_proj.ex))**
+- Pure Elixir implementation using maps for storage
+- Same transaction support as TSProj
+- GenServer-based reads (easier to debug)
+- Specialized modules for each data type in [lib/veidrodelis/map_proj/](lib/veidrodelis/map_proj/) directory
+  - `strings.ex`, `lists.ex`, `sets.ex`, `hashes.ex`, `zsets.ex`
+
+**Vdr.RedisStream.Replica - Replication Client ([lib/veidrodelis/redis_stream/replica.ex](lib/veidrodelis/redis_stream/replica.ex))**
+- GenServer implementing Redis replication protocol (PSYNC)
+- Full and partial resync support
+- Automatic reconnection with exponential backoff
+- ACL and legacy authentication
+- SSL/TLS support
+- Periodic REPLCONF ACK
+- State machine: init → auth → ping → replconf → psync → replication
+- Callbacks: `init`, `handle_replication_start`, `handle_streaming_start`, `handle_command`, `handle_call`, `handle_destroy`
+
+**Vdr.RedisStream.Parser - Rust-based Parser ([lib/veidrodelis/redis_stream/parser.ex](lib/veidrodelis/redis_stream/parser.ex))**
+- Rust NIF wrapper for streaming parser
+- NIF implementation: [native/vdr_redis_nif/src/replica.rs](native/vdr_redis_nif/src/replica.rs)
+- Handles RDB + command stream parsing
+- States: WaitingRdb → ReadingRdb → Streaming
+- Returns parsed commands via callbacks
+
 **RDB Parser ([lib/veidrodelis/redis_stream/rdb.ex](lib/veidrodelis/redis_stream/rdb.ex))**
 - Rust-based RDB parser with Elixir wrapper
+- NIF implementation: [native/vdr_redis_nif/src/rdb.rs](native/vdr_redis_nif/src/rdb.rs)
 - Entry point: `Vdr.RedisStream.RDB.create()` and `Vdr.RedisStream.RDB.data(parser, chunk)`
 - Stateless streaming parser that processes opcodes sequentially
 - Supports all Redis data types: strings, lists, sets, sorted sets, hashes
@@ -95,8 +199,8 @@ The project is implemented entirely in Elixir, leveraging the language's excelle
 - Type specifications for better tooling support
 
 **RedisStream Callback Behavior ([lib/veidrodelis/redis_stream/callback.ex](lib/veidrodelis/redis_stream/callback.ex))**
-- Defines a single callback: `on_command/3`
-- Called for each parsed Redis command with command structs
+- Defines callbacks for replication lifecycle events
+- Main callback: `on_command/3` - called for each parsed Redis command
 - Returns: `{:ok, new_state}` or `{:error, reason}`
 
 **Command Structs ([lib/veidrodelis/redis_stream/command.ex](lib/veidrodelis/redis_stream/command.ex))**
@@ -106,88 +210,69 @@ The project is implemented entirely in Elixir, leveraging the language's excelle
 - `%Command.SAdd{key, member}` - SADD command for set members
 - `%Command.ZAdd{key, score, member}` - ZADD command for sorted set members
 - `%Command.HSet{key, field, value}` - HSET command for hash fields
+- And many more command types for all Redis operations
 
-**LZF Compression NIF ([lib/veidrodelis/lzf.ex](lib/veidrodelis/lzf.ex))**
-- Native Implemented Function for LZF compression/decompression
-- Elixir module with C implementation in [c_src/](c_src/) directory
-- Functions: `compress/1`, `decompress/2`
-- Automatically loaded on module initialization via `@on_load`
-- Uses NIFs for maximum performance on compression/decompression operations
+**LZF Compression NIF ([native/vdr_redis_nif/c_src/](native/vdr_redis_nif/c_src/))**
+- C implementation for LZF compression/decompression (legacy)
+- Used by RDB parser for compressed strings
+- Functions exposed via Rust NIF wrapper
+- Files: `lzf_c.c`, `lzf_d.c`, `lzf.h`, `lzfP.h`
 
-### Design Patterns
+**Vdr.Registry ([lib/veidrodelis/registry.ex](lib/veidrodelis/registry.ex))**
+- ETS-based registry for Veidrodelis instances
+- Instance registration by ID, process monitoring, cleanup on crash
+- Used for looking up projection processes by handle
 
-**Command-Based Callback Interface**
-Instead of separate callbacks for each data type, the parser uses a single `on_command/3` callback that receives Redis command structs. Each parsed element is represented as the Redis command that would have created it:
-- `SET` for strings
-- `RPUSH` for list elements (one command per element)
-- `SADD` for set members (one command per member)
-- `ZADD` for sorted set members (one command per member)
-- `HSET` for hash fields (one command per field)
-
-This design provides:
-- A unified, intuitive interface
-- Direct mapping to Redis operations
-- Pattern matching on command types in callbacks
-- Memory-efficient streaming of large RDB files
-
-**Binary Pattern Matching**
-Heavy use of Elixir's binary pattern matching (via the Bitwise module) for efficient parsing of various encoding formats (length encoding, string encoding, ziplist, listpack, intset).
-
-**Error Handling**
-- Parser uses `try/catch` for control flow on errors
-- Unsupported types are skipped gracefully when possible
-- All user callbacks can return `{:error, reason}` to halt parsing
-
-### C NIF Integration
-
-The NIF is compiled using `elixir_make`:
-- Root [Makefile](Makefile) delegates to [c_src/Makefile](c_src/Makefile)
-- Automatically invoked during `mix compile`
-- Output: `priv/vdr_lzf_nif.so`
-
-## Redis RDB Format Details
-
-The parser handles:
-- **Opcodes**: EOF, SELECTDB, EXPIRETIME, EXPIRETIME_MS, RESIZEDB, AUX
-- **Value Types**: STRING, LIST, SET, ZSET, ZSET_2, HASH, and their encoded variants
-- **Encodings**: Integer encoding (8/16/32-bit), LZF compression
-- **Compressed Structures**: ZIPLIST, LISTPACK, INTSET, QUICKLIST, QUICKLIST_2
-
-Expire times and auxiliary fields are currently skipped during parsing.
-
-## Testing
-
-### Test Structure
-- ExUnit tests in [test/veidrodelis/](test/veidrodelis/)
-- Test assets (sample RDB files) in [test/assets/](test/assets/)
-- Tests demonstrate callback implementation patterns
-
-### Running Tests
-```bash
-# Run all tests
-mix test
-
-# Run with coverage
-mix test --cover
-
-# Run only RDB parser tests
-mix test test/veidrodelis/rdb_test.exs
-
-# Run only LZF tests
-mix test test/veidrodelis/lzf_test.exs
-```
 
 ## Implementation Notes
 
-When working with the RDB parser:
+### Working with TS Storage
+- TS (Term Storage) is a Rust NIF providing thread-safe storage with internal locking
+- For atomic multi-command operations, always use `Vdr.TS.commands/2` to execute under a single mutex lock
+- TS storage uses Arc-based reference counting - no need to manually manage memory
+- Direct NIF calls bypass GenServer overhead for maximum read performance
+- Multi-database support via the `db` parameter (defaults to 0)
+
+### Working with Transactions
+- Transactions are detected via the `__vdr_tx` marker key
+- Transaction protocol:
+  1. `SET __vdr_tx <value>` starts buffering commands
+  2. All subsequent commands are buffered (not applied)
+  3. `DEL __vdr_tx` triggers atomic application via `Vdr.TS.commands/2`
+- Both TSProj and MapProj support the same transaction protocol
+- Transaction state is tracked in the projection GenServer (buffer list)
+
+### Working with the RDB parser
 - Binary parsing uses little-endian for most integers (Redis convention)
 - Ziplist/listpack entries contain back-length fields for reverse traversal
 - Sorted set scores can be float, NaN, or infinity values
 - Hash and sorted set entries are always paired (field/value or member/score)
+- The parser is stateful (WaitingRdb → ReadingRdb → Streaming)
 
-When adding new features:
+### Working with Sorted Set Iteration
+- Use iteration methods (`zfirst`, `zlast`, `znext`, `zprev`) instead of loading entire sets
+- Iteration returns `{score, member, cursor}` tuples
+- Cursor is opaque - pass it to `znext`/`zprev` for traversal
+- Returns `nil` when reaching the end of iteration
+
+### Choosing Storage Backends
+- **Use TSProj** for production - high performance, thread-safe, direct NIF access
+- **Use MapProj** for debugging - pure Elixir, easier to inspect state, GenServer-based
+- Both implement the same interface and support the same features
+
+### When adding new features
 - Implement in Elixir in `lib/veidrodelis/*.ex`
-- Update the callback behavior if changing the interface
+- If adding to TS storage, also update Rust code in `native/vdr_ts_nif/src/lib.rs`
+- Update both TSProj and MapProj if changing projection behavior
 - Add comprehensive documentation with `@doc` and examples
-- Add tests in `test/veidrodelis/*_test.exs` (ExUnit)
+- Add tests in `test/veidrodelis/*_test.exs` (ExUnit). Do not start ad-hoc elixir scripts for testing, add a proper test module instead.
 - Ensure proper typespecs for better tooling support
+- In ExUnit setup method, do not stop processes started with `start_link`, with `on_exit` callback. They will be shutdown by the test framework.
+
+### Working with Rust NIFs
+- Two Rust crates: `vdr_redis_nif` (parsing) and `vdr_ts_nif` (storage)
+- Both use Rustler for Elixir-Rust interop
+- Compile automatically via `mix compile` (handled by Rustler)
+- LZF compression uses legacy C code, wrapped by Rust NIF
+- Rust code should handle errors gracefully and return proper Elixir error tuples
+
