@@ -14,7 +14,9 @@ defmodule Vdr.TSProj do
   alias Vdr.RedisStream.Command
   alias Command, as: RedisCommand
 
-  defstruct [:ts_storage, :id, :new_ts_storage, :ready]
+  @tx_key "__vdr_tx"
+
+  defstruct [:ts_storage, :id, :new_ts_storage, :ready, :tx_buffer, :in_transaction]
 
   @type key :: binary()
   @type value :: binary()
@@ -23,7 +25,9 @@ defmodule Vdr.TSProj do
           ts_storage: reference(),
           id: term(),
           new_ts_storage: reference() | nil,
-          ready: boolean()
+          ready: boolean(),
+          tx_buffer: list(),
+          in_transaction: boolean()
         }
 
   def start_link(opts) do
@@ -97,21 +101,51 @@ defmodule Vdr.TSProj do
   end
 
   @impl Vdr.RedisStream.Callback
+  # Transaction start: SET __vdr_tx
+  def handle_command(
+        %__MODULE__{} = state,
+        %Vdr.RedisStream.ReplicaCommand{db: db, command: %RedisCommand.Set{key: @tx_key} = cmd}
+      ) do
+    # Start transaction and buffer this SET command
+    {:ok, %{state | in_transaction: true, tx_buffer: [{db, cmd}]}}
+  end
+
+  # Transaction end: DEL __vdr_tx
+  def handle_command(
+        %__MODULE__{} = state,
+        %Vdr.RedisStream.ReplicaCommand{db: db, command: %RedisCommand.Del{keys: keys} = cmd}
+      ) do
+    if @tx_key in keys do
+      # Buffer the DEL command, then apply all buffered commands
+      state_with_del = %{state | tx_buffer: [{db, cmd} | state.tx_buffer]}
+      new_state = apply_transaction(state_with_del)
+      {:ok, %{new_state | in_transaction: false, tx_buffer: []}}
+    else
+      # Normal DEL command, buffer if in transaction
+      if state.in_transaction do
+        {:ok, %{state | tx_buffer: [{db, cmd} | state.tx_buffer]}}
+      else
+        execute_command(state, db, cmd)
+        {:ok, state}
+      end
+    end
+  end
+
+  # In transaction: buffer the command (prepend for O(1) performance)
+  def handle_command(
+        %__MODULE__{in_transaction: true} = state,
+        %Vdr.RedisStream.ReplicaCommand{db: db, command: command}
+      ) do
+    {:ok, %{state | tx_buffer: [{db, command} | state.tx_buffer]}}
+  end
+
+  # Normal command processing
   def handle_command(%__MODULE__{} = state, %Vdr.RedisStream.ReplicaCommand{
         db: db,
         command: command
       }) do
-    # If new_ts_storage exists, write to it (during RDB transfer)
-    # Otherwise, write to ts_storage (during streaming)
-    if state.new_ts_storage do
-      # Writing to new_ts_storage during RDB transfer
-      do_handle_command(state.new_ts_storage, db, command)
-      {:ok, state}
-    else
-      # Writing to ts_storage during streaming
-      do_handle_command(state.ts_storage, db, command)
-      {:ok, state}
-    end
+    execute_command(state, db, command)
+    {:ok, state}
   end
 
   @impl Vdr.RedisStream.Callback
@@ -151,7 +185,9 @@ defmodule Vdr.TSProj do
       id: id,
       ts_storage: Vdr.TS.create(),
       new_ts_storage: nil,
-      ready: false
+      ready: false,
+      tx_buffer: [],
+      in_transaction: false
     }
   end
 
@@ -159,7 +195,8 @@ defmodule Vdr.TSProj do
     # Create new_ts_storage for incoming RDB data
     # Keep current ts_storage for serving reads during RDB transfer
     # Keep ready flag as-is (true after first sync, false initially)
-    new_state = %{state | new_ts_storage: Vdr.TS.create()}
+    # Clear any ongoing transaction on reconnection
+    new_state = %{state | new_ts_storage: Vdr.TS.create(), tx_buffer: [], in_transaction: false}
 
     # Registry is already registered in init, no need to re-register
     {:ok, new_state}
@@ -385,6 +422,30 @@ defmodule Vdr.TSProj do
         # Execute the command via the common NIF
         [_result] = Vdr.TS.commands(ts_storage, [cmd_tuple])
         :ok
+    end
+  end
+
+  # Transaction helper functions
+
+  defp apply_transaction(%__MODULE__{tx_buffer: buffer} = state) do
+    # Reverse the buffer since we prepended commands
+    commands = Enum.reverse(buffer)
+
+    # Apply all commands to the appropriate ts_storage
+    Enum.each(commands, fn {db, command} ->
+      execute_command(state, db, command)
+    end)
+
+    state
+  end
+
+  defp execute_command(%__MODULE__{} = state, db, command) do
+    if state.new_ts_storage do
+      # Writing to new_ts_storage during RDB transfer
+      do_handle_command(state.new_ts_storage, db, command)
+    else
+      # Writing to ts_storage during streaming
+      do_handle_command(state.ts_storage, db, command)
     end
   end
 end
