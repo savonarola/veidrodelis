@@ -347,83 +347,83 @@ defmodule Vdr.TSProj do
 
   # Convert RedisCommand to tuple format for NIF
   defp convert_command(db, %RedisCommand.Set{key: key, value: value}) do
-    {db, :set, key, value}
+    {db, {:set, key, value}}
   end
 
   defp convert_command(db, %RedisCommand.Del{keys: keys}) do
-    {db, :del, keys}
+    {db, {:del, keys}}
   end
 
   defp convert_command(db, %RedisCommand.SAdd{key: key, members: members}) do
-    {db, :sadd, key, members}
+    {db, {:sadd, key, members}}
   end
 
   defp convert_command(db, %RedisCommand.SRem{key: key, members: members}) do
-    {db, :srem, key, members}
+    {db, {:srem, key, members}}
   end
 
   defp convert_command(db, %RedisCommand.SMove{source: source_key, destination: dest_key, member: member}) do
-    {db, :smove, source_key, dest_key, member}
+    {db, {:smove, source_key, dest_key, member}}
   end
 
   defp convert_command(db, %RedisCommand.SUnionStore{destination: dest_key, keys: source_keys}) do
-    {db, :sunionstore, dest_key, source_keys}
+    {db, {:sunionstore, dest_key, source_keys}}
   end
 
   defp convert_command(db, %RedisCommand.SInterStore{destination: dest_key, keys: source_keys}) do
-    {db, :sinterstore, dest_key, source_keys}
+    {db, {:sinterstore, dest_key, source_keys}}
   end
 
   defp convert_command(db, %RedisCommand.SDiffStore{destination: dest_key, keys: source_keys}) do
-    {db, :sdiffstore, dest_key, source_keys}
+    {db, {:sdiffstore, dest_key, source_keys}}
   end
 
   defp convert_command(db, %RedisCommand.LPush{key: key, values: values}) do
-    {db, :lpush, key, values}
+    {db, {:lpush, key, values}}
   end
 
   defp convert_command(db, %RedisCommand.RPush{key: key, values: values}) do
-    {db, :rpush, key, values}
+    {db, {:rpush, key, values}}
   end
 
   defp convert_command(db, %RedisCommand.LPushX{key: key, values: values}) do
-    {db, :lpush, key, values}
+    {db, {:lpush, key, values}}
   end
 
   defp convert_command(db, %RedisCommand.RPushX{key: key, values: values}) do
-    {db, :rpush, key, values}
+    {db, {:rpush, key, values}}
   end
 
   defp convert_command(db, %RedisCommand.LPop{key: key}) do
-    {db, :lpop, key}
+    {db, {:lpop, key}}
   end
 
   defp convert_command(db, %RedisCommand.RPop{key: key}) do
-    {db, :rpop, key}
+    {db, {:rpop, key}}
   end
 
   defp convert_command(db, %RedisCommand.LSet{key: key, index: index, value: value}) do
-    {db, :lset, key, index, value}
+    {db, {:lset, key, index, value}}
   end
 
   defp convert_command(db, %RedisCommand.RPopLPush{source: source_key, destination: dest_key}) do
-    {db, :rpoplpush, source_key, dest_key}
+    {db, {:rpoplpush, source_key, dest_key}}
   end
 
   defp convert_command(db, %RedisCommand.HSet{key: key, fields: fields}) do
-    {db, :hmset, key, fields}
+    {db, {:hmset, key, fields}}
   end
 
   defp convert_command(db, %RedisCommand.HDel{key: key, fields: fields}) do
-    {db, :hdel, key, fields}
+    {db, {:hdel, key, fields}}
   end
 
   defp convert_command(db, %RedisCommand.ZAdd{key: key, members: members}) do
-    {db, :zadd, key, members}
+    {db, {:zadd, key, members}}
   end
 
   defp convert_command(db, %RedisCommand.ZRem{key: key, members: members}) do
-    {db, :zrem, key, members}
+    {db, {:zrem, key, members}}
   end
 
   # Ignore all other commands

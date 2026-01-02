@@ -102,12 +102,12 @@ fn execute_single_command<'a>(
 ) -> Term<'a> {
     use rustler::types::tuple;
 
-    // Decode the command tuple: {db, command_atom, arg1, arg2, ...}
-    // Get tuple elements
+    // Decode the command tuple: {db, {command_atom, arg1, arg2, ...}}
+    // Get outer tuple elements
     let terms: Result<Vec<Term>, _> = tuple::get_tuple(cmd_term);
 
     if let Ok(terms) = terms {
-        if terms.len() < 2 {
+        if terms.len() != 2 {
             return (atoms::error(), rustler::types::atom::error().encode(env)).encode(env);
         }
 
@@ -118,15 +118,23 @@ fn execute_single_command<'a>(
         }
         let db = db.unwrap();
 
-        // Second element is command atom
-        let cmd_atom: Result<rustler::types::Atom, _> = terms[1].decode();
+        // Second element is inner tuple {command_atom, arg1, arg2, ...}
+        let inner_tuple: Result<Vec<Term>, _> = tuple::get_tuple(terms[1]);
 
-        if let Ok(cmd_atom) = cmd_atom {
-            // Rest are arguments
-            let args = &terms[2..];
+        if let Ok(cmd_terms) = inner_tuple {
+            if cmd_terms.len() < 1 {
+                return (atoms::error(), rustler::types::atom::error().encode(env)).encode(env);
+            }
+
+            // First element of inner tuple is command atom
+            let cmd_atom: Result<rustler::types::Atom, _> = cmd_terms[0].decode();
+
+            if let Ok(cmd_atom) = cmd_atom {
+                // Rest are arguments from inner tuple
+                let args = &cmd_terms[1..];
             // Use direct atom comparison
             if cmd_atom == atoms::set() {
-                // {db, :set, key, value}
+                // {db, {:set, key, value}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(value)) = (
                         args[0].decode::<Binary>(),
@@ -137,7 +145,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::del() {
-                // {db, :del, keys} where keys is a list
+                // {db, {:del, keys}} where keys is a list
                 if args.len() == 1 {
                     if let Ok(keys) = args[0].decode::<Vec<Binary>>() {
                         for key in keys.iter() {
@@ -147,7 +155,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::sadd() {
-                // {db, :sadd, key, members}
+                // {db, {:sadd, key, members}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(members)) = (
                         args[0].decode::<Binary>(),
@@ -161,7 +169,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::srem() {
-                // {db, :srem, key, members}
+                // {db, {:srem, key, members}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(members)) = (
                         args[0].decode::<Binary>(),
@@ -175,7 +183,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::smove() {
-                // {db, :smove, source_key, dest_key, member}
+                // {db, {:smove, source_key, dest_key, member}}
                 if args.len() == 3 {
                     if let (Ok(source_key), Ok(dest_key), Ok(member)) = (
                         args[0].decode::<Binary>(),
@@ -189,7 +197,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::sunionstore() {
-                // {db, :sunionstore, dest_key, source_keys}
+                // {db, {:sunionstore, dest_key, source_keys}}
                 if args.len() == 2 {
                     if let (Ok(dest_key), Ok(source_keys)) = (
                         args[0].decode::<Binary>(),
@@ -203,7 +211,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::sinterstore() {
-                // {db, :sinterstore, dest_key, source_keys}
+                // {db, {:sinterstore, dest_key, source_keys}}
                 if args.len() == 2 {
                     if let (Ok(dest_key), Ok(source_keys)) = (
                         args[0].decode::<Binary>(),
@@ -217,7 +225,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::sdiffstore() {
-                // {db, :sdiffstore, dest_key, source_keys}
+                // {db, {:sdiffstore, dest_key, source_keys}}
                 if args.len() == 2 {
                     if let (Ok(dest_key), Ok(source_keys)) = (
                         args[0].decode::<Binary>(),
@@ -231,7 +239,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::lpush() {
-                // {db, :lpush, key, values}
+                // {db, {:lpush, key, values}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(values)) = (
                         args[0].decode::<Binary>(),
@@ -245,7 +253,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::rpush() {
-                // {db, :rpush, key, values}
+                // {db, {:rpush, key, values}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(values)) = (
                         args[0].decode::<Binary>(),
@@ -259,7 +267,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::lpop() {
-                // {db, :lpop, key}
+                // {db, {:lpop, key}}
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.lpop(db, key.as_slice()) {
@@ -274,7 +282,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::rpop() {
-                // {db, :rpop, key}
+                // {db, {:rpop, key}}
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.rpop(db, key.as_slice()) {
@@ -289,7 +297,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::lset() {
-                // {db, :lset, key, index, value}
+                // {db, {:lset, key, index, value}}
                 if args.len() == 3 {
                     if let (Ok(key), Ok(index), Ok(value)) = (
                         args[0].decode::<Binary>(),
@@ -303,7 +311,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::rpoplpush() {
-                // {db, :rpoplpush, source_key, dest_key}
+                // {db, {:rpoplpush, source_key, dest_key}}
                 if args.len() == 2 {
                     if let (Ok(source_key), Ok(dest_key)) = (
                         args[0].decode::<Binary>(),
@@ -321,7 +329,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::hset() {
-                // {db, :hset, key, field, value}
+                // {db, {:hset, key, field, value}}
                 if args.len() == 3 {
                     if let (Ok(key), Ok(field), Ok(value)) = (
                         args[0].decode::<Binary>(),
@@ -335,7 +343,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::hmset() {
-                // {db, :hmset, key, fields}
+                // {db, {:hmset, key, fields}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(fields)) = (
                         args[0].decode::<Binary>(),
@@ -352,7 +360,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::hdel() {
-                // {db, :hdel, key, fields}
+                // {db, {:hdel, key, fields}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(fields)) = (
                         args[0].decode::<Binary>(),
@@ -366,7 +374,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zadd() {
-                // {db, :zadd, key, members}  where members is [{score, member}, ...]
+                // {db, {:zadd, key, members}}  where members is [{score, member}, ...]
                 if args.len() == 2 {
                     if let (Ok(key), Ok(members)) = (
                         args[0].decode::<Binary>(),
@@ -383,7 +391,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zrem() {
-                // {db, :zrem, key, members}
+                // {db, {:zrem, key, members}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(members)) = (
                         args[0].decode::<Binary>(),
@@ -398,7 +406,7 @@ fn execute_single_command<'a>(
                 }
             // READ OPERATIONS
             } else if cmd_atom == atoms::get() {
-                // {db, :get, key}
+                // {db, {:get, key}}
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.get(db, key.as_slice()) {
@@ -413,7 +421,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::smembers() {
-                // {db, :smembers, key}
+                // {db, {:smembers, key}}
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.smembers(db, key.as_slice()) {
@@ -430,7 +438,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::sismember() {
-                // {db, :sismember, key, member}
+                // {db, {:sismember, key, member}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(member)) = (
                         args[0].decode::<Binary>(),
@@ -443,7 +451,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::scard() {
-                // {db, :scard, key}
+                // {db, {:scard, key}}
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.scard(db, key.as_slice()) {
@@ -453,7 +461,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::llen() {
-                // {db, :llen, key}
+                // {db, {:llen, key}}
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.llen(db, key.as_slice()) {
@@ -463,7 +471,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::lrange() {
-                // {db, :lrange, key, start, stop}
+                // {db, {:lrange, key, start, stop}}
                 if args.len() == 3 {
                     if let (Ok(key), Ok(start), Ok(stop)) = (
                         args[0].decode::<Binary>(),
@@ -484,7 +492,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::hget() {
-                // {db, :hget, key, field}
+                // {db, {:hget, key, field}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(field)) = (
                         args[0].decode::<Binary>(),
@@ -502,7 +510,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::hmget() {
-                // {db, :hmget, key, fields}
+                // {db, {:hmget, key, fields}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(fields)) = (
                         args[0].decode::<Binary>(),
@@ -528,7 +536,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::hgetall() {
-                // {db, :hgetall, key}
+                // {db, {:hgetall, key}}
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.hgetall(db, key.as_slice()) {
@@ -547,7 +555,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::hkeys() {
-                // {db, :hkeys, key}
+                // {db, {:hkeys, key}}
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.hkeys(db, key.as_slice()) {
@@ -564,7 +572,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::hvals() {
-                // {db, :hvals, key}
+                // {db, {:hvals, key}}
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.hvals(db, key.as_slice()) {
@@ -581,7 +589,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::hlen() {
-                // {db, :hlen, key}
+                // {db, {:hlen, key}}
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.hlen(db, key.as_slice()) {
@@ -591,7 +599,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::hexists() {
-                // {db, :hexists, key, field}
+                // {db, {:hexists, key, field}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(field)) = (
                         args[0].decode::<Binary>(),
@@ -604,7 +612,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zscore() {
-                // {db, :zscore, key, member}
+                // {db, {:zscore, key, member}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(member)) = (
                         args[0].decode::<Binary>(),
@@ -618,7 +626,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zcard() {
-                // {db, :zcard, key}
+                // {db, {:zcard, key}}
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.zcard(db, key.as_slice()) {
@@ -628,7 +636,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zrange() {
-                // {db, :zrange, key, start, stop, with_scores}
+                // {db, {:zrange, key, start, stop, with_scores}}
                 if args.len() == 4 {
                     if let (Ok(key), Ok(start), Ok(stop), Ok(with_scores)) = (
                         args[0].decode::<Binary>(),
@@ -660,7 +668,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zrangebyscore() {
-                // {db, :zrangebyscore, key, min, max, with_scores}
+                // {db, {:zrangebyscore, key, min, max, with_scores}}
                 if args.len() == 4 {
                     if let (Ok(key), Ok(min), Ok(max), Ok(with_scores)) = (
                         args[0].decode::<Binary>(),
@@ -692,7 +700,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zrank() {
-                // {db, :zrank, key, member}
+                // {db, {:zrank, key, member}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(member)) = (
                         args[0].decode::<Binary>(),
@@ -706,7 +714,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zrevrank() {
-                // {db, :zrevrank, key, member}
+                // {db, {:zrevrank, key, member}}
                 if args.len() == 2 {
                     if let (Ok(key), Ok(member)) = (
                         args[0].decode::<Binary>(),
@@ -720,7 +728,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zcount() {
-                // {db, :zcount, key, min, max}
+                // {db, {:zcount, key, min, max}}
                 if args.len() == 3 {
                     if let (Ok(key), Ok(min), Ok(max)) = (
                         args[0].decode::<Binary>(),
@@ -734,7 +742,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zincrby() {
-                // {db, :zincrby, key, delta, member}
+                // {db, {:zincrby, key, delta, member}}
                 if args.len() == 3 {
                     if let (Ok(key), Ok(delta), Ok(member)) = (
                         args[0].decode::<Binary>(),
@@ -748,7 +756,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zfirst() {
-                // {db, :zfirst, key}
+                // {db, {:zfirst, key}}
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.zfirst(db, key.as_slice()) {
@@ -763,7 +771,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zlast() {
-                // {db, :zlast, key}
+                // {db, {:zlast, key}}
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.zlast(db, key.as_slice()) {
@@ -778,7 +786,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::znext() {
-                // {db, :znext, key, score, member}
+                // {db, {:znext, key, score, member}}
                 if args.len() == 3 {
                     if let (Ok(key), Ok(score), Ok(member)) = (
                         args[0].decode::<Binary>(),
@@ -797,7 +805,7 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zprev() {
-                // {db, :zprev, key, score, member}
+                // {db, {:zprev, key, score, member}}
                 if args.len() == 3 {
                     if let (Ok(key), Ok(score), Ok(member)) = (
                         args[0].decode::<Binary>(),
@@ -815,6 +823,7 @@ fn execute_single_command<'a>(
                         };
                     }
                 }
+            }
             }
         }
     }
