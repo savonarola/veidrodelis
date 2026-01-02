@@ -121,7 +121,7 @@ defmodule Vdr.TS do
   """
   @spec get(reference(), non_neg_integer(), binary()) :: binary() | nil
   def get(storage, db, key) do
-    [result] = commands(storage, [{db, {:get, key}}])
+    [result] = tx(storage, [{db, {:get, key}}])
     case result do
       {:ok, value} -> value
       {:error, _} -> nil
@@ -218,7 +218,7 @@ defmodule Vdr.TS do
       storage = Vdr.TS.create()
 
       # Execute multiple commands atomically
-      results = Vdr.TS.commands(storage, [
+      results = Vdr.TS.tx(storage, [
         {0, {:sadd, "set1", ["a", "b"]}},
         {0, {:sadd, "set2", ["c", "d"]}},
         {0, {:set, "key1", "value1"}}
@@ -226,146 +226,17 @@ defmodule Vdr.TS do
       #=> [:ok, :ok, :ok]
 
       # Mix different command types
-      results = Vdr.TS.commands(storage, [
+      results = Vdr.TS.tx(storage, [
         {0, {:zadd, "myzset", [{1.0, "one"}, {2.0, "two"}]}},
         {0, {:hset, "myhash", "field1", "value1"}},
         {0, {:del, "oldkey"}}
       ])
       #=> [{:ok, 2}, :ok, :ok]
   """
-  @spec commands(reference(), [tuple()]) :: [term()]
-  def commands(_storage, _commands), do: :erlang.nif_error(:nif_not_loaded)
+  @spec tx(reference(), [tuple()]) :: [term()]
+  def tx(_storage, _commands), do: :erlang.nif_error(:nif_not_loaded)
 
-  # Set operations
-
-  @doc """
-  Adds one or more members to the set stored at key.
-
-  Returns `:ok` on success. Returns `{:error, :wrong_type}` if the key
-  exists and holds a non-set value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      :ok = Vdr.TS.sadd(storage, 0, "myset", ["a", "b", "c"])
-      :ok = Vdr.TS.sadd(storage, 0, "myset", ["b", "d"])  # "b" already exists
-
-      # Type checking
-      Vdr.TS.set(storage, 0, "mystring", "value")
-      {:error, :wrong_type} = Vdr.TS.sadd(storage, 0, "mystring", ["a"])
-  """
-  @spec sadd(reference(), non_neg_integer(), binary(), [binary()]) ::
-          :ok | {:error, :wrong_type}
-  def sadd(storage, db, key, members) do
-    [result] = commands(storage, [{db, {:sadd, key, members}}])
-    result
-  end
-
-  @doc """
-  Removes one or more members from the set stored at key.
-
-  Returns `:ok` on success, even if members don't exist in the set.
-  Returns `{:error, :wrong_type}` if the key exists and holds a non-set value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      Vdr.TS.sadd(storage, 0, "myset", ["a", "b", "c"])
-      :ok = Vdr.TS.srem(storage, 0, "myset", ["a", "b"])
-      :ok = Vdr.TS.srem(storage, 0, "myset", ["x", "y"])  # non-existent members
-  """
-  @spec srem(reference(), non_neg_integer(), binary(), [binary()]) ::
-          :ok | {:error, :wrong_type}
-  def srem(storage, db, key, members) do
-    [result] = commands(storage, [{db, {:srem, key, members}}])
-    result
-  end
-
-  @doc """
-  Moves a member from the source set to the destination set.
-
-  Returns `:ok` on success, even if the member doesn't exist in the source set.
-  Returns `{:error, :wrong_type}` if either key exists and holds a non-set value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      Vdr.TS.sadd(storage, 0, "set1", ["a", "b", "c"])
-      Vdr.TS.sadd(storage, 0, "set2", ["x", "y"])
-      :ok = Vdr.TS.smove(storage, 0, "set1", "set2", "b")
-      :ok = Vdr.TS.smove(storage, 0, "set1", "set2", "z")  # doesn't exist
-  """
-  @spec smove(reference(), non_neg_integer(), binary(), binary(), binary()) ::
-          :ok | {:error, :wrong_type}
-  def smove(storage, db, source_key, dest_key, member) do
-    [result] = commands(storage, [{db, {:smove, source_key, dest_key, member}}])
-    result
-  end
-
-  @doc """
-  Stores the union of multiple sets in the destination key.
-
-  Returns `:ok` on success. Returns `{:error, :wrong_type}` if any source key
-  exists and holds a non-set value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      Vdr.TS.sadd(storage, 0, "set1", ["a", "b"])
-      Vdr.TS.sadd(storage, 0, "set2", ["b", "c"])
-      :ok = Vdr.TS.sunionstore(storage, 0, "result", ["set1", "set2"])
-      # result contains: ["a", "b", "c"]
-  """
-  @spec sunionstore(reference(), non_neg_integer(), binary(), [binary()]) ::
-          :ok | {:error, :wrong_type}
-  def sunionstore(storage, db, dest_key, source_keys) do
-    [result] = commands(storage, [{db, {:sunionstore, dest_key, source_keys}}])
-    result
-  end
-
-  @doc """
-  Stores the intersection of multiple sets in the destination key.
-
-  Returns `:ok` on success. Returns `{:error, :wrong_type}` if any source key
-  exists and holds a non-set value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      Vdr.TS.sadd(storage, 0, "set1", ["a", "b", "c"])
-      Vdr.TS.sadd(storage, 0, "set2", ["b", "c", "d"])
-      :ok = Vdr.TS.sinterstore(storage, 0, "result", ["set1", "set2"])
-      # result contains: ["b", "c"]
-  """
-  @spec sinterstore(reference(), non_neg_integer(), binary(), [binary()]) ::
-          :ok | {:error, :wrong_type}
-  def sinterstore(storage, db, dest_key, source_keys) do
-    [result] = commands(storage, [{db, {:sinterstore, dest_key, source_keys}}])
-    result
-  end
-
-  @doc """
-  Stores the difference of sets in the destination key.
-
-  The difference is computed as: first_set - second_set - third_set - ...
-
-  Returns `:ok` on success. Returns `{:error, :wrong_type}` if any source key
-  exists and holds a non-set value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      Vdr.TS.sadd(storage, 0, "set1", ["a", "b", "c", "d"])
-      Vdr.TS.sadd(storage, 0, "set2", ["b", "d"])
-      :ok = Vdr.TS.sdiffstore(storage, 0, "result", ["set1", "set2"])
-      # result contains: ["a", "c"]
-  """
-  @spec sdiffstore(reference(), non_neg_integer(), binary(), [binary()]) ::
-          :ok | {:error, :wrong_type}
-  def sdiffstore(storage, db, dest_key, source_keys) do
-    [result] = commands(storage, [{db, {:sdiffstore, dest_key, source_keys}}])
-    result
-  end
+  # Set operations (read-only)
 
   @doc """
   Returns all members of the set stored at key.
@@ -385,7 +256,7 @@ defmodule Vdr.TS do
   @spec smembers(reference(), non_neg_integer(), binary()) ::
           {:ok, [binary()]} | {:error, :wrong_type}
   def smembers(storage, db, key) do
-    [result] = commands(storage, [{db, {:smembers, key}}])
+    [result] = tx(storage, [{db, {:smembers, key}}])
     result
   end
 
@@ -405,7 +276,7 @@ defmodule Vdr.TS do
   @spec sismember(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, boolean()} | {:error, :wrong_type}
   def sismember(storage, db, key, member) do
-    [result] = commands(storage, [{db, {:sismember, key, member}}])
+    [result] = tx(storage, [{db, {:sismember, key, member}}])
     result
   end
 
@@ -426,99 +297,11 @@ defmodule Vdr.TS do
   @spec scard(reference(), non_neg_integer(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
   def scard(storage, db, key) do
-    [result] = commands(storage, [{db, {:scard, key}}])
+    [result] = tx(storage, [{db, {:scard, key}}])
     result
   end
 
-  # List operations
-
-  @doc """
-  Pushes one or more values to the head (left) of the list.
-
-  Returns `:ok` on success. Returns `{:error, :wrong_type}` if the key
-  exists and holds a non-list value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      :ok = Vdr.TS.lpush(storage, 0, "mylist", ["a", "b", "c"])
-      # List now contains: ["c", "b", "a"]
-
-      # Type checking
-      Vdr.TS.set(storage, 0, "mystring", "value")
-      {:error, :wrong_type} = Vdr.TS.lpush(storage, 0, "mystring", ["a"])
-  """
-  @spec lpush(reference(), non_neg_integer(), binary(), [binary()]) ::
-          :ok | {:error, :wrong_type}
-  def lpush(storage, db, key, values) do
-    [result] = commands(storage, [{db, {:lpush, key, values}}])
-    result
-  end
-
-  @doc """
-  Pushes one or more values to the tail (right) of the list.
-
-  Returns `:ok` on success. Returns `{:error, :wrong_type}` if the key
-  exists and holds a non-list value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      :ok = Vdr.TS.rpush(storage, 0, "mylist", ["a", "b", "c"])
-      # List now contains: ["a", "b", "c"]
-
-      # Type checking
-      Vdr.TS.set(storage, 0, "mystring", "value")
-      {:error, :wrong_type} = Vdr.TS.rpush(storage, 0, "mystring", ["a"])
-  """
-  @spec rpush(reference(), non_neg_integer(), binary(), [binary()]) ::
-          :ok | {:error, :wrong_type}
-  def rpush(storage, db, key, values) do
-    [result] = commands(storage, [{db, {:rpush, key, values}}])
-    result
-  end
-
-  @doc """
-  Removes and returns the first element from the head (left) of the list.
-
-  Returns `{:ok, value}` if an element was popped, `{:ok, nil}` if the list
-  is empty or doesn't exist. Returns `{:error, :wrong_type}` if the key
-  exists and holds a non-list value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      Vdr.TS.rpush(storage, 0, "mylist", ["a", "b", "c"])
-      {:ok, "a"} = Vdr.TS.lpop(storage, 0, "mylist")
-      {:ok, nil} = Vdr.TS.lpop(storage, 0, "nonexistent")
-  """
-  @spec lpop(reference(), non_neg_integer(), binary()) ::
-          {:ok, binary() | nil} | {:error, :wrong_type}
-  def lpop(storage, db, key) do
-    [result] = commands(storage, [{db, {:lpop, key}}])
-    result
-  end
-
-  @doc """
-  Removes and returns the last element from the tail (right) of the list.
-
-  Returns `{:ok, value}` if an element was popped, `{:ok, nil}` if the list
-  is empty or doesn't exist. Returns `{:error, :wrong_type}` if the key
-  exists and holds a non-list value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      Vdr.TS.rpush(storage, 0, "mylist", ["a", "b", "c"])
-      {:ok, "c"} = Vdr.TS.rpop(storage, 0, "mylist")
-      {:ok, nil} = Vdr.TS.rpop(storage, 0, "nonexistent")
-  """
-  @spec rpop(reference(), non_neg_integer(), binary()) ::
-          {:ok, binary() | nil} | {:error, :wrong_type}
-  def rpop(storage, db, key) do
-    [result] = commands(storage, [{db, {:rpop, key}}])
-    result
-  end
+  # List operations (read-only)
 
   @doc """
   Returns the length of the list stored at key.
@@ -537,7 +320,7 @@ defmodule Vdr.TS do
   @spec llen(reference(), non_neg_integer(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
   def llen(storage, db, key) do
-    [result] = commands(storage, [{db, {:llen, key}}])
+    [result] = tx(storage, [{db, {:llen, key}}])
     result
   end
 
@@ -560,94 +343,11 @@ defmodule Vdr.TS do
   @spec lrange(reference(), non_neg_integer(), binary(), integer(), integer()) ::
           {:ok, [binary()]} | {:error, :wrong_type}
   def lrange(storage, db, key, start, stop) do
-    [result] = commands(storage, [{db, {:lrange, key, start, stop}}])
+    [result] = tx(storage, [{db, {:lrange, key, start, stop}}])
     result
   end
 
-  @doc """
-  Sets the list element at index to value.
-
-  Returns `:ok` on success. Returns `{:error, :wrong_type}` if the key exists
-  and holds a non-list value. Index can be negative (counting from the end).
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      Vdr.TS.rpush(storage, 0, "mylist", ["a", "b", "c"])
-      :ok = Vdr.TS.lset(storage, 0, "mylist", 1, "x")
-      {:ok, ["a", "x", "c"]} = Vdr.TS.lrange(storage, 0, "mylist", 0, -1)
-  """
-  @spec lset(reference(), non_neg_integer(), binary(), integer(), binary()) ::
-          :ok | {:error, :wrong_type}
-  def lset(storage, db, key, index, value) do
-    [result] = commands(storage, [{db, {:lset, key, index, value}}])
-    result
-  end
-
-  @doc """
-  Atomically pops the last element from source list and pushes it to the head of destination list.
-
-  Returns `{:ok, value}` if an element was moved, `{:ok, nil}` if the source list
-  is empty or doesn't exist. Returns `{:error, :wrong_type}` if either key exists
-  and holds a non-list value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      Vdr.TS.rpush(storage, 0, "list1", ["a", "b", "c"])
-      Vdr.TS.rpush(storage, 0, "list2", ["x", "y"])
-      {:ok, "c"} = Vdr.TS.rpoplpush(storage, 0, "list1", "list2")
-      # list1: ["a", "b"], list2: ["c", "x", "y"]
-  """
-  @spec rpoplpush(reference(), non_neg_integer(), binary(), binary()) ::
-          {:ok, binary() | nil} | {:error, :wrong_type}
-  def rpoplpush(storage, db, source_key, dest_key) do
-    [result] = commands(storage, [{db, {:rpoplpush, source_key, dest_key}}])
-    result
-  end
-
-  # Hash operations
-
-  @doc """
-  Sets field in the hash stored at key to value.
-
-  Returns `:ok` on success. Returns `{:error, :wrong_type}` if the key
-  exists and holds a non-hash value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      :ok = Vdr.TS.hset(storage, 0, "myhash", "field1", "value1")
-      {:ok, "value1"} = Vdr.TS.hget(storage, 0, "myhash", "field1")
-
-      # Type checking
-      Vdr.TS.set(storage, 0, "mystring", "value")
-      {:error, :wrong_type} = Vdr.TS.hset(storage, 0, "mystring", "field", "value")
-  """
-  @spec hset(reference(), non_neg_integer(), binary(), binary(), binary()) ::
-          :ok | {:error, :wrong_type}
-  def hset(storage, db, key, field, value) do
-    [result] = commands(storage, [{db, {:hset, key, field, value}}])
-    result
-  end
-
-  @doc """
-  Sets multiple fields in the hash stored at key.
-
-  Returns `:ok` on success. Returns `{:error, :wrong_type}` if the key
-  exists and holds a non-hash value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      :ok = Vdr.TS.hmset(storage, 0, "myhash", [{"field1", "value1"}, {"field2", "value2"}])
-  """
-  @spec hmset(reference(), non_neg_integer(), binary(), [{binary(), binary()}]) ::
-          :ok | {:error, :wrong_type}
-  def hmset(storage, db, key, fields) do
-    [result] = commands(storage, [{db, {:hmset, key, fields}}])
-    result
-  end
+  # Hash operations (read-only)
 
   @doc """
   Gets the value of a field in the hash stored at key.
@@ -665,7 +365,7 @@ defmodule Vdr.TS do
   @spec hget(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, binary() | nil} | {:error, :wrong_type}
   def hget(storage, db, key, field) do
-    [result] = commands(storage, [{db, {:hget, key, field}}])
+    [result] = tx(storage, [{db, {:hget, key, field}}])
     result
   end
 
@@ -684,7 +384,7 @@ defmodule Vdr.TS do
   @spec hmget(reference(), non_neg_integer(), binary(), [binary()]) ::
           {:ok, [binary() | nil]} | {:error, :wrong_type}
   def hmget(storage, db, key, fields) do
-    [result] = commands(storage, [{db, {:hmget, key, fields}}])
+    [result] = tx(storage, [{db, {:hmget, key, fields}}])
     result
   end
 
@@ -704,7 +404,7 @@ defmodule Vdr.TS do
   @spec hgetall(reference(), non_neg_integer(), binary()) ::
           {:ok, [{binary(), binary()}]} | {:error, :wrong_type}
   def hgetall(storage, db, key) do
-    [result] = commands(storage, [{db, {:hgetall, key}}])
+    [result] = tx(storage, [{db, {:hgetall, key}}])
     result
   end
 
@@ -723,7 +423,7 @@ defmodule Vdr.TS do
   @spec hkeys(reference(), non_neg_integer(), binary()) ::
           {:ok, [binary()]} | {:error, :wrong_type}
   def hkeys(storage, db, key) do
-    [result] = commands(storage, [{db, {:hkeys, key}}])
+    [result] = tx(storage, [{db, {:hkeys, key}}])
     result
   end
 
@@ -743,7 +443,7 @@ defmodule Vdr.TS do
   @spec hvals(reference(), non_neg_integer(), binary()) ::
           {:ok, [binary()]} | {:error, :wrong_type}
   def hvals(storage, db, key) do
-    [result] = commands(storage, [{db, {:hvals, key}}])
+    [result] = tx(storage, [{db, {:hvals, key}}])
     result
   end
 
@@ -763,7 +463,7 @@ defmodule Vdr.TS do
   @spec hlen(reference(), non_neg_integer(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
   def hlen(storage, db, key) do
-    [result] = commands(storage, [{db, {:hlen, key}}])
+    [result] = tx(storage, [{db, {:hlen, key}}])
     result
   end
 
@@ -783,69 +483,11 @@ defmodule Vdr.TS do
   @spec hexists(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, boolean()} | {:error, :wrong_type}
   def hexists(storage, db, key, field) do
-    [result] = commands(storage, [{db, {:hexists, key, field}}])
+    [result] = tx(storage, [{db, {:hexists, key, field}}])
     result
   end
 
-  @doc """
-  Deletes one or more fields from the hash stored at key.
-
-  Returns `{:ok, count}` where count is the number of fields deleted.
-  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      Vdr.TS.hmset(storage, 0, "myhash", [{"f1", "v1"}, {"f2", "v2"}, {"f3", "v3"}])
-      {:ok, 2} = Vdr.TS.hdel(storage, 0, "myhash", ["f1", "f2"])
-      {:ok, 0} = Vdr.TS.hdel(storage, 0, "nonexistent", ["f1"])
-  """
-  @spec hdel(reference(), non_neg_integer(), binary(), [binary()]) ::
-          {:ok, non_neg_integer()} | {:error, :wrong_type}
-  def hdel(storage, db, key, fields) do
-    [result] = commands(storage, [{db, {:hdel, key, fields}}])
-    result
-  end
-
-  # Sorted set (zset) operations
-
-  @doc """
-  Adds members with scores to the sorted set stored at key.
-
-  Returns `{:ok, count}` where count is the number of new members added.
-  Returns `{:error, :wrong_type}` if the key exists and holds a non-zset value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      {:ok, 3} = Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
-      {:ok, 0} = Vdr.TS.zadd(storage, 0, "myzset", [{1.5, "one"}])  # Updates score, returns 0
-  """
-  @spec zadd(reference(), non_neg_integer(), binary(), [{float(), binary()}]) ::
-          {:ok, non_neg_integer()} | {:error, :wrong_type}
-  def zadd(storage, db, key, members) do
-    [result] = commands(storage, [{db, {:zadd, key, members}}])
-    result
-  end
-
-  @doc """
-  Removes members from the sorted set stored at key.
-
-  Returns `{:ok, count}` where count is the number of members removed.
-  Returns `{:error, :wrong_type}` if the key exists and holds a non-zset value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}])
-      {:ok, 1} = Vdr.TS.zrem(storage, 0, "myzset", ["one"])
-  """
-  @spec zrem(reference(), non_neg_integer(), binary(), [binary()]) ::
-          {:ok, non_neg_integer()} | {:error, :wrong_type}
-  def zrem(storage, db, key, members) do
-    [result] = commands(storage, [{db, {:zrem, key, members}}])
-    result
-  end
+  # Sorted set (zset) operations (read-only)
 
   @doc """
   Gets the score of a member in the sorted set stored at key.
@@ -863,7 +505,7 @@ defmodule Vdr.TS do
   @spec zscore(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, float() | nil} | {:error, :wrong_type}
   def zscore(storage, db, key, member) do
-    [result] = commands(storage, [{db, {:zscore, key, member}}])
+    [result] = tx(storage, [{db, {:zscore, key, member}}])
     result
   end
 
@@ -883,7 +525,7 @@ defmodule Vdr.TS do
   @spec zcard(reference(), non_neg_integer(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
   def zcard(storage, db, key) do
-    [result] = commands(storage, [{db, {:zcard, key}}])
+    [result] = tx(storage, [{db, {:zcard, key}}])
     result
   end
 
@@ -907,7 +549,7 @@ defmodule Vdr.TS do
   @spec zrange(reference(), non_neg_integer(), binary(), integer(), integer(), boolean()) ::
           {:ok, [binary() | float()]} | {:error, :wrong_type}
   def zrange(storage, db, key, start, stop, with_scores) do
-    [result] = commands(storage, [{db, {:zrange, key, start, stop, with_scores}}])
+    [result] = tx(storage, [{db, {:zrange, key, start, stop, with_scores}}])
     case result do
       {:ok, tuples} when with_scores ->
         # Convert list of tuples to flat list: [{m1, s1}, {m2, s2}] -> [m1, s1, m2, s2]
@@ -939,7 +581,7 @@ defmodule Vdr.TS do
   @spec zrangebyscore(reference(), non_neg_integer(), binary(), float(), float(), boolean()) ::
           {:ok, [binary() | float()]} | {:error, :wrong_type}
   def zrangebyscore(storage, db, key, min, max, with_scores) do
-    [result] = commands(storage, [{db, {:zrangebyscore, key, min, max, with_scores}}])
+    [result] = tx(storage, [{db, {:zrangebyscore, key, min, max, with_scores}}])
     case result do
       {:ok, tuples} when with_scores ->
         # Convert list of tuples to flat list: [{m1, s1}, {m2, s2}] -> [m1, s1, m2, s2]
@@ -968,7 +610,7 @@ defmodule Vdr.TS do
   @spec zrank(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, non_neg_integer() | nil} | {:error, :wrong_type}
   def zrank(storage, db, key, member) do
-    [result] = commands(storage, [{db, {:zrank, key, member}}])
+    [result] = tx(storage, [{db, {:zrank, key, member}}])
     result
   end
 
@@ -988,7 +630,7 @@ defmodule Vdr.TS do
   @spec zrevrank(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, non_neg_integer() | nil} | {:error, :wrong_type}
   def zrevrank(storage, db, key, member) do
-    [result] = commands(storage, [{db, {:zrevrank, key, member}}])
+    [result] = tx(storage, [{db, {:zrevrank, key, member}}])
     result
   end
 
@@ -1007,27 +649,7 @@ defmodule Vdr.TS do
   @spec zcount(reference(), non_neg_integer(), binary(), float(), float()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
   def zcount(storage, db, key, min, max) do
-    [result] = commands(storage, [{db, {:zcount, key, min, max}}])
-    result
-  end
-
-  @doc """
-  Increments the score of a member in the sorted set by delta.
-
-  Creates the member with score delta if it doesn't exist.
-  Returns `{:ok, new_score}` with the new score.
-  Returns `{:error, :wrong_type}` if the key exists and holds a non-zset value.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      {:ok, 1.5} = Vdr.TS.zincrby(storage, 0, "myzset", 1.5, "member")
-      {:ok, 3.0} = Vdr.TS.zincrby(storage, 0, "myzset", 1.5, "member")
-  """
-  @spec zincrby(reference(), non_neg_integer(), binary(), float(), binary()) ::
-          {:ok, float()} | {:error, :wrong_type}
-  def zincrby(storage, db, key, delta, member) do
-    [result] = commands(storage, [{db, {:zincrby, key, delta, member}}])
+    [result] = tx(storage, [{db, {:zcount, key, min, max}}])
     result
   end
 
@@ -1048,7 +670,7 @@ defmodule Vdr.TS do
   @spec zfirst(reference(), non_neg_integer(), binary()) ::
           {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
   def zfirst(storage, db, key) do
-    [result] = commands(storage, [{db, {:zfirst, key}}])
+    [result] = tx(storage, [{db, {:zfirst, key}}])
     result
   end
 
@@ -1069,7 +691,7 @@ defmodule Vdr.TS do
   @spec zlast(reference(), non_neg_integer(), binary()) ::
           {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
   def zlast(storage, db, key) do
-    [result] = commands(storage, [{db, {:zlast, key}}])
+    [result] = tx(storage, [{db, {:zlast, key}}])
     result
   end
 
@@ -1090,7 +712,7 @@ defmodule Vdr.TS do
   @spec znext(reference(), non_neg_integer(), binary(), float(), binary()) ::
           {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
   def znext(storage, db, key, score, member) do
-    [result] = commands(storage, [{db, {:znext, key, score, member}}])
+    [result] = tx(storage, [{db, {:znext, key, score, member}}])
     result
   end
 
@@ -1111,7 +733,7 @@ defmodule Vdr.TS do
   @spec zprev(reference(), non_neg_integer(), binary(), float(), binary()) ::
           {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
   def zprev(storage, db, key, score, member) do
-    [result] = commands(storage, [{db, {:zprev, key, score, member}}])
+    [result] = tx(storage, [{db, {:zprev, key, score, member}}])
     result
   end
 
@@ -1121,7 +743,7 @@ defmodule Vdr.TS do
   Pre-compiling scripts can improve performance when executing the same script
   multiple times, as the compilation step is done only once.
 
-  Returns `{:ok, bytecode}` where bytecode is a binary that can be passed to `tx/3`,
+  Returns `{:ok, bytecode}` where bytecode is a binary that can be passed to `read_tx/3`,
   or `{:error, reason}` if compilation fails.
 
   ## Examples
@@ -1131,8 +753,8 @@ defmodule Vdr.TS do
       {:ok, bytecode} = Vdr.TS.lua_load(storage, script)
 
       # Use the bytecode multiple times
-      {:ok, result1} = Vdr.TS.tx(storage, 0, bytecode)
-      {:ok, result2} = Vdr.TS.tx(storage, 1, bytecode)
+      {:ok, result1} = Vdr.TS.read_tx(storage, 0, bytecode)
+      {:ok, result2} = Vdr.TS.read_tx(storage, 1, bytecode)
   """
   @spec lua_load(reference(), binary()) :: {:ok, binary()} | {:error, term()}
   def lua_load(_storage, _script), do: :erlang.nif_error(:nif_not_loaded)
@@ -1166,28 +788,128 @@ defmodule Vdr.TS do
 
       # String result
       script = "return ts.get('key1')"
-      {:ok, "value1"} = Vdr.TS.tx(storage, 0, script)
+      {:ok, "value1"} = Vdr.TS.read_tx(storage, 0, script)
 
       # Number result
       script = "return 42"
-      {:ok, 42} = Vdr.TS.tx(storage, 0, script)
+      {:ok, 42} = Vdr.TS.read_tx(storage, 0, script)
 
       # Boolean result
       script = "return true"
-      {:ok, true} = Vdr.TS.tx(storage, 0, script)
+      {:ok, true} = Vdr.TS.read_tx(storage, 0, script)
 
       # List result
       script = "return {1, 2, 3}"
-      {:ok, [1, 2, 3]} = Vdr.TS.tx(storage, 0, script)
+      {:ok, [1, 2, 3]} = Vdr.TS.read_tx(storage, 0, script)
 
       # Map result
       script = "return {a = 1, b = 2}"
-      {:ok, %{"a" => 1, "b" => 2}} = Vdr.TS.tx(storage, 0, script)
+      {:ok, %{"a" => 1, "b" => 2}} = Vdr.TS.read_tx(storage, 0, script)
 
       # Pre-compile for better performance
       {:ok, bytecode} = Vdr.TS.lua_load(storage, script)
-      {:ok, result} = Vdr.TS.tx(storage, 0, bytecode)
+      {:ok, result} = Vdr.TS.read_tx(storage, 0, bytecode)
+
+  ## Read-Only Command Transactions
+
+  Alternatively, `read_tx/3` can execute a read-only transaction: a list of commands atomically
+  under a single mutex lock.
+
+  This is a simpler alternative to Lua-based transactions for cases where you just need
+  to read multiple values atomically without complex logic.
+
+  The command tuples do NOT include the db parameter (db is passed separately).
+  Each command tuple has the format: `{:command_atom, ...args}`
+
+  Only read-only commands are allowed. Attempting to execute a mutating command will
+  return `{:error, :readonly_violation}`.
+
+  Returns `{:ok, [results]}` where results is a list of values returned by each command,
+  or `{:error, reason}` if validation fails.
+
+  ## Supported Read-Only Commands
+
+  **String operations:**
+  - `{:get, key}` - Get a string value
+
+  **Set operations:**
+  - `{:smembers, key}`, `{:sismember, key, member}`, `{:scard, key}`
+
+  **List operations:**
+  - `{:llen, key}`, `{:lrange, key, start, stop}`
+
+  **Hash operations:**
+  - `{:hget, key, field}`, `{:hmget, key, fields}`, `{:hgetall, key}`
+  - `{:hkeys, key}`, `{:hvals, key}`, `{:hlen, key}`, `{:hexists, key, field}`
+
+  **Sorted set operations:**
+  - `{:zscore, key, member}`, `{:zcard, key}`, `{:zrank, key, member}`, `{:zrevrank, key, member}`
+  - `{:zcount, key, min, max}`, `{:zrange, key, start, stop, with_scores}`
+  - `{:zrangebyscore, key, min, max, with_scores}`, `{:zfirst, key}`, `{:zlast, key}`
+  - `{:znext, key, score, member}`, `{:zprev, key, score, member}`
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.set(storage, 0, "key1", "value1")
+      Vdr.TS.hset(storage, 0, "hash1", "field1", "value2")
+
+      # Read multiple values atomically
+      {:ok, ["value1", "value2"]} = Vdr.TS.read_tx(storage, 0, [
+        {:get, "key1"},
+        {:hget, "hash1", "field1"}
+      ])
+
+      # Readonly violation
+      {:error, :readonly_violation} = Vdr.TS.read_tx(storage, 0, [
+        {:set, "key2", "value2"}  # Not allowed!
+      ])
   """
-  @spec tx(reference(), non_neg_integer(), binary()) :: {:ok, term()} | {:error, term()}
-  def tx(_storage, _db, _script_or_bytecode), do: :erlang.nif_error(:nif_not_loaded)
+  @spec read_tx(reference(), non_neg_integer(), [tuple()]) :: {:ok, [term()]} | {:error, term()}
+  def read_tx(storage, db, commands) when is_list(commands) do
+    case validate_readonly_commands(commands) do
+      :ok ->
+        full_commands = Enum.map(commands, fn cmd -> {db, cmd} end)
+        results = tx(storage, full_commands)
+        {:ok, unwrap_results(results)}
+
+      {:error, _} = error ->
+        error
+    end
+  end
+
+  @spec read_tx(reference(), non_neg_integer(), binary()) :: {:ok, term()} | {:error, term()}
+  def read_tx(_storage, _db, _script_or_bytecode), do: :erlang.nif_error(:nif_not_loaded)
+
+  # Whitelist of read-only commands
+  @readonly_commands MapSet.new([
+    :get, :smembers, :sismember, :scard,
+    :llen, :lrange,
+    :hget, :hmget, :hgetall, :hkeys, :hvals, :hlen, :hexists,
+    :zscore, :zcard, :zrank, :zrevrank, :zcount, :zrange, :zrangebyscore,
+    :zfirst, :zlast, :znext, :zprev
+  ])
+
+  defp validate_readonly_commands(commands) do
+    Enum.reduce_while(commands, :ok, fn cmd, :ok ->
+      if is_tuple(cmd) and tuple_size(cmd) > 0 do
+        command_name = elem(cmd, 0)
+        if is_atom(command_name) and MapSet.member?(@readonly_commands, command_name) do
+          {:cont, :ok}
+        else
+          {:halt, {:error, :readonly_violation}}
+        end
+      else
+        {:halt, {:error, :invalid_command}}
+      end
+    end)
+  end
+
+  # Unwrap {:ok, value} results, keeping raw values as-is
+  defp unwrap_results(results) do
+    Enum.map(results, fn
+      {:ok, value} -> value
+      other -> other
+    end)
+  end
 end

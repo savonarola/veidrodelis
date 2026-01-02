@@ -294,12 +294,12 @@ defmodule Vdr.TSTest do
     test "returns 0 for empty zset via Lua" do
       storage = TS.create()
       script = "return ts.zcount('nonexistent', 0.0, 10.0)"
-      assert {:ok, 0} == TS.tx(storage, 0, script)
+      assert {:ok, 0} == TS.read_tx(storage, 0, script)
     end
 
     test "returns 0 when no elements in range" do
       storage = TS.create()
-      {:ok, 3} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+      [{:ok, 3}] = TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}]}}])
 
       # Range before all elements
       assert {:ok, 0} == TS.zcount(storage, 0, "myzset", -10.0, 0.5)
@@ -313,7 +313,7 @@ defmodule Vdr.TSTest do
 
     test "counts all elements when range covers all" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}])
 
       # Range that covers all elements
       assert {:ok, 5} == TS.zcount(storage, 0, "myzset", 0.0, 10.0)
@@ -322,7 +322,7 @@ defmodule Vdr.TSTest do
 
     test "min boundary is inclusive" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}])
 
       # Min boundary exactly at element - should include it
       assert {:ok, 4} == TS.zcount(storage, 0, "myzset", 2.0, 10.0)
@@ -332,7 +332,7 @@ defmodule Vdr.TSTest do
 
     test "max boundary is inclusive" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}])
 
       # Max boundary exactly at element - should include it
       assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 0.0, 3.0)
@@ -342,7 +342,7 @@ defmodule Vdr.TSTest do
 
     test "both boundaries are inclusive" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}])
 
       # Both boundaries exactly at elements - should include both
       assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 2.0, 4.0)
@@ -352,7 +352,7 @@ defmodule Vdr.TSTest do
 
     test "single element exact match" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{2.5, "x"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{2.5, "x"}]}}])
 
       # Exact match for single element
       assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 2.5, 2.5)
@@ -367,7 +367,7 @@ defmodule Vdr.TSTest do
 
     test "multiple elements with same score" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b1"}, {2.0, "b2"}, {2.0, "b3"}, {3.0, "c"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b1"}, {2.0, "b2"}, {2.0, "b3"}, {3.0, "c"}]}}])
 
       # Range that includes all elements with score 2.0
       assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 2.0, 2.0)
@@ -380,7 +380,7 @@ defmodule Vdr.TSTest do
 
     test "negative and positive scores" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{-5.0, "a"}, {-2.0, "b"}, {0.0, "c"}, {2.0, "d"}, {5.0, "e"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{-5.0, "a"}, {-2.0, "b"}, {0.0, "c"}, {2.0, "d"}, {5.0, "e"}]}}])
 
       # Range spanning negative to positive
       assert {:ok, 3} == TS.zcount(storage, 0, "myzset", -3.0, 3.0)
@@ -398,7 +398,7 @@ defmodule Vdr.TSTest do
 
     test "fractional boundaries" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}])
 
       # Boundaries between integer scores
       assert {:ok, 2} == TS.zcount(storage, 0, "myzset", 1.5, 3.5)
@@ -408,7 +408,7 @@ defmodule Vdr.TSTest do
 
     test "inverted range returns 0" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}]}}])
 
       # Min > Max should return 0
       assert {:ok, 0} == TS.zcount(storage, 0, "myzset", 3.0, 1.0)
@@ -419,7 +419,7 @@ defmodule Vdr.TSTest do
 
       # Create 1000 members with scores from 0 to 999
       members = for i <- 0..999, do: {i * 1.0, "member#{i}"}
-      {:ok, _} = TS.zadd(storage, 0, "large_zset", members)
+      TS.tx(storage, [{0, {:zadd, "large_zset", members}}])
 
       # Test various ranges
       assert {:ok, 1000} == TS.zcount(storage, 0, "large_zset", 0.0, 999.0)
@@ -437,7 +437,7 @@ defmodule Vdr.TSTest do
 
     test "handles boundary precision with floats" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.1, "a"}, {1.5, "b"}, {1.9, "c"}, {2.0, "d"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.1, "a"}, {1.5, "b"}, {1.9, "c"}, {2.0, "d"}]}}])
 
       # Test precise boundaries
       assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 1.1, 1.9)
@@ -447,7 +447,7 @@ defmodule Vdr.TSTest do
 
     test "empty range at exact score" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {3.0, "b"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {3.0, "b"}]}}])
 
       # Range at a score where no element exists
       assert {:ok, 0} == TS.zcount(storage, 0, "myzset", 2.0, 2.0)
@@ -455,7 +455,7 @@ defmodule Vdr.TSTest do
 
     test "very large score values" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0e10, "a"}, {2.0e10, "b"}, {3.0e10, "c"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0e10, "a"}, {2.0e10, "b"}, {3.0e10, "c"}]}}])
 
       assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 1.5e10, 2.5e10)
       assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 0.0, 1.0e11)
@@ -463,7 +463,7 @@ defmodule Vdr.TSTest do
 
     test "very small score differences" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{0.001, "a"}, {0.002, "b"}, {0.003, "c"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{0.001, "a"}, {0.002, "b"}, {0.003, "c"}]}}])
 
       assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 0.0015, 0.0025)
       assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 0.001, 0.001)
@@ -471,24 +471,24 @@ defmodule Vdr.TSTest do
 
     test "counts elements in range via Lua" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}]}}])
 
       script = "return ts.zcount('myzset', 1.5, 3.5)"
-      assert {:ok, 2} == TS.tx(storage, 0, script)
+      assert {:ok, 2} == TS.read_tx(storage, 0, script)
     end
   end
 
   describe "zfirst/3" do
     test "returns first member from sorted set" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{3.0, "three"}, {1.0, "one"}, {2.0, "two"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{3.0, "three"}, {1.0, "one"}, {2.0, "two"}]}}])
 
       assert {:ok, {1.0, "one"}} == TS.zfirst(storage, 0, "myzset")
     end
 
     test "returns nil for empty set" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [])
+      TS.tx(storage, [{0, {:zadd, "myzset", []}}])
 
       assert {:ok, nil} == TS.zfirst(storage, 0, "myzset")
     end
@@ -508,7 +508,7 @@ defmodule Vdr.TSTest do
 
     test "handles members with same score" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {1.0, "b"}, {1.0, "c"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {1.0, "b"}, {1.0, "c"}]}}])
 
       # Should return lexicographically first member at the minimum score
       assert {:ok, {1.0, member}} = TS.zfirst(storage, 0, "myzset")
@@ -517,13 +517,13 @@ defmodule Vdr.TSTest do
 
     test "returns first member via Lua" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}]}}])
 
       script = """
       local score, member = ts.zfirst('myzset')
       return member .. ':' .. score
       """
-      assert {:ok, "a:1"} == TS.tx(storage, 0, script)
+      assert {:ok, "a:1"} == TS.read_tx(storage, 0, script)
     end
 
     test "returns nil for empty set via Lua" do
@@ -537,21 +537,21 @@ defmodule Vdr.TSTest do
         return 'not nil'
       end
       """
-      assert {:ok, "nil"} == TS.tx(storage, 0, script)
+      assert {:ok, "nil"} == TS.read_tx(storage, 0, script)
     end
   end
 
   describe "zlast/3" do
     test "returns last member from sorted set" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {3.0, "three"}, {2.0, "two"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "one"}, {3.0, "three"}, {2.0, "two"}]}}])
 
       assert {:ok, {3.0, "three"}} == TS.zlast(storage, 0, "myzset")
     end
 
     test "returns nil for empty set" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [])
+      TS.tx(storage, [{0, {:zadd, "myzset", []}}])
 
       assert {:ok, nil} == TS.zlast(storage, 0, "myzset")
     end
@@ -571,7 +571,7 @@ defmodule Vdr.TSTest do
 
     test "handles members with same score" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "x"}, {1.0, "y"}, {1.0, "z"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "x"}, {1.0, "y"}, {1.0, "z"}]}}])
 
       # Should return lexicographically last member at the maximum score
       assert {:ok, {1.0, member}} = TS.zlast(storage, 0, "myzset")
@@ -580,20 +580,20 @@ defmodule Vdr.TSTest do
 
     test "returns last member via Lua" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}]}}])
 
       script = """
       local score, member = ts.zlast('myzset')
       return member .. ':' .. score
       """
-      assert {:ok, "c:3"} == TS.tx(storage, 0, script)
+      assert {:ok, "c:3"} == TS.read_tx(storage, 0, script)
     end
   end
 
   describe "znext/5" do
     test "returns next member after given position" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}]}}])
 
       assert {:ok, {2.0, "two"}} == TS.znext(storage, 0, "myzset", 1.0, "one")
       assert {:ok, {3.0, "three"}} == TS.znext(storage, 0, "myzset", 2.0, "two")
@@ -601,7 +601,7 @@ defmodule Vdr.TSTest do
 
     test "returns nil when at the end" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}]}}])
 
       assert {:ok, nil} == TS.znext(storage, 0, "myzset", 3.0, "three")
     end
@@ -621,7 +621,7 @@ defmodule Vdr.TSTest do
 
     test "handles members with same score" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {1.0, "b"}, {1.0, "c"}, {2.0, "d"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {1.0, "b"}, {1.0, "c"}, {2.0, "d"}]}}])
 
       # Should navigate through members lexicographically at same score
       assert {:ok, {1.0, "b"}} == TS.znext(storage, 0, "myzset", 1.0, "a")
@@ -631,7 +631,7 @@ defmodule Vdr.TSTest do
 
     test "navigates through entire set" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}]}}])
 
       assert {:ok, {2.0, "b"}} = TS.znext(storage, 0, "myzset", 1.0, "a")
       assert {:ok, {3.0, "c"}} = TS.znext(storage, 0, "myzset", 2.0, "b")
@@ -641,18 +641,18 @@ defmodule Vdr.TSTest do
 
     test "returns next member via Lua" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}]}}])
 
       script = """
       local score, member = ts.znext('myzset', 1.0, 'a')
       return member .. ':' .. score
       """
-      assert {:ok, "b:2"} == TS.tx(storage, 0, script)
+      assert {:ok, "b:2"} == TS.read_tx(storage, 0, script)
     end
 
     test "returns nil at end via Lua" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}]}}])
 
       script = """
       local score, member = ts.znext('myzset', 2.0, 'b')
@@ -662,14 +662,14 @@ defmodule Vdr.TSTest do
         return 'not nil'
       end
       """
-      assert {:ok, "nil"} == TS.tx(storage, 0, script)
+      assert {:ok, "nil"} == TS.read_tx(storage, 0, script)
     end
   end
 
   describe "zprev/5" do
     test "returns previous member before given position" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}]}}])
 
       assert {:ok, {2.0, "two"}} == TS.zprev(storage, 0, "myzset", 3.0, "three")
       assert {:ok, {1.0, "one"}} == TS.zprev(storage, 0, "myzset", 2.0, "two")
@@ -677,7 +677,7 @@ defmodule Vdr.TSTest do
 
     test "returns nil when at the beginning" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}]}}])
 
       assert {:ok, nil} == TS.zprev(storage, 0, "myzset", 1.0, "one")
     end
@@ -697,7 +697,7 @@ defmodule Vdr.TSTest do
 
     test "handles members with same score" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {2.0, "c"}, {2.0, "d"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {2.0, "c"}, {2.0, "d"}]}}])
 
       # Should navigate through members lexicographically at same score
       assert {:ok, {2.0, "c"}} == TS.zprev(storage, 0, "myzset", 2.0, "d")
@@ -707,7 +707,7 @@ defmodule Vdr.TSTest do
 
     test "navigates through entire set backwards" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}]}}])
 
       assert {:ok, {3.0, "c"}} = TS.zprev(storage, 0, "myzset", 4.0, "d")
       assert {:ok, {2.0, "b"}} = TS.zprev(storage, 0, "myzset", 3.0, "c")
@@ -717,18 +717,18 @@ defmodule Vdr.TSTest do
 
     test "returns previous member via Lua" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}]}}])
 
       script = """
       local score, member = ts.zprev('myzset', 3.0, 'c')
       return member .. ':' .. score
       """
-      assert {:ok, "b:2"} == TS.tx(storage, 0, script)
+      assert {:ok, "b:2"} == TS.read_tx(storage, 0, script)
     end
 
     test "returns nil at beginning via Lua" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}]}}])
 
       script = """
       local score, member = ts.zprev('myzset', 1.0, 'a')
@@ -738,14 +738,14 @@ defmodule Vdr.TSTest do
         return 'not nil'
       end
       """
-      assert {:ok, "nil"} == TS.tx(storage, 0, script)
+      assert {:ok, "nil"} == TS.read_tx(storage, 0, script)
     end
   end
 
   describe "zset navigation integration" do
     test "traverse entire set forward with znext" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}]}}])
 
       # Start from first
       {:ok, {score1, member1}} = TS.zfirst(storage, 0, "myzset")
@@ -765,7 +765,7 @@ defmodule Vdr.TSTest do
 
     test "traverse entire set backward with zprev" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}]}}])
 
       # Start from last
       {:ok, {score3, member3}} = TS.zlast(storage, 0, "myzset")
@@ -785,7 +785,7 @@ defmodule Vdr.TSTest do
 
     test "traverse entire set forward with znext via Lua" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}]}}])
 
       script = """
       local result = {}
@@ -796,12 +796,12 @@ defmodule Vdr.TSTest do
       end
       return table.concat(result, ',')
       """
-      assert {:ok, "a,b,c"} == TS.tx(storage, 0, script)
+      assert {:ok, "a,b,c"} == TS.read_tx(storage, 0, script)
     end
 
     test "traverse entire set backward with zprev via Lua" do
       storage = TS.create()
-      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}]}}])
 
       script = """
       local result = {}
@@ -812,7 +812,7 @@ defmodule Vdr.TSTest do
       end
       return table.concat(result, ',')
       """
-      assert {:ok, "c,b,a"} == TS.tx(storage, 0, script)
+      assert {:ok, "c,b,a"} == TS.read_tx(storage, 0, script)
     end
   end
 
@@ -822,15 +822,15 @@ defmodule Vdr.TSTest do
       TS.set(storage, 0, "key1", "value1")
 
       script = "return ts.get('key1')"
-      assert {:ok, "value1"} == TS.tx(storage, 0, script)
+      assert {:ok, "value1"} == TS.read_tx(storage, 0, script)
     end
 
     test "executes Lua script with ts.hget" do
       storage = TS.create()
-      TS.hset(storage, 0, "hash1", "field1", "value1")
+      TS.tx(storage, [{0, {:hset, "hash1", "field1", "value1"}}])
 
       script = "return ts.hget('hash1', 'field1')"
-      assert {:ok, "value1"} == TS.tx(storage, 0, script)
+      assert {:ok, "value1"} == TS.read_tx(storage, 0, script)
     end
 
     test "combines multiple ts.get calls" do
@@ -844,13 +844,13 @@ defmodule Vdr.TSTest do
       return v1 .. ' ' .. v2
       """
 
-      assert {:ok, "hello world"} == TS.tx(storage, 0, script)
+      assert {:ok, "hello world"} == TS.read_tx(storage, 0, script)
     end
 
     test "combines ts.get and ts.hget" do
       storage = TS.create()
       TS.set(storage, 0, "string_key", "prefix")
-      TS.hset(storage, 0, "hash_key", "field1", "suffix")
+      TS.tx(storage, [{0, {:hset, "hash_key", "field1", "suffix"}}])
 
       script = """
       local v1 = ts.get('string_key')
@@ -858,7 +858,7 @@ defmodule Vdr.TSTest do
       return v1 .. ':' .. v2
       """
 
-      assert {:ok, "prefix:suffix"} == TS.tx(storage, 0, script)
+      assert {:ok, "prefix:suffix"} == TS.read_tx(storage, 0, script)
     end
 
     test "returns nil when key doesn't exist" do
@@ -873,7 +873,7 @@ defmodule Vdr.TSTest do
       end
       """
 
-      assert {:ok, "not found"} == TS.tx(storage, 0, script)
+      assert {:ok, "not found"} == TS.read_tx(storage, 0, script)
     end
 
     test "returns integer result" do
@@ -885,7 +885,7 @@ defmodule Vdr.TSTest do
       return tonumber(v) * 2
       """
 
-      assert {:ok, 10} == TS.tx(storage, 0, script)
+      assert {:ok, 10} == TS.read_tx(storage, 0, script)
     end
 
     test "returns boolean result" do
@@ -897,7 +897,7 @@ defmodule Vdr.TSTest do
       return v ~= nil
       """
 
-      assert {:ok, true} == TS.tx(storage, 0, script)
+      assert {:ok, true} == TS.read_tx(storage, 0, script)
     end
 
     test "executes atomically under mutex" do
@@ -912,7 +912,7 @@ defmodule Vdr.TSTest do
             local v = ts.get('counter')
             return v .. '-' .. '#{i}'
             """
-            TS.tx(storage, 0, script)
+            TS.read_tx(storage, 0, script)
           end)
         end
 
@@ -928,14 +928,14 @@ defmodule Vdr.TSTest do
       storage = TS.create()
 
       script = "return nil"
-      assert {:ok, nil} == TS.tx(storage, 0, script)
+      assert {:ok, nil} == TS.read_tx(storage, 0, script)
     end
 
     test "returns error for Lua syntax error" do
       storage = TS.create()
 
       script = "return ts.get('key'"  # Missing closing paren
-      assert {:error, _} = TS.tx(storage, 0, script)
+      assert {:error, _} = TS.read_tx(storage, 0, script)
     end
 
     test "isolates by database" do
@@ -945,8 +945,8 @@ defmodule Vdr.TSTest do
 
       script = "return ts.get('key')"
 
-      assert {:ok, "db0"} == TS.tx(storage, 0, script)
-      assert {:ok, "db1"} == TS.tx(storage, 1, script)
+      assert {:ok, "db0"} == TS.read_tx(storage, 0, script)
+      assert {:ok, "db1"} == TS.read_tx(storage, 1, script)
     end
 
     test "handles binary data in values" do
@@ -955,28 +955,28 @@ defmodule Vdr.TSTest do
       TS.set(storage, 0, "binary_key", binary_value)
 
       script = "return ts.get('binary_key')"
-      assert {:ok, ^binary_value} = TS.tx(storage, 0, script)
+      assert {:ok, ^binary_value} = TS.read_tx(storage, 0, script)
     end
 
     test "returns Lua table as Elixir list" do
       storage = TS.create()
 
       script = "return {1, 2, 3, 4, 5}"
-      assert {:ok, [1, 2, 3, 4, 5]} == TS.tx(storage, 0, script)
+      assert {:ok, [1, 2, 3, 4, 5]} == TS.read_tx(storage, 0, script)
     end
 
     test "returns Lua table as Elixir map" do
       storage = TS.create()
 
       script = "return {a = 1, b = 2, c = 3}"
-      assert {:ok, %{"a" => 1, "b" => 2, "c" => 3}} == TS.tx(storage, 0, script)
+      assert {:ok, %{"a" => 1, "b" => 2, "c" => 3}} == TS.read_tx(storage, 0, script)
     end
 
     test "handles nested Lua tables" do
       storage = TS.create()
 
       script = "return {1, 2, {a = 10, b = 20}, 4}"
-      assert {:ok, [1, 2, %{"a" => 10, "b" => 20}, 4]} == TS.tx(storage, 0, script)
+      assert {:ok, [1, 2, %{"a" => 10, "b" => 20}, 4]} == TS.read_tx(storage, 0, script)
     end
 
     test "handles mixed types in table" do
@@ -984,27 +984,27 @@ defmodule Vdr.TSTest do
 
       # Note: Lua tables with nil in the middle terminate early
       script = "return {42, 'hello', true}"
-      assert {:ok, [42, "hello", true]} == TS.tx(storage, 0, script)
+      assert {:ok, [42, "hello", true]} == TS.read_tx(storage, 0, script)
     end
 
     test "returns number types correctly" do
       storage = TS.create()
 
       script = "return 42"
-      assert {:ok, 42} == TS.tx(storage, 0, script)
+      assert {:ok, 42} == TS.read_tx(storage, 0, script)
 
       script = "return 3.14"
-      assert {:ok, 3.14} == TS.tx(storage, 0, script)
+      assert {:ok, 3.14} == TS.read_tx(storage, 0, script)
     end
 
     test "returns boolean types correctly" do
       storage = TS.create()
 
       script = "return true"
-      assert {:ok, true} == TS.tx(storage, 0, script)
+      assert {:ok, true} == TS.read_tx(storage, 0, script)
 
       script = "return false"
-      assert {:ok, false} == TS.tx(storage, 0, script)
+      assert {:ok, false} == TS.read_tx(storage, 0, script)
     end
   end
 
@@ -1033,7 +1033,7 @@ defmodule Vdr.TSTest do
       {:ok, bytecode} = TS.lua_load(storage, script)
 
       # Execute bytecode
-      assert {:ok, "value"} = TS.tx(storage, 0, bytecode)
+      assert {:ok, "value"} = TS.read_tx(storage, 0, bytecode)
     end
 
     test "bytecode can be reused across multiple tx calls" do
@@ -1045,8 +1045,8 @@ defmodule Vdr.TSTest do
       {:ok, bytecode} = TS.lua_load(storage, script)
 
       # Use same bytecode with different databases
-      assert {:ok, "value0"} = TS.tx(storage, 0, bytecode)
-      assert {:ok, "value1"} = TS.tx(storage, 1, bytecode)
+      assert {:ok, "value0"} = TS.read_tx(storage, 0, bytecode)
+      assert {:ok, "value1"} = TS.read_tx(storage, 1, bytecode)
     end
 
     test "bytecode works with complex scripts" do
@@ -1061,7 +1061,7 @@ defmodule Vdr.TSTest do
       """
 
       {:ok, bytecode} = TS.lua_load(storage, script)
-      assert {:ok, "hello world"} = TS.tx(storage, 0, bytecode)
+      assert {:ok, "hello world"} = TS.read_tx(storage, 0, bytecode)
     end
   end
 end

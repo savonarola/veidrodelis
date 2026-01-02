@@ -143,21 +143,27 @@ Veidrodelis API → Registry Lookup →
 - NIF implementation: [native/vdr_ts_nif/src/lib.rs](native/vdr_ts_nif/src/lib.rs)
 - Storage implementation: [native/vdr_ts_nif/src/storage.rs](native/vdr_ts_nif/src/storage.rs)
 - Multi-database support (db parameter)
-- **Batch command execution** via `commands/2` - executes multiple commands under single mutex lock
-- Direct read/write operations (no GenServer overhead)
+- **Batch command execution** via `tx/2` - executes multiple write commands under single mutex lock
+- Direct read operations (no GenServer overhead)
 - Arc-based reference counting for efficient memory management
-- **Lua transaction interface** via `tx/3` and `lua_load/2`:
+- **Lua transaction interface** via `read_tx/3` and `lua_load/2`:
   - Embedded LuaJIT VM initialized once per storage instance
   - All read-only functions exposed to Lua via `ts.*` namespace
   - Script compilation to bytecode for performance via `lua_load/2`
   - Atomic execution under storage mutex
   - Lua functions initialized once during storage creation for zero overhead
-- Supported operations:
-  - **Strings**: `set/4`, `get/3`, `del/3`
-  - **Lists**: `lpush/4`, `rpush/4`, `lpop/3`, `rpop/3`, `llen/3`, `lrange/5`, `lset/5`, `rpoplpush/4`
-  - **Sets**: `sadd/4`, `srem/4`, `smove/5`, `sunionstore/4`, `sinterstore/4`, `sdiffstore/4`, `smembers/3`, `sismember/4`, `scard/3`
-  - **Hashes**: `hset/5`, `hmset/4`, `hdel/4`, `hget/4`, `hmget/4`, `hgetall/3`, `hkeys/3`, `hvals/3`, `hlen/3`, `hexists/4`
-  - **Sorted Sets**: `zadd/4`, `zrem/4`, `zscore/4`, `zcard/3`, `zrange/6`, `zrangebyscore/6`, `zrank/4`, `zrevrank/4`, `zcount/5`, `zincrby/5`
+- **Write operations** (via `tx/2` only):
+  - **Strings**: `{:set, key, value}`, `{:del, keys}`
+  - **Lists**: `{:lpush, key, values}`, `{:rpush, key, values}`, `{:lpop, key}`, `{:rpop, key}`, `{:lset, key, index, value}`, `{:rpoplpush, source_key, dest_key}`
+  - **Sets**: `{:sadd, key, members}`, `{:srem, key, members}`, `{:smove, source_key, dest_key, member}`, `{:sunionstore, dest_key, source_keys}`, `{:sinterstore, dest_key, source_keys}`, `{:sdiffstore, dest_key, source_keys}`
+  - **Hashes**: `{:hset, key, field, value}`, `{:hmset, key, fields}`, `{:hdel, key, fields}`
+  - **Sorted Sets**: `{:zadd, key, members}`, `{:zrem, key, members}`, `{:zincrby, key, delta, member}`
+- **Read operations** (direct function calls):
+  - **Strings**: `get/3`
+  - **Lists**: `llen/3`, `lrange/5`
+  - **Sets**: `smembers/3`, `sismember/4`, `scard/3`
+  - **Hashes**: `hget/4`, `hmget/4`, `hgetall/3`, `hkeys/3`, `hvals/3`, `hlen/3`, `hexists/4`
+  - **Sorted Sets**: `zscore/4`, `zcard/3`, `zrange/6`, `zrangebyscore/6`, `zrank/4`, `zrevrank/4`, `zcount/5`
   - **Sorted Set Iteration**: `zfirst/3`, `zlast/3`, `znext/5`, `zprev/5` - efficient iteration without loading entire set
 - Rust dependencies: `im` (immutable data structures), `indexset`, `ordered-float`, `ouroboros`, `mlua` (LuaJIT)
 
@@ -166,7 +172,7 @@ Veidrodelis API → Registry Lookup →
 - **Replica-side transaction support** via `__vdr_tx` marker key protocol:
   - Transaction start: `SET __vdr_tx <value>` - begins buffering commands
   - Commands buffered during transaction
-  - Transaction end: `DEL __vdr_tx` - atomically applies all buffered commands via `Vdr.TS.commands/2`
+  - Transaction end: `DEL __vdr_tx` - atomically applies all buffered commands via `Vdr.TS.tx/2`
 - Double-buffering during RDB transfer (new_ts_storage/ts_storage swap)
 - Direct TS storage access for reads (no GenServer calls)
 - All Redis command types supported
@@ -235,7 +241,7 @@ Veidrodelis API → Registry Lookup →
 
 ### Working with TS Storage
 - TS (Term Storage) is a Rust NIF providing thread-safe storage with internal locking
-- For atomic multi-command operations, always use `Vdr.TS.commands/2` to execute under a single mutex lock
+- For atomic multi-command operations, always use `Vdr.TS.tx/2` to execute under a single mutex lock
 - TS storage uses Arc-based reference counting - no need to manually manage memory
 - Direct NIF calls bypass GenServer overhead for maximum read performance
 - Multi-database support via the `db` parameter (defaults to 0)
@@ -245,7 +251,7 @@ Veidrodelis API → Registry Lookup →
 - Transaction protocol:
   1. `SET __vdr_tx <value>` starts buffering commands
   2. All subsequent commands are buffered (not applied)
-  3. `DEL __vdr_tx` triggers atomic application via `Vdr.TS.commands/2`
+  3. `DEL __vdr_tx` triggers atomic application via `Vdr.TS.tx/2`
 - Both TSProj and MapProj support the same transaction protocol
 - Transaction state is tracked in the projection GenServer (buffer list)
 
@@ -281,7 +287,7 @@ Veidrodelis API → Registry Lookup →
   3. Call the underlying storage method
   4. Convert result to appropriate Lua type
   5. Register function in the `ts` table
-  6. Add corresponding test in `ts_test.exs` (both direct and via `tx`)
+  6. Add corresponding test in `ts_test.exs` (both direct and via `read_tx`)
 - **Function naming**: Lua functions should match Elixir function names (e.g., `ts.get`, `ts.hget`, `ts.zfirst`)
 - **Return values from Lua scripts** (types preserved):
   - Strings: Return as Elixir binary

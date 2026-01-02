@@ -342,7 +342,7 @@ defmodule Vdr.TSProj do
   """
   @spec tx(%{ts_storage: reference()}, non_neg_integer(), binary()) :: {:ok, binary()} | {:error, term()}
   def tx(%{ts_storage: ts_storage}, db, script) when is_binary(script) do
-    Vdr.TS.tx(ts_storage, db, script)
+    Vdr.TS.read_tx(ts_storage, db, script)
   end
 
   # Convert RedisCommand to tuple format for NIF
@@ -441,7 +441,7 @@ defmodule Vdr.TSProj do
 
       cmd_tuple ->
         # Execute the command via the common NIF
-        [_result] = Vdr.TS.commands(ts_storage, [cmd_tuple])
+        [_result] = Vdr.TS.tx(ts_storage, [cmd_tuple])
         :ok
     end
   end

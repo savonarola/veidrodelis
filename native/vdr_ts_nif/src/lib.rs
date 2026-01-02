@@ -72,7 +72,7 @@ fn destroy_storage<'a>(env: Env<'a>, storage: ResourceArc<TStorage>) -> Term<'a>
 
 // Batch command execution NIF
 // Executes multiple commands under a single mutex lock
-#[rustler::nif(name = "commands")]
+#[rustler::nif(name = "tx")]
 fn execute_commands<'a>(
     env: Env<'a>,
     storage: ResourceArc<TStorage>,
@@ -911,7 +911,7 @@ fn lua_value_to_term<'a>(env: Env<'a>, value: mlua::Value) -> Result<Term<'a>, S
     }
 }
 
-#[rustler::nif(name = "tx")]
+#[rustler::nif(name = "read_tx")]
 fn execute_tx<'a>(
     env: Env<'a>,
     storage: ResourceArc<TStorage>,

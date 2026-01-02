@@ -254,10 +254,10 @@ defmodule Veidrodelis do
 
       {:ok, pid} = Veidrodelis.start_link(id: :my_instance, impl: {Vdr.TSProj, []})
       script = "return ts.get('key1')"
-      {:ok, result} = Veidrodelis.tx(:my_instance, 0, script)
+      {:ok, result} = Veidrodelis.read_tx(:my_instance, 0, script)
   """
-  @spec tx(instance_id(), db(), binary()) :: {:ok, binary()} | {:error, term()}
-  def tx(id, db, script) when is_binary(script) do
+  @spec read_tx(instance_id(), db(), binary()) :: {:ok, binary()} | {:error, term()}
+  def read_tx(id, db, script) when is_binary(script) do
     with_handle(id, :tx, [db, script])
   end
 

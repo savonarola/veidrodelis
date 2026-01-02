@@ -560,8 +560,8 @@ defmodule VeidrodelisTest do
       id = :"test_tx_#{:erlang.unique_integer([:positive])}"
       {:ok, _pid} = Veidrodelis.start_link(id: id, impl: {Vdr.TSProj, []}, host: @redis_host, port: @redis_port)
 
-      # Test basic script execution
-      assert {:ok, "42"} = Veidrodelis.tx(id, 0, "return 42")
+      # Test basic script execution (returns proper type now)
+      assert {:ok, 42} = Veidrodelis.read_tx(id, 0, "return 42")
 
       # Test ts.get access to replicated data
       Redix.command!(redis, ["SET", "lua_key", "lua_value"])
@@ -570,14 +570,14 @@ defmodule VeidrodelisTest do
       end
 
       script = "return ts.get('lua_key')"
-      assert {:ok, "lua_value"} = Veidrodelis.tx(id, 0, script)
+      assert {:ok, "lua_value"} = Veidrodelis.read_tx(id, 0, script)
     end
 
     test "MapProj returns not_supported error" do
       id = :"test_map_tx_#{:erlang.unique_integer([:positive])}"
       {:ok, _pid} = Veidrodelis.start_link(id: id, impl: {Vdr.MapProj, []}, host: @redis_host, port: @redis_port)
 
-      assert {:error, :not_supported} = Veidrodelis.tx(id, 0, "return 'hello'")
+      assert {:error, :not_supported} = Veidrodelis.read_tx(id, 0, "return 'hello'")
     end
   end
 end
