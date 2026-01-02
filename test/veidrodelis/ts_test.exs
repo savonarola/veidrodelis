@@ -291,6 +291,12 @@ defmodule Vdr.TSTest do
       assert {:ok, 0} == TS.zcount(storage, 0, "nonexistent", 0.0, 10.0)
     end
 
+    test "returns 0 for empty zset via Lua" do
+      storage = TS.create()
+      script = "return ts.zcount('nonexistent', 0.0, 10.0)"
+      assert {:ok, 0} == TS.tx(storage, 0, script)
+    end
+
     test "returns 0 when no elements in range" do
       storage = TS.create()
       {:ok, 3} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
@@ -462,6 +468,14 @@ defmodule Vdr.TSTest do
       assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 0.0015, 0.0025)
       assert {:ok, 1} == TS.zcount(storage, 0, "myzset", 0.001, 0.001)
     end
+
+    test "counts elements in range via Lua" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}])
+
+      script = "return ts.zcount('myzset', 1.5, 3.5)"
+      assert {:ok, 2} == TS.tx(storage, 0, script)
+    end
   end
 
   describe "zfirst/3" do
@@ -500,6 +514,31 @@ defmodule Vdr.TSTest do
       assert {:ok, {1.0, member}} = TS.zfirst(storage, 0, "myzset")
       assert member == "a"
     end
+
+    test "returns first member via Lua" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+
+      script = """
+      local score, member = ts.zfirst('myzset')
+      return member .. ':' .. score
+      """
+      assert {:ok, "a:1"} == TS.tx(storage, 0, script)
+    end
+
+    test "returns nil for empty set via Lua" do
+      storage = TS.create()
+
+      script = """
+      local score, member = ts.zfirst('nonexistent')
+      if score == nil then
+        return 'nil'
+      else
+        return 'not nil'
+      end
+      """
+      assert {:ok, "nil"} == TS.tx(storage, 0, script)
+    end
   end
 
   describe "zlast/3" do
@@ -537,6 +576,17 @@ defmodule Vdr.TSTest do
       # Should return lexicographically last member at the maximum score
       assert {:ok, {1.0, member}} = TS.zlast(storage, 0, "myzset")
       assert member == "z"
+    end
+
+    test "returns last member via Lua" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+
+      script = """
+      local score, member = ts.zlast('myzset')
+      return member .. ':' .. score
+      """
+      assert {:ok, "c:3"} == TS.tx(storage, 0, script)
     end
   end
 
@@ -588,6 +638,32 @@ defmodule Vdr.TSTest do
       assert {:ok, {4.0, "d"}} = TS.znext(storage, 0, "myzset", 3.0, "c")
       assert {:ok, nil} = TS.znext(storage, 0, "myzset", 4.0, "d")
     end
+
+    test "returns next member via Lua" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+
+      script = """
+      local score, member = ts.znext('myzset', 1.0, 'a')
+      return member .. ':' .. score
+      """
+      assert {:ok, "b:2"} == TS.tx(storage, 0, script)
+    end
+
+    test "returns nil at end via Lua" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}])
+
+      script = """
+      local score, member = ts.znext('myzset', 2.0, 'b')
+      if score == nil then
+        return 'nil'
+      else
+        return 'not nil'
+      end
+      """
+      assert {:ok, "nil"} == TS.tx(storage, 0, script)
+    end
   end
 
   describe "zprev/5" do
@@ -638,6 +714,32 @@ defmodule Vdr.TSTest do
       assert {:ok, {1.0, "a"}} = TS.zprev(storage, 0, "myzset", 2.0, "b")
       assert {:ok, nil} = TS.zprev(storage, 0, "myzset", 1.0, "a")
     end
+
+    test "returns previous member via Lua" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+
+      script = """
+      local score, member = ts.zprev('myzset', 3.0, 'c')
+      return member .. ':' .. score
+      """
+      assert {:ok, "b:2"} == TS.tx(storage, 0, script)
+    end
+
+    test "returns nil at beginning via Lua" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}])
+
+      script = """
+      local score, member = ts.zprev('myzset', 1.0, 'a')
+      if score == nil then
+        return 'nil'
+      else
+        return 'not nil'
+      end
+      """
+      assert {:ok, "nil"} == TS.tx(storage, 0, script)
+    end
   end
 
   describe "zset navigation integration" do
@@ -679,6 +781,287 @@ defmodule Vdr.TSTest do
 
       # No more elements
       {:ok, nil} = TS.zprev(storage, 0, "myzset", score1, member1)
+    end
+
+    test "traverse entire set forward with znext via Lua" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+
+      script = """
+      local result = {}
+      local score, member = ts.zfirst('myzset')
+      while score ~= nil do
+        table.insert(result, member)
+        score, member = ts.znext('myzset', score, member)
+      end
+      return table.concat(result, ',')
+      """
+      assert {:ok, "a,b,c"} == TS.tx(storage, 0, script)
+    end
+
+    test "traverse entire set backward with zprev via Lua" do
+      storage = TS.create()
+      {:ok, _} = TS.zadd(storage, 0, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}])
+
+      script = """
+      local result = {}
+      local score, member = ts.zlast('myzset')
+      while score ~= nil do
+        table.insert(result, member)
+        score, member = ts.zprev('myzset', score, member)
+      end
+      return table.concat(result, ',')
+      """
+      assert {:ok, "c,b,a"} == TS.tx(storage, 0, script)
+    end
+  end
+
+  describe "tx/3 - Lua transactions" do
+    test "executes simple Lua script with ts.get" do
+      storage = TS.create()
+      TS.set(storage, 0, "key1", "value1")
+
+      script = "return ts.get('key1')"
+      assert {:ok, "value1"} == TS.tx(storage, 0, script)
+    end
+
+    test "executes Lua script with ts.hget" do
+      storage = TS.create()
+      TS.hset(storage, 0, "hash1", "field1", "value1")
+
+      script = "return ts.hget('hash1', 'field1')"
+      assert {:ok, "value1"} == TS.tx(storage, 0, script)
+    end
+
+    test "combines multiple ts.get calls" do
+      storage = TS.create()
+      TS.set(storage, 0, "key1", "hello")
+      TS.set(storage, 0, "key2", "world")
+
+      script = """
+      local v1 = ts.get('key1')
+      local v2 = ts.get('key2')
+      return v1 .. ' ' .. v2
+      """
+
+      assert {:ok, "hello world"} == TS.tx(storage, 0, script)
+    end
+
+    test "combines ts.get and ts.hget" do
+      storage = TS.create()
+      TS.set(storage, 0, "string_key", "prefix")
+      TS.hset(storage, 0, "hash_key", "field1", "suffix")
+
+      script = """
+      local v1 = ts.get('string_key')
+      local v2 = ts.hget('hash_key', 'field1')
+      return v1 .. ':' .. v2
+      """
+
+      assert {:ok, "prefix:suffix"} == TS.tx(storage, 0, script)
+    end
+
+    test "returns nil when key doesn't exist" do
+      storage = TS.create()
+
+      script = """
+      local v = ts.get('nonexistent')
+      if v == nil then
+        return 'not found'
+      else
+        return v
+      end
+      """
+
+      assert {:ok, "not found"} == TS.tx(storage, 0, script)
+    end
+
+    test "returns integer result" do
+      storage = TS.create()
+      TS.set(storage, 0, "count", "5")
+
+      script = """
+      local v = ts.get('count')
+      return tonumber(v) * 2
+      """
+
+      assert {:ok, 10} == TS.tx(storage, 0, script)
+    end
+
+    test "returns boolean result" do
+      storage = TS.create()
+      TS.set(storage, 0, "key1", "value1")
+
+      script = """
+      local v = ts.get('key1')
+      return v ~= nil
+      """
+
+      assert {:ok, true} == TS.tx(storage, 0, script)
+    end
+
+    test "executes atomically under mutex" do
+      storage = TS.create()
+      TS.set(storage, 0, "counter", "0")
+
+      # Run multiple scripts concurrently
+      tasks =
+        for i <- 1..10 do
+          Task.async(fn ->
+            script = """
+            local v = ts.get('counter')
+            return v .. '-' .. '#{i}'
+            """
+            TS.tx(storage, 0, script)
+          end)
+        end
+
+      results = Task.await_many(tasks)
+      # All should succeed
+      assert Enum.all?(results, fn
+        {:ok, _} -> true
+        _ -> false
+      end)
+    end
+
+    test "handles empty script result" do
+      storage = TS.create()
+
+      script = "return nil"
+      assert {:ok, nil} == TS.tx(storage, 0, script)
+    end
+
+    test "returns error for Lua syntax error" do
+      storage = TS.create()
+
+      script = "return ts.get('key'"  # Missing closing paren
+      assert {:error, _} = TS.tx(storage, 0, script)
+    end
+
+    test "isolates by database" do
+      storage = TS.create()
+      TS.set(storage, 0, "key", "db0")
+      TS.set(storage, 1, "key", "db1")
+
+      script = "return ts.get('key')"
+
+      assert {:ok, "db0"} == TS.tx(storage, 0, script)
+      assert {:ok, "db1"} == TS.tx(storage, 1, script)
+    end
+
+    test "handles binary data in values" do
+      storage = TS.create()
+      binary_value = <<0, 1, 2, 3, 255, 254, 253>>
+      TS.set(storage, 0, "binary_key", binary_value)
+
+      script = "return ts.get('binary_key')"
+      assert {:ok, ^binary_value} = TS.tx(storage, 0, script)
+    end
+
+    test "returns Lua table as Elixir list" do
+      storage = TS.create()
+
+      script = "return {1, 2, 3, 4, 5}"
+      assert {:ok, [1, 2, 3, 4, 5]} == TS.tx(storage, 0, script)
+    end
+
+    test "returns Lua table as Elixir map" do
+      storage = TS.create()
+
+      script = "return {a = 1, b = 2, c = 3}"
+      assert {:ok, %{"a" => 1, "b" => 2, "c" => 3}} == TS.tx(storage, 0, script)
+    end
+
+    test "handles nested Lua tables" do
+      storage = TS.create()
+
+      script = "return {1, 2, {a = 10, b = 20}, 4}"
+      assert {:ok, [1, 2, %{"a" => 10, "b" => 20}, 4]} == TS.tx(storage, 0, script)
+    end
+
+    test "handles mixed types in table" do
+      storage = TS.create()
+
+      # Note: Lua tables with nil in the middle terminate early
+      script = "return {42, 'hello', true}"
+      assert {:ok, [42, "hello", true]} == TS.tx(storage, 0, script)
+    end
+
+    test "returns number types correctly" do
+      storage = TS.create()
+
+      script = "return 42"
+      assert {:ok, 42} == TS.tx(storage, 0, script)
+
+      script = "return 3.14"
+      assert {:ok, 3.14} == TS.tx(storage, 0, script)
+    end
+
+    test "returns boolean types correctly" do
+      storage = TS.create()
+
+      script = "return true"
+      assert {:ok, true} == TS.tx(storage, 0, script)
+
+      script = "return false"
+      assert {:ok, false} == TS.tx(storage, 0, script)
+    end
+  end
+
+  describe "lua_load/2" do
+    test "compiles script to bytecode" do
+      storage = TS.create()
+      script = "return 42"
+
+      assert {:ok, bytecode} = TS.lua_load(storage, script)
+      assert is_binary(bytecode)
+      assert byte_size(bytecode) > 0
+    end
+
+    test "returns error for invalid script" do
+      storage = TS.create()
+      script = "return ts.get('key'"  # Missing closing paren
+
+      assert {:error, _} = TS.lua_load(storage, script)
+    end
+
+    test "bytecode can be executed with tx" do
+      storage = TS.create()
+      TS.set(storage, 0, "key", "value")
+
+      script = "return ts.get('key')"
+      {:ok, bytecode} = TS.lua_load(storage, script)
+
+      # Execute bytecode
+      assert {:ok, "value"} = TS.tx(storage, 0, bytecode)
+    end
+
+    test "bytecode can be reused across multiple tx calls" do
+      storage = TS.create()
+      TS.set(storage, 0, "key0", "value0")
+      TS.set(storage, 1, "key1", "value1")
+
+      script = "return ts.get('key' .. __db)"
+      {:ok, bytecode} = TS.lua_load(storage, script)
+
+      # Use same bytecode with different databases
+      assert {:ok, "value0"} = TS.tx(storage, 0, bytecode)
+      assert {:ok, "value1"} = TS.tx(storage, 1, bytecode)
+    end
+
+    test "bytecode works with complex scripts" do
+      storage = TS.create()
+      TS.set(storage, 0, "a", "hello")
+      TS.set(storage, 0, "b", "world")
+
+      script = """
+      local v1 = ts.get('a')
+      local v2 = ts.get('b')
+      return v1 .. ' ' .. v2
+      """
+
+      {:ok, bytecode} = TS.lua_load(storage, script)
+      assert {:ok, "hello world"} = TS.tx(storage, 0, bytecode)
     end
   end
 end

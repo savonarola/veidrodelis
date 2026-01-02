@@ -823,6 +823,110 @@ fn execute_single_command<'a>(
     (atoms::error(), rustler::types::atom::error().encode(env)).encode(env)
 }
 
+#[rustler::nif(name = "lua_load")]
+fn lua_load<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    script: Binary,
+) -> Term<'a> {
+    // Lock the storage
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    // Compile the script to bytecode
+    match inner.lua_load(script.as_slice()) {
+        Ok(bytecode) => {
+            let mut binary = rustler::types::OwnedBinary::new(bytecode.len()).unwrap();
+            binary.as_mut_slice().copy_from_slice(&bytecode);
+            (atoms::ok(), binary.release(env)).encode(env)
+        }
+        Err(e) => (atoms::error(), e).encode(env),
+    }
+}
+
+// Helper to convert Lua tables to Elixir terms
+fn lua_table_to_term<'a>(env: Env<'a>, table: &mlua::Table) -> Result<Term<'a>, String> {
+    // Check if it's a list (sequential integer keys starting from 1)
+    let len = table.len().map_err(|e| e.to_string())?;
+
+    if len > 0 {
+        // Try to read as array (1-indexed)
+        let mut is_array = true;
+        for i in 1..=len {
+            if table.contains_key(i).map_err(|e| e.to_string())? == false {
+                is_array = false;
+                break;
+            }
+        }
+
+        if is_array {
+            // Convert to Elixir list
+            let mut list_items = Vec::new();
+            for i in 1..=len {
+                let value: mlua::Value = table.get(i).map_err(|e| e.to_string())?;
+                list_items.push(lua_value_to_term(env, value)?);
+            }
+            return Ok(list_items.encode(env));
+        }
+    }
+
+    // Convert to Elixir map
+    let mut map = rustler::types::map::map_new(env);
+    for pair in table.pairs::<mlua::Value, mlua::Value>() {
+        let (k, v) = pair.map_err(|e| e.to_string())?;
+        let key_term = lua_value_to_term(env, k)?;
+        let val_term = lua_value_to_term(env, v)?;
+        map = map.map_put(key_term, val_term).map_err(|e| format!("{:?}", e))?;
+    }
+
+    Ok(map)
+}
+
+// Helper to convert Lua values to Elixir terms
+fn lua_value_to_term<'a>(env: Env<'a>, value: mlua::Value) -> Result<Term<'a>, String> {
+    match value {
+        mlua::Value::Nil => Ok(atoms::nil().encode(env)),
+        mlua::Value::Boolean(b) => Ok(b.encode(env)),
+        mlua::Value::Integer(i) => Ok(i.encode(env)),
+        mlua::Value::Number(n) => Ok(n.encode(env)),
+        mlua::Value::String(s) => {
+            let bytes = s.as_bytes();
+            let mut binary = rustler::types::OwnedBinary::new(bytes.len()).unwrap();
+            binary.as_mut_slice().copy_from_slice(&bytes);
+            Ok(binary.release(env).encode(env))
+        }
+        mlua::Value::Table(t) => lua_table_to_term(env, &t),
+        _ => Err("Unsupported Lua type".to_string()),
+    }
+}
+
+#[rustler::nif(name = "tx")]
+fn execute_tx<'a>(
+    env: Env<'a>,
+    storage: ResourceArc<TStorage>,
+    db: u64,
+    script_or_bytecode: Binary,
+) -> Term<'a> {
+    // Lock the storage
+    let inner = match storage.0.lock() {
+        Ok(guard) => guard,
+        Err(poisoned) => poisoned.into_inner(),
+    };
+
+    // Execute the Lua script or bytecode
+    match inner.tx(db, script_or_bytecode.as_slice()) {
+        Ok(lua_value) => {
+            match lua_value_to_term(env, lua_value) {
+                Ok(term) => (atoms::ok(), term).encode(env),
+                Err(e) => (atoms::error(), e).encode(env),
+            }
+        }
+        Err(e) => (atoms::error(), e).encode(env),
+    }
+}
+
 rustler::init!(
     "Elixir.Vdr.TS",
     load = load_nif

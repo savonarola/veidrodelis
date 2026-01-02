@@ -554,4 +554,30 @@ defmodule VeidrodelisTest do
       Veidrodelis.stop(pid)
     end
   end
+
+  describe "tx/3" do
+    test "smoke test for TSProj Lua execution", %{redis: redis} do
+      id = :"test_tx_#{:erlang.unique_integer([:positive])}"
+      {:ok, _pid} = Veidrodelis.start_link(id: id, impl: {Vdr.TSProj, []}, host: @redis_host, port: @redis_port)
+
+      # Test basic script execution
+      assert {:ok, "42"} = Veidrodelis.tx(id, 0, "return 42")
+
+      # Test ts.get access to replicated data
+      Redix.command!(redis, ["SET", "lua_key", "lua_value"])
+      wait_happens_within 500 do
+        Veidrodelis.get(id, 0, "lua_key") == "lua_value"
+      end
+
+      script = "return ts.get('lua_key')"
+      assert {:ok, "lua_value"} = Veidrodelis.tx(id, 0, script)
+    end
+
+    test "MapProj returns not_supported error" do
+      id = :"test_map_tx_#{:erlang.unique_integer([:positive])}"
+      {:ok, _pid} = Veidrodelis.start_link(id: id, impl: {Vdr.MapProj, []}, host: @redis_host, port: @redis_port)
+
+      assert {:error, :not_supported} = Veidrodelis.tx(id, 0, "return 'hello'")
+    end
+  end
 end

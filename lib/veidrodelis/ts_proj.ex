@@ -324,6 +324,27 @@ defmodule Vdr.TSProj do
     end
   end
 
+  @doc """
+  Executes a Lua script with access to ts.get and ts.hget functions.
+
+  The script is executed atomically under the storage mutex and has access to:
+  - `ts.get(key)` - Get a string value
+  - `ts.hget(key, field)` - Get a hash field value
+
+  Returns `{:ok, result}` where result is the script's return value as a binary,
+  or `{:error, reason}` if the script fails.
+
+  ## Examples
+
+      handle_state = %{ts_storage: storage}
+      script = "return ts.get('key1')"
+      {:ok, result} = Vdr.TSProj.tx(handle_state, 0, script)
+  """
+  @spec tx(%{ts_storage: reference()}, non_neg_integer(), binary()) :: {:ok, binary()} | {:error, term()}
+  def tx(%{ts_storage: ts_storage}, db, script) when is_binary(script) do
+    Vdr.TS.tx(ts_storage, db, script)
+  end
+
   # Convert RedisCommand to tuple format for NIF
   defp convert_command(db, %RedisCommand.Set{key: key, value: value}) do
     {db, :set, key, value}

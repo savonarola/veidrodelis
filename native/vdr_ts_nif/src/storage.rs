@@ -7,6 +7,7 @@ use ordered_float::OrderedFloat;
 use ouroboros::self_referencing;
 use std::borrow::Borrow;
 use std::ops::Bound;
+use mlua::{Lua, Value as LuaValue};
 
 
 pub type Score = OrderedFloat<f64>;
@@ -303,13 +304,367 @@ pub enum StorageValue {
 /// Inner storage structure
 pub struct StorageInner {
     map: BTreeMap<u64, BTreeMap<Bytes, StorageValue>>,
+    lua: Lua,
+}
+
+// Helper function to extract storage and db from Lua context
+fn get_tx_ctx(lua_ctx: &mlua::Lua) -> mlua::Result<(&StorageInner, u64)> {
+    let db: u64 = lua_ctx.globals().get("__db")?;
+    let storage_ptr: mlua::LightUserData = lua_ctx.globals().get("__storage_ptr")?;
+    // SAFETY: The pointer is valid for the duration of tx() call
+    let storage = unsafe { &*(storage_ptr.0 as *const StorageInner) };
+    Ok((storage, db))
 }
 
 impl StorageInner {
     /// Create a new empty storage
     pub fn new() -> Self {
+        let lua = Lua::new();
+
+        // Initialize globals once
+        lua.globals().set("__db", 0u64).expect("Failed to set __db global");
+        lua.globals().set("__storage_ptr", mlua::LightUserData(std::ptr::null_mut())).expect("Failed to set __storage_ptr");
+
+        // Create ts.get function once
+        let get_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let key_bytes = key.as_bytes();
+
+            match storage.get(db, &key_bytes) {
+                Ok(Some(value)) => {
+                    let bytes = value.as_slice();
+                    Ok(Some(lua_ctx.create_string(bytes)?))
+                }
+                Ok(None) => Ok(None),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create get function");
+
+        // Create ts.hget function once
+        let hget_fn = lua.create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let key_bytes = key.as_bytes();
+            let field_bytes = field.as_bytes();
+
+            match storage.hget(db, &key_bytes, &field_bytes) {
+                Ok(Some(value)) => {
+                    let bytes = value.as_slice();
+                    Ok(Some(lua_ctx.create_string(bytes)?))
+                }
+                Ok(None) => Ok(None),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create hget function");
+
+        // List functions
+        let llen_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.llen(db, &key.as_bytes()) {
+                Ok(len) => Ok(len as i64),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create llen");
+
+        let lrange_fn = lua.create_function(|lua_ctx, (key, start, stop): (mlua::String, i64, i64)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.lrange(db, &key.as_bytes(), start, stop) {
+                Ok(elements) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, elem) in elements.iter().enumerate() {
+                        table.set(i + 1, lua_ctx.create_string(elem.as_slice())?)?;
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create lrange");
+
+        // Set functions
+        let smembers_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.smembers(db, &key.as_bytes()) {
+                Ok(members) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, member) in members.iter().enumerate() {
+                        table.set(i + 1, lua_ctx.create_string(member.as_slice())?)?;
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create smembers");
+
+        let sismember_fn = lua.create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.sismember(db, &key.as_bytes(), &member.as_bytes()) {
+                Ok(is_member) => Ok(is_member),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create sismember");
+
+        let scard_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.scard(db, &key.as_bytes()) {
+                Ok(count) => Ok(count as i64),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create scard");
+
+        // Hash functions
+        let hmget_fn = lua.create_function(|lua_ctx, (key, fields): (mlua::String, mlua::Table)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let mut field_vec = Vec::new();
+            for pair in fields.pairs::<i64, mlua::String>() {
+                let (_, field) = pair?;
+                field_vec.push(field.as_bytes().to_vec());
+            }
+            let field_refs: Vec<&[u8]> = field_vec.iter().map(|v| v.as_slice()).collect();
+
+            match storage.hmget(db, &key.as_bytes(), &field_refs) {
+                Ok(values) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, value) in values.iter().enumerate() {
+                        if let Some(v) = value {
+                            table.set(i + 1, lua_ctx.create_string(v.as_slice())?)?;
+                        } else {
+                            table.set(i + 1, mlua::Value::Nil)?;
+                        }
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create hmget");
+
+        let hgetall_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.hgetall(db, &key.as_bytes()) {
+                Ok(pairs) => {
+                    let table = lua_ctx.create_table()?;
+                    for (field, value) in pairs {
+                        table.set(
+                            lua_ctx.create_string(field.as_slice())?,
+                            lua_ctx.create_string(value.as_slice())?
+                        )?;
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create hgetall");
+
+        let hkeys_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.hkeys(db, &key.as_bytes()) {
+                Ok(keys) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, k) in keys.iter().enumerate() {
+                        table.set(i + 1, lua_ctx.create_string(k.as_slice())?)?;
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create hkeys");
+
+        let hvals_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.hvals(db, &key.as_bytes()) {
+                Ok(values) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, v) in values.iter().enumerate() {
+                        table.set(i + 1, lua_ctx.create_string(v.as_slice())?)?;
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create hvals");
+
+        let hlen_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.hlen(db, &key.as_bytes()) {
+                Ok(len) => Ok(len as i64),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create hlen");
+
+        let hexists_fn = lua.create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.hexists(db, &key.as_bytes(), &field.as_bytes()) {
+                Ok(exists) => Ok(exists),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create hexists");
+
+        // Sorted set functions
+        let zscore_fn = lua.create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.zscore(db, &key.as_bytes(), &member.as_bytes()) {
+                Ok(Some(score)) => Ok(Some(score.into_inner())),
+                Ok(None) => Ok(None),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create zscore");
+
+        let zcard_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.zcard(db, &key.as_bytes()) {
+                Ok(count) => Ok(count as i64),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create zcard");
+
+        let zrange_fn = lua.create_function(|lua_ctx, (key, start, stop): (mlua::String, i64, i64)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.zrange(db, &key.as_bytes(), start, stop, true) {
+                Ok(results) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, (member, score_opt)) in results.iter().enumerate() {
+                        let item = lua_ctx.create_table()?;
+                        item.set(1, lua_ctx.create_string(member.as_slice())?)?;
+                        if let Some(score) = score_opt {
+                            item.set(2, score.into_inner())?;
+                        }
+                        table.set(i + 1, item)?;
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create zrange");
+
+        let zrangebyscore_fn = lua.create_function(|lua_ctx, (key, min, max): (mlua::String, f64, f64)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.zrangebyscore(db, &key.as_bytes(), OrderedFloat(min), OrderedFloat(max), true) {
+                Ok(results) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, (member, score_opt)) in results.iter().enumerate() {
+                        let item = lua_ctx.create_table()?;
+                        item.set(1, lua_ctx.create_string(member.as_slice())?)?;
+                        if let Some(score) = score_opt {
+                            item.set(2, score.into_inner())?;
+                        }
+                        table.set(i + 1, item)?;
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create zrangebyscore");
+
+        let zrank_fn = lua.create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.zrank(db, &key.as_bytes(), &member.as_bytes()) {
+                Ok(Some(rank)) => Ok(Some(rank as i64)),
+                Ok(None) => Ok(None),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create zrank");
+
+        let zrevrank_fn = lua.create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.zrevrank(db, &key.as_bytes(), &member.as_bytes()) {
+                Ok(Some(rank)) => Ok(Some(rank as i64)),
+                Ok(None) => Ok(None),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create zrevrank");
+
+        let zcount_fn = lua.create_function(|lua_ctx, (key, min, max): (mlua::String, f64, f64)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.zcount(db, &key.as_bytes(), OrderedFloat(min), OrderedFloat(max)) {
+                Ok(count) => Ok(count as i64),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create zcount");
+
+        let zfirst_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.zfirst(db, &key.as_bytes()) {
+                Ok(Some((score, member))) => {
+                    Ok((Some(score.into_inner()), Some(lua_ctx.create_string(member.as_slice())?)))
+                }
+                Ok(None) => Ok((None::<f64>, None::<mlua::String>)),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create zfirst");
+
+        let zlast_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.zlast(db, &key.as_bytes()) {
+                Ok(Some((score, member))) => {
+                    Ok((Some(score.into_inner()), Some(lua_ctx.create_string(member.as_slice())?)))
+                }
+                Ok(None) => Ok((None::<f64>, None::<mlua::String>)),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create zlast");
+
+        let znext_fn = lua.create_function(|lua_ctx, (key, score, member): (mlua::String, f64, mlua::String)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.znext(db, &key.as_bytes(), OrderedFloat(score), &member.as_bytes()) {
+                Ok(Some((next_score, next_member))) => {
+                    Ok((Some(next_score.into_inner()), Some(lua_ctx.create_string(next_member.as_slice())?)))
+                }
+                Ok(None) => Ok((None::<f64>, None::<mlua::String>)),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create znext");
+
+        let zprev_fn = lua.create_function(|lua_ctx, (key, score, member): (mlua::String, f64, mlua::String)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.zprev(db, &key.as_bytes(), OrderedFloat(score), &member.as_bytes()) {
+                Ok(Some((prev_score, prev_member))) => {
+                    Ok((Some(prev_score.into_inner()), Some(lua_ctx.create_string(prev_member.as_slice())?)))
+                }
+                Ok(None) => Ok((None::<f64>, None::<mlua::String>)),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create zprev");
+
+        // Create the ts table once with all functions
+        let ts_table = lua.create_table().expect("Failed to create ts table");
+
+        // String functions
+        ts_table.set("get", get_fn).expect("Failed to set get");
+
+        // List functions
+        ts_table.set("llen", llen_fn).expect("Failed to set llen");
+        ts_table.set("lrange", lrange_fn).expect("Failed to set lrange");
+
+        // Set functions
+        ts_table.set("smembers", smembers_fn).expect("Failed to set smembers");
+        ts_table.set("sismember", sismember_fn).expect("Failed to set sismember");
+        ts_table.set("scard", scard_fn).expect("Failed to set scard");
+
+        // Hash functions
+        ts_table.set("hget", hget_fn).expect("Failed to set hget");
+        ts_table.set("hmget", hmget_fn).expect("Failed to set hmget");
+        ts_table.set("hgetall", hgetall_fn).expect("Failed to set hgetall");
+        ts_table.set("hkeys", hkeys_fn).expect("Failed to set hkeys");
+        ts_table.set("hvals", hvals_fn).expect("Failed to set hvals");
+        ts_table.set("hlen", hlen_fn).expect("Failed to set hlen");
+        ts_table.set("hexists", hexists_fn).expect("Failed to set hexists");
+
+        // Sorted set functions
+        ts_table.set("zscore", zscore_fn).expect("Failed to set zscore");
+        ts_table.set("zcard", zcard_fn).expect("Failed to set zcard");
+        ts_table.set("zrange", zrange_fn).expect("Failed to set zrange");
+        ts_table.set("zrangebyscore", zrangebyscore_fn).expect("Failed to set zrangebyscore");
+        ts_table.set("zrank", zrank_fn).expect("Failed to set zrank");
+        ts_table.set("zrevrank", zrevrank_fn).expect("Failed to set zrevrank");
+        ts_table.set("zcount", zcount_fn).expect("Failed to set zcount");
+        ts_table.set("zfirst", zfirst_fn).expect("Failed to set zfirst");
+        ts_table.set("zlast", zlast_fn).expect("Failed to set zlast");
+        ts_table.set("znext", znext_fn).expect("Failed to set znext");
+        ts_table.set("zprev", zprev_fn).expect("Failed to set zprev");
+
+        lua.globals().set("ts", ts_table).expect("Failed to set ts global");
+
         StorageInner {
             map: BTreeMap::new(),
+            lua,
         }
     }
 
@@ -1441,5 +1796,27 @@ impl StorageInner {
             Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
             None => Ok(None),
         }
+    }
+
+    /// Execute a Lua script with access to ts.get and ts.hget functions.
+    /// The script has access to ts.get(key) and ts.hget(key, field).
+    pub fn lua_load(&self, script: &[u8]) -> Result<Vec<u8>, String> {
+        // Compile the script to bytecode
+        let func = self.lua.load(script).into_function().map_err(|e| e.to_string())?;
+        Ok(func.dump(false))
+    }
+
+    pub fn tx(&self, db: u64, script_or_bytecode: &[u8]) -> Result<LuaValue, String> {
+        // Set the current database and storage pointer in global variables
+        self.lua.globals().set("__db", db).map_err(|e| e.to_string())?;
+        self.lua.globals().set("__storage_ptr", mlua::LightUserData(self as *const _ as *mut _)).map_err(|e| e.to_string())?;
+
+        // Execute the script or bytecode (mlua's load() handles both)
+        let result: LuaValue = self.lua.load(script_or_bytecode).eval().map_err(|e| e.to_string())?;
+
+        // Clear the storage pointer for safety
+        self.lua.globals().set("__storage_ptr", mlua::LightUserData(std::ptr::null_mut())).map_err(|e| e.to_string())?;
+
+        Ok(result)
     }
 }

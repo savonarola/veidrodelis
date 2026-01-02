@@ -1114,4 +1114,80 @@ defmodule Vdr.TS do
     [result] = commands(storage, [{db, :zprev, key, score, member}])
     result
   end
+
+  @doc """
+  Compiles a Lua script to bytecode.
+
+  Pre-compiling scripts can improve performance when executing the same script
+  multiple times, as the compilation step is done only once.
+
+  Returns `{:ok, bytecode}` where bytecode is a binary that can be passed to `tx/3`,
+  or `{:error, reason}` if compilation fails.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      script = "return ts.get('mykey')"
+      {:ok, bytecode} = Vdr.TS.lua_load(storage, script)
+
+      # Use the bytecode multiple times
+      {:ok, result1} = Vdr.TS.tx(storage, 0, bytecode)
+      {:ok, result2} = Vdr.TS.tx(storage, 1, bytecode)
+  """
+  @spec lua_load(reference(), binary()) :: {:ok, binary()} | {:error, term()}
+  def lua_load(_storage, _script), do: :erlang.nif_error(:nif_not_loaded)
+
+  @doc """
+  Executes a Lua script or bytecode with access to ts.get and ts.hget functions.
+
+  The script is executed atomically under the storage mutex and has access to:
+  - `ts.get(key)` - Get a string value
+  - `ts.hget(key, field)` - Get a hash field value
+  - And all other read-only TS functions
+
+  Accepts either a raw Lua script (binary) or pre-compiled bytecode from `lua_load/2`.
+
+  Returns `{:ok, result}` where result is the script's return value with proper types:
+  - Numbers return as integers or floats
+  - Booleans return as true/false
+  - Strings return as binaries
+  - nil returns as nil atom
+  - Lua tables (arrays) return as Elixir lists
+  - Lua tables (maps) return as Elixir maps
+  - Nested tables are recursively converted
+
+  Returns `{:error, reason}` if the script fails.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.set(storage, 0, "key1", "value1")
+      Vdr.TS.hset(storage, 0, "hash1", "field1", "value2")
+
+      # String result
+      script = "return ts.get('key1')"
+      {:ok, "value1"} = Vdr.TS.tx(storage, 0, script)
+
+      # Number result
+      script = "return 42"
+      {:ok, 42} = Vdr.TS.tx(storage, 0, script)
+
+      # Boolean result
+      script = "return true"
+      {:ok, true} = Vdr.TS.tx(storage, 0, script)
+
+      # List result
+      script = "return {1, 2, 3}"
+      {:ok, [1, 2, 3]} = Vdr.TS.tx(storage, 0, script)
+
+      # Map result
+      script = "return {a = 1, b = 2}"
+      {:ok, %{"a" => 1, "b" => 2}} = Vdr.TS.tx(storage, 0, script)
+
+      # Pre-compile for better performance
+      {:ok, bytecode} = Vdr.TS.lua_load(storage, script)
+      {:ok, result} = Vdr.TS.tx(storage, 0, bytecode)
+  """
+  @spec tx(reference(), non_neg_integer(), binary()) :: {:ok, term()} | {:error, term()}
+  def tx(_storage, _db, _script_or_bytecode), do: :erlang.nif_error(:nif_not_loaded)
 end

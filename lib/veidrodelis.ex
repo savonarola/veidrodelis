@@ -219,6 +219,48 @@ defmodule Veidrodelis do
     with_handle(id, :zscore, [db, key, member])
   end
 
+  @doc """
+  Executes a Lua script with access to ts.get and ts.hget functions.
+
+  The script is executed atomically under the storage mutex and has access to:
+  - `ts.get(key)` - Get a string value
+  - `ts.hget(key, field)` - Get a hash field value
+  - `ts.llen(key)` - Get list length
+  - `ts.lrange(key, start, stop)` - Get list range
+  - `ts.smembers(key)` - Get set members
+  - `ts.sismember(key, member)` - Check set membership
+  - `ts.scard(key)` - Get set cardinality
+  - `ts.hgetall(key)` - Get all hash fields and values
+  - `ts.hkeys(key)` - Get hash field names
+  - `ts.hvals(key)` - Get hash values
+  - `ts.hlen(key)` - Get hash length
+  - `ts.hexists(key, field)` - Check if hash field exists
+  - `ts.zscore(key, member)` - Get sorted set member score
+  - `ts.zcard(key)` - Get sorted set cardinality
+  - `ts.zrange(key, start, stop)` - Get sorted set range
+  - `ts.zrangebyscore(key, min, max)` - Get sorted set range by score
+  - `ts.zrank(key, member)` - Get sorted set member rank
+  - `ts.zrevrank(key, member)` - Get sorted set member reverse rank
+  - `ts.zcount(key, min, max)` - Count sorted set members in score range
+  - `ts.zfirst(key)` - Get first sorted set member (returns score, member)
+  - `ts.zlast(key)` - Get last sorted set member (returns score, member)
+  - `ts.znext(key, score, member)` - Get next sorted set member (returns score, member)
+  - `ts.zprev(key, score, member)` - Get previous sorted set member (returns score, member)
+
+  Returns `{:ok, result}` where result is the script's return value as a binary,
+  or `{:error, reason}` if the script fails.
+
+  ## Examples
+
+      {:ok, pid} = Veidrodelis.start_link(id: :my_instance, impl: {Vdr.TSProj, []})
+      script = "return ts.get('key1')"
+      {:ok, result} = Veidrodelis.tx(:my_instance, 0, script)
+  """
+  @spec tx(instance_id(), db(), binary()) :: {:ok, binary()} | {:error, term()}
+  def tx(id, db, script) when is_binary(script) do
+    with_handle(id, :tx, [db, script])
+  end
+
   defp with_handle(id, fun_name, fun_args) do
     case Vdr.Registry.lookup(id) do
       {:ok, %Vdr.Handle{handle_state: handle_state, callback_module: callback_module}} ->

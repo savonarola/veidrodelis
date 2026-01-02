@@ -346,6 +346,14 @@ defmodule Vdr.MapProj do
     end
   end
 
+  @doc """
+  Lua transactions are not supported in MapProj.
+  Use TSProj for Lua transaction support.
+  """
+  def tx(_pid, _db, _script) do
+    {:error, :not_supported}
+  end
+
   defp do_handle_command(store, db, %RedisCommand.Set{key: key, value: value}) do
     Strings.set(store, db, key, value)
   end

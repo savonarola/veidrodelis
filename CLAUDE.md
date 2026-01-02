@@ -141,10 +141,17 @@ Veidrodelis API → Registry Lookup →
 **Vdr.TS - Term Storage ([lib/veidrodelis/ts.ex](lib/veidrodelis/ts.ex))**
 - High-performance, thread-safe Rust-native storage for all Redis data types
 - NIF implementation: [native/vdr_ts_nif/src/lib.rs](native/vdr_ts_nif/src/lib.rs)
+- Storage implementation: [native/vdr_ts_nif/src/storage.rs](native/vdr_ts_nif/src/storage.rs)
 - Multi-database support (db parameter)
 - **Batch command execution** via `commands/2` - executes multiple commands under single mutex lock
 - Direct read/write operations (no GenServer overhead)
 - Arc-based reference counting for efficient memory management
+- **Lua transaction interface** via `tx/3` and `lua_load/2`:
+  - Embedded LuaJIT VM initialized once per storage instance
+  - All read-only functions exposed to Lua via `ts.*` namespace
+  - Script compilation to bytecode for performance via `lua_load/2`
+  - Atomic execution under storage mutex
+  - Lua functions initialized once during storage creation for zero overhead
 - Supported operations:
   - **Strings**: `set/4`, `get/3`, `del/3`
   - **Lists**: `lpush/4`, `rpush/4`, `lpop/3`, `rpop/3`, `llen/3`, `lrange/5`, `lset/5`, `rpoplpush/4`
@@ -152,7 +159,7 @@ Veidrodelis API → Registry Lookup →
   - **Hashes**: `hset/5`, `hmset/4`, `hdel/4`, `hget/4`, `hmget/4`, `hgetall/3`, `hkeys/3`, `hvals/3`, `hlen/3`, `hexists/4`
   - **Sorted Sets**: `zadd/4`, `zrem/4`, `zscore/4`, `zcard/3`, `zrange/6`, `zrangebyscore/6`, `zrank/4`, `zrevrank/4`, `zcount/5`, `zincrby/5`
   - **Sorted Set Iteration**: `zfirst/3`, `zlast/3`, `znext/5`, `zprev/5` - efficient iteration without loading entire set
-- Rust dependencies: `im` (immutable data structures), `indexset`, `ordered-float`, `ouroboros`
+- Rust dependencies: `im` (immutable data structures), `indexset`, `ordered-float`, `ouroboros`, `mlua` (LuaJIT)
 
 **Vdr.TSProj - TS-based Projection ([lib/veidrodelis/ts_proj.ex](lib/veidrodelis/ts_proj.ex))**
 - Redis replication processor using Rust-native TS storage
@@ -255,6 +262,38 @@ Veidrodelis API → Registry Lookup →
 - Cursor is opaque - pass it to `znext`/`zprev` for traversal
 - Returns `nil` when reaching the end of iteration
 
+### Working with the Lua Interface
+- **Architecture**: Each TS storage instance contains an embedded LuaJIT VM
+- **Initialization**: Lua VM and all `ts.*` functions are created once during `StorageInner::new()` in [native/vdr_ts_nif/src/storage.rs](native/vdr_ts_nif/src/storage.rs)
+- **Function exposure**: All read-only TS functions are exposed to Lua via the `ts` global table
+- **Execution model**:
+  - Scripts/bytecode execute atomically under the storage mutex
+  - Storage pointer passed via `LightUserData` in Lua globals
+  - Database ID passed via `__db` global variable
+  - Functions use `get_tx_ctx()` helper to extract storage and db
+- **Performance optimizations**:
+  - Lua functions created once (not per-execution)
+  - Zero overhead function calls from Lua
+  - Bytecode compilation via `lua_load/2` for script reuse
+- **Adding new Lua functions**: When adding new read-only TS operations:
+  1. Create the Lua function in `StorageInner::new()` following the pattern
+  2. Use `get_tx_ctx(&lua_ctx)` to get storage and db
+  3. Call the underlying storage method
+  4. Convert result to appropriate Lua type
+  5. Register function in the `ts` table
+  6. Add corresponding test in `ts_test.exs` (both direct and via `tx`)
+- **Function naming**: Lua functions should match Elixir function names (e.g., `ts.get`, `ts.hget`, `ts.zfirst`)
+- **Return values from Lua scripts** (types preserved):
+  - Strings: Return as Elixir binary
+  - Numbers: Return as Elixir integer or float
+  - Booleans: Return as Elixir boolean (true/false)
+  - nil: Return as Elixir nil atom
+  - Lua tables (array-like, 1-indexed): Return as Elixir list
+  - Lua tables (key-value): Return as Elixir map (string keys)
+  - Nested tables: Recursively converted to nested lists/maps
+  - Example: `{1, 2, {a=10}}` → `[1, 2, %{"a" => 10}]`
+- **Dependencies**: Uses `mlua` crate with features: `["luajit", "vendored", "send"]`
+
 ### Choosing Storage Backends
 - **Use TSProj** for production - high performance, thread-safe, direct NIF access
 - **Use MapProj** for debugging - pure Elixir, easier to inspect state, GenServer-based
@@ -262,7 +301,12 @@ Veidrodelis API → Registry Lookup →
 
 ### When adding new features
 - Implement in Elixir in `lib/veidrodelis/*.ex`
-- If adding to TS storage, also update Rust code in `native/vdr_ts_nif/src/lib.rs`
+- If adding to TS storage, also update Rust code in `native/vdr_ts_nif/src/storage.rs` and `native/vdr_ts_nif/src/lib.rs`
+- **CRITICAL**: When adding new read-only TS functions, ALWAYS add corresponding Lua function in `StorageInner::new()`:
+  - Follow the existing pattern using `get_tx_ctx()` helper
+  - Register the function in the `ts` table
+  - Add tests in `ts_test.exs` for both direct call and Lua execution via `tx`
+  - This ensures feature parity between direct access and Lua transactions
 - Update both TSProj and MapProj if changing projection behavior
 - Add comprehensive documentation with `@doc` and examples
 - Add tests in `test/veidrodelis/*_test.exs` (ExUnit). Do not start ad-hoc elixir scripts for testing, add a proper test module instead.
