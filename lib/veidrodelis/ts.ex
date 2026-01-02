@@ -13,13 +13,13 @@ defmodule Vdr.TS do
 
       storage = Vdr.TS.create()
 
-      :ok = Vdr.TS.set(storage, "user:1", "Alice")
-      :ok = Vdr.TS.set(storage, "user:2", "Bob")
+      Vdr.TS.tx(storage, [{0, {:set, "user:1", "Alice"}}])
+      Vdr.TS.tx(storage, [{0, {:set, "user:2", "Bob"}}])
 
-      "Alice" = Vdr.TS.get(storage, "user:1")
-      nil = Vdr.TS.get(storage, "missing")
+      "Alice" = Vdr.TS.get(storage, 0, "user:1")
+      nil = Vdr.TS.get(storage, 0, "missing")
 
-      :ok = Vdr.TS.del(storage, "user:1")
+      Vdr.TS.tx(storage, [{0, {:del, "user:1"}}])
       :ok = Vdr.TS.destroy(storage)
 
   ## Thread Safety
@@ -56,38 +56,15 @@ defmodule Vdr.TS do
       # Create multiple independent storages
       storage1 = Vdr.TS.create()
       storage2 = Vdr.TS.create()
-      Vdr.TS.set(storage1, "key", "value1")
-      Vdr.TS.set(storage2, "key", "value2")
-      Vdr.TS.get(storage1, "key")
+      Vdr.TS.tx(storage1, [{0, {:set, "key", "value1"}}])
+      Vdr.TS.tx(storage2, [{0, {:set, "key", "value2"}}])
+      Vdr.TS.get(storage1, 0, "key")
       #=> "value1"
-      Vdr.TS.get(storage2, "key")
+      Vdr.TS.get(storage2, 0, "key")
       #=> "value2"
   """
   @spec create() :: reference()
   def create(), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
-  Stores a binary value with the given binary key in a specific database.
-
-  Both keys and values must be binaries. If the key already exists,
-  its value is overwritten.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-
-      # Store binary values in database 0
-      :ok = Vdr.TS.set(storage, 0, "key", "value")
-      :ok = Vdr.TS.set(storage, 0, "data", <<1, 2, 3, 4>>)
-
-      # Store in different database
-      :ok = Vdr.TS.set(storage, 1, "key", "other_value")
-
-      # Overwrite existing key
-      :ok = Vdr.TS.set(storage, 0, "key", "new_value")
-  """
-  @spec set(reference(), non_neg_integer(), binary(), binary()) :: :ok
-  def set(_storage, _db, _key, _value), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
   Retrieves a binary value by key from a specific database.
@@ -97,7 +74,7 @@ defmodule Vdr.TS do
   ## Examples
 
       storage = Vdr.TS.create()
-      Vdr.TS.set(storage, 0, "key", "value")
+      Vdr.TS.tx(storage, [{0, {:set, "key", "value"}}])
 
       Vdr.TS.get(storage, 0, "key")
       #=> "value"
@@ -106,8 +83,8 @@ defmodule Vdr.TS do
       #=> nil
 
       # Different databases are isolated
-      Vdr.TS.set(storage, 0, "key", "value0")
-      Vdr.TS.set(storage, 1, "key", "value1")
+      Vdr.TS.tx(storage, [{0, {:set, "key", "value0"}}])
+      Vdr.TS.tx(storage, [{1, {:set, "key", "value1"}}])
       Vdr.TS.get(storage, 0, "key")
       #=> "value0"
       Vdr.TS.get(storage, 1, "key")
@@ -115,7 +92,7 @@ defmodule Vdr.TS do
 
       # Binary data is preserved exactly
       data = <<0, 1, 2, 255, 254, 253>>
-      Vdr.TS.set(storage, 0, "binary", data)
+      Vdr.TS.tx(storage, [{0, {:set, "binary", data}}])
       Vdr.TS.get(storage, 0, "binary")
       #=> <<0, 1, 2, 255, 254, 253>>
   """
@@ -129,34 +106,6 @@ defmodule Vdr.TS do
   end
 
   @doc """
-  Deletes a key from a specific database.
-
-  Always returns `:ok`, even if the key doesn't exist. This makes
-  deletion idempotent.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      Vdr.TS.set(storage, 0, "key", "value")
-
-      :ok = Vdr.TS.del(storage, 0, "key")
-      Vdr.TS.get(storage, 0, "key")
-      #=> nil
-
-      # Deleting non-existent key still returns :ok
-      :ok = Vdr.TS.del(storage, 0, "missing")
-
-      # Deleting from one database doesn't affect others
-      Vdr.TS.set(storage, 0, "key", "value0")
-      Vdr.TS.set(storage, 1, "key", "value1")
-      :ok = Vdr.TS.del(storage, 0, "key")
-      Vdr.TS.get(storage, 1, "key")
-      #=> "value1"
-  """
-  @spec del(reference(), non_neg_integer(), binary()) :: :ok
-  def del(_storage, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
-
-  @doc """
   Destroys a storage instance, clearing all data.
 
   This clears the key-value map, freeing all stored binary data.
@@ -168,14 +117,14 @@ defmodule Vdr.TS do
   ## Examples
 
       storage = Vdr.TS.create()
-      Vdr.TS.set(storage, "key1", "value1")
-      Vdr.TS.set(storage, "key2", "value2")
+      Vdr.TS.tx(storage, [{0, {:set, "key1", "value1"}}])
+      Vdr.TS.tx(storage, [{0, {:set, "key2", "value2"}}])
 
       :ok = Vdr.TS.destroy(storage)
 
-      Vdr.TS.get(storage, "key1")
+      Vdr.TS.get(storage, 0, "key1")
       #=> nil
-      Vdr.TS.get(storage, "key2")
+      Vdr.TS.get(storage, 0, "key2")
       #=> nil
   """
   @spec destroy(reference()) :: :ok
@@ -783,8 +732,8 @@ defmodule Vdr.TS do
   ## Examples
 
       storage = Vdr.TS.create()
-      Vdr.TS.set(storage, 0, "key1", "value1")
-      Vdr.TS.hset(storage, 0, "hash1", "field1", "value2")
+      Vdr.TS.tx(storage, [{0, {:set, "key1", "value1"}}])
+      Vdr.TS.tx(storage, [{0, {:hset, "hash1", "field1", "value2"}}])
 
       # String result
       script = "return ts.get('key1')"
@@ -851,8 +800,8 @@ defmodule Vdr.TS do
   ## Examples
 
       storage = Vdr.TS.create()
-      Vdr.TS.set(storage, 0, "key1", "value1")
-      Vdr.TS.hset(storage, 0, "hash1", "field1", "value2")
+      Vdr.TS.tx(storage, [{0, {:set, "key1", "value1"}}])
+      Vdr.TS.tx(storage, [{0, {:hset, "hash1", "field1", "value2"}}])
 
       # Read multiple values atomically
       {:ok, ["value1", "value2"]} = Vdr.TS.read_tx(storage, 0, [

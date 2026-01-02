@@ -13,8 +13,8 @@ defmodule Vdr.TSTest do
       storage1 = TS.create()
       storage2 = TS.create()
 
-      TS.set(storage1, 0, "key", "value1")
-      TS.set(storage2, 0, "key", "value2")
+      TS.tx(storage1, [{0, {:set, "key", "value1"}}])
+      TS.tx(storage2, [{0, {:set, "key", "value2"}}])
 
       assert "value1" == TS.get(storage1, 0, "key")
       assert "value2" == TS.get(storage2, 0, "key")
@@ -24,24 +24,24 @@ defmodule Vdr.TSTest do
   describe "set/4 and get/3" do
     test "stores and retrieves binary values" do
       storage = TS.create()
-      :ok = TS.set(storage, 0, "key", "value")
+      [:ok] = TS.tx(storage, [{0, {:set, "key", "value"}}])
       assert "value" == TS.get(storage, 0, "key")
     end
 
     test "stores and retrieves binary data" do
       storage = TS.create()
       data = <<0, 1, 2, 3, 4, 5>>
-      :ok = TS.set(storage, 0, "data", data)
+      [:ok] = TS.tx(storage, [{0, {:set, "data", data}}])
       assert ^data = TS.get(storage, 0, "data")
     end
 
     test "overwrites existing values" do
       storage = TS.create()
 
-      TS.set(storage, 0, "key", "value1")
+      TS.tx(storage, [{0, {:set, "key", "value1"}}])
       assert "value1" == TS.get(storage, 0, "key")
 
-      TS.set(storage, 0, "key", "value2")
+      TS.tx(storage, [{0, {:set, "key", "value2"}}])
       assert "value2" == TS.get(storage, 0, "key")
     end
 
@@ -52,38 +52,38 @@ defmodule Vdr.TSTest do
 
     test "handles binary keys with colons" do
       storage = TS.create()
-      TS.set(storage, 0, "key:with:colons", "value")
+      TS.tx(storage, [{0, {:set, "key:with:colons", "value"}}])
       assert "value" == TS.get(storage, 0, "key:with:colons")
     end
 
     test "handles binary keys with slashes" do
       storage = TS.create()
-      TS.set(storage, 0, "key/with/slashes", "value")
+      TS.tx(storage, [{0, {:set, "key/with/slashes", "value"}}])
       assert "value" == TS.get(storage, 0, "key/with/slashes")
     end
 
     test "handles binary keys with spaces" do
       storage = TS.create()
-      TS.set(storage, 0, "key with spaces", "value")
+      TS.tx(storage, [{0, {:set, "key with spaces", "value"}}])
       assert "value" == TS.get(storage, 0, "key with spaces")
     end
 
     test "handles empty binary key" do
       storage = TS.create()
-      TS.set(storage, 0, "", "empty_key")
+      TS.tx(storage, [{0, {:set, "", "empty_key"}}])
       assert "empty_key" == TS.get(storage, 0, "")
     end
 
     test "handles empty binary value" do
       storage = TS.create()
-      TS.set(storage, 0, "key", "")
+      TS.tx(storage, [{0, {:set, "key", ""}}])
       assert "" == TS.get(storage, 0, "key")
     end
 
     test "handles UTF-8 binary values" do
       storage = TS.create()
       utf8_value = "Hello, 世界! 🌍"
-      TS.set(storage, 0, "utf8", utf8_value)
+      TS.tx(storage, [{0, {:set, "utf8", utf8_value}}])
       assert ^utf8_value = TS.get(storage, 0, "utf8")
     end
   end
@@ -92,24 +92,24 @@ defmodule Vdr.TSTest do
     test "deletes existing keys" do
       storage = TS.create()
 
-      TS.set(storage, 0, "key", "value")
+      TS.tx(storage, [{0, {:set, "key", "value"}}])
       assert "value" == TS.get(storage, 0, "key")
 
-      :ok = TS.del(storage, 0, "key")
+      [:ok] = TS.tx(storage, [{0, {:del, ["key"]}}])
       assert nil == TS.get(storage, 0, "key")
     end
 
     test "returns :ok for missing keys" do
       storage = TS.create()
-      assert :ok == TS.del(storage, 0, "missing")
+      assert [:ok] == TS.tx(storage, [{0, {:del, ["missing"]}}])
     end
 
     test "allows re-setting after deletion" do
       storage = TS.create()
 
-      TS.set(storage, 0, "key", "value1")
-      TS.del(storage, 0, "key")
-      TS.set(storage, 0, "key", "value2")
+      TS.tx(storage, [{0, {:set, "key", "value1"}}])
+      TS.tx(storage, [{0, {:del, ["key"]}}])
+      TS.tx(storage, [{0, {:set, "key", "value2"}}])
 
       assert "value2" == TS.get(storage, 0, "key")
     end
@@ -117,10 +117,10 @@ defmodule Vdr.TSTest do
     test "deleting multiple times is idempotent" do
       storage = TS.create()
 
-      TS.set(storage, 0, "key", "value")
-      assert :ok = TS.del(storage, 0, "key")
-      assert :ok = TS.del(storage, 0, "key")
-      assert :ok = TS.del(storage, 0, "key")
+      TS.tx(storage, [{0, {:set, "key", "value"}}])
+      assert [:ok] = TS.tx(storage, [{0, {:del, ["key"]}}])
+      assert [:ok] = TS.tx(storage, [{0, {:del, ["key"]}}])
+      assert [:ok] = TS.tx(storage, [{0, {:del, ["key"]}}])
     end
   end
 
@@ -128,9 +128,9 @@ defmodule Vdr.TSTest do
     test "clears all data" do
       storage = TS.create()
 
-      TS.set(storage, 0, "key1", "value1")
-      TS.set(storage, 0, "key2", "value2")
-      TS.set(storage, 0, "key3", "value3")
+      TS.tx(storage, [{0, {:set, "key1", "value1"}}])
+      TS.tx(storage, [{0, {:set, "key2", "value2"}}])
+      TS.tx(storage, [{0, {:set, "key3", "value3"}}])
 
       :ok = TS.destroy(storage)
 
@@ -142,10 +142,10 @@ defmodule Vdr.TSTest do
     test "storage can be reused after destroy" do
       storage = TS.create()
 
-      TS.set(storage, 0, "key1", "value1")
+      TS.tx(storage, [{0, {:set, "key1", "value1"}}])
       TS.destroy(storage)
 
-      TS.set(storage, 0, "key2", "value2")
+      TS.tx(storage, [{0, {:set, "key2", "value2"}}])
       assert "value2" == TS.get(storage, 0, "key2")
       assert nil == TS.get(storage, 0, "key1")
     end
@@ -157,7 +157,7 @@ defmodule Vdr.TSTest do
 
       # Pre-populate
       for i <- 1..10 do
-        TS.set(storage, 0, "key#{i}", "value#{i}")
+        TS.tx(storage, [{0, {:set, "key#{i}", "value#{i}"}}])
       end
 
       # Concurrent access from multiple tasks
@@ -165,7 +165,7 @@ defmodule Vdr.TSTest do
         for i <- 1..5 do
           Task.async(fn ->
             # Each task reads and writes
-            TS.set(storage, 0, "task#{i}", "task_value_#{i}")
+            TS.tx(storage, [{0, {:set, "task#{i}", "task_value_#{i}"}}])
             TS.get(storage, 0, "key#{i}")
           end)
         end
@@ -185,13 +185,12 @@ defmodule Vdr.TSTest do
       tasks =
         for i <- 1..10 do
           Task.async(fn ->
-            TS.set(storage, 0, "shared", "value#{i}")
-            :ok
+            TS.tx(storage, [{0, {:set, "shared", "value#{i}"}}])
           end)
         end
 
       results = Task.await_many(tasks)
-      assert Enum.all?(results, &(&1 == :ok))
+      assert Enum.all?(results, &(&1 == [:ok]))
 
       # Some value should be stored (we don't know which due to race)
       value = TS.get(storage, 0, "shared")
@@ -204,19 +203,19 @@ defmodule Vdr.TSTest do
 
       # Pre-populate
       for i <- 1..10 do
-        TS.set(storage, 0, "key#{i}", "value#{i}")
+        TS.tx(storage, [{0, {:set, "key#{i}", "value#{i}"}}])
       end
 
       # Concurrent deletes
       tasks =
         for i <- 1..10 do
           Task.async(fn ->
-            TS.del(storage, 0, "key#{i}")
+            TS.tx(storage, [{0, {:del, ["key#{i}"]}}])
           end)
         end
 
       results = Task.await_many(tasks)
-      assert Enum.all?(results, &(&1 == :ok))
+      assert Enum.all?(results, &(&1 == [:ok]))
 
       # All keys should be deleted
       for i <- 1..10 do
@@ -230,7 +229,7 @@ defmodule Vdr.TSTest do
       storage = TS.create()
 
       binary = <<0, 1, 2, 255, 254, 253>>
-      TS.set(storage, 0, "binary", binary)
+      TS.tx(storage, [{0, {:set, "binary", binary}}])
 
       assert ^binary = TS.get(storage, 0, "binary")
     end
@@ -240,7 +239,7 @@ defmodule Vdr.TSTest do
 
       # 1MB binary
       large_binary = :crypto.strong_rand_bytes(1024 * 1024)
-      TS.set(storage, 0, "large", large_binary)
+      TS.tx(storage, [{0, {:set, "large", large_binary}}])
 
       assert ^large_binary = TS.get(storage, 0, "large")
     end
@@ -248,13 +247,13 @@ defmodule Vdr.TSTest do
     test "different binary values for same key across time" do
       storage = TS.create()
 
-      TS.set(storage, 0, "key", "value1")
+      TS.tx(storage, [{0, {:set, "key", "value1"}}])
       assert "value1" == TS.get(storage, 0, "key")
 
-      TS.set(storage, 0, "key", "value2")
+      TS.tx(storage, [{0, {:set, "key", "value2"}}])
       assert "value2" == TS.get(storage, 0, "key")
 
-      TS.set(storage, 0, "key", <<1, 2, 3>>)
+      TS.tx(storage, [{0, {:set, "key", <<1, 2, 3>>}}])
       assert <<1, 2, 3>> == TS.get(storage, 0, "key")
     end
   end
@@ -265,7 +264,7 @@ defmodule Vdr.TSTest do
 
       # Store 100 keys
       for i <- 1..100 do
-        TS.set(storage, 0, "key#{i}", "value#{i}")
+        TS.tx(storage, [{0, {:set, "key#{i}", "value#{i}"}}])
       end
 
       # Verify all keys
@@ -280,7 +279,7 @@ defmodule Vdr.TSTest do
       key = "key\0with\0nulls"
       value = "value\0with\0nulls"
 
-      TS.set(storage, 0, key, value)
+      TS.tx(storage, [{0, {:set, key, value}}])
       assert ^value = TS.get(storage, 0, key)
     end
   end
@@ -430,7 +429,7 @@ defmodule Vdr.TSTest do
 
     test "returns error for wrong type" do
       storage = TS.create()
-      :ok = TS.set(storage, 0, "mystring", "value")
+      [:ok] = TS.tx(storage, [{0, {:set, "mystring", "value"}}])
 
       assert {:error, :wrong_type} == TS.zcount(storage, 0, "mystring", 0.0, 10.0)
     end
@@ -501,7 +500,7 @@ defmodule Vdr.TSTest do
 
     test "returns error for wrong type" do
       storage = TS.create()
-      :ok = TS.set(storage, 0, "mystring", "value")
+      [:ok] = TS.tx(storage, [{0, {:set, "mystring", "value"}}])
 
       assert {:error, :wrong_type} == TS.zfirst(storage, 0, "mystring")
     end
@@ -564,7 +563,7 @@ defmodule Vdr.TSTest do
 
     test "returns error for wrong type" do
       storage = TS.create()
-      :ok = TS.set(storage, 0, "mystring", "value")
+      [:ok] = TS.tx(storage, [{0, {:set, "mystring", "value"}}])
 
       assert {:error, :wrong_type} == TS.zlast(storage, 0, "mystring")
     end
@@ -614,7 +613,7 @@ defmodule Vdr.TSTest do
 
     test "returns error for wrong type" do
       storage = TS.create()
-      :ok = TS.set(storage, 0, "mystring", "value")
+      [:ok] = TS.tx(storage, [{0, {:set, "mystring", "value"}}])
 
       assert {:error, :wrong_type} == TS.znext(storage, 0, "mystring", 1.0, "member")
     end
@@ -690,7 +689,7 @@ defmodule Vdr.TSTest do
 
     test "returns error for wrong type" do
       storage = TS.create()
-      :ok = TS.set(storage, 0, "mystring", "value")
+      [:ok] = TS.tx(storage, [{0, {:set, "mystring", "value"}}])
 
       assert {:error, :wrong_type} == TS.zprev(storage, 0, "mystring", 1.0, "member")
     end
@@ -819,7 +818,7 @@ defmodule Vdr.TSTest do
   describe "tx/3 - Lua transactions" do
     test "executes simple Lua script with ts.get" do
       storage = TS.create()
-      TS.set(storage, 0, "key1", "value1")
+      TS.tx(storage, [{0, {:set, "key1", "value1"}}])
 
       script = "return ts.get('key1')"
       assert {:ok, "value1"} == TS.read_tx(storage, 0, script)
@@ -835,8 +834,8 @@ defmodule Vdr.TSTest do
 
     test "combines multiple ts.get calls" do
       storage = TS.create()
-      TS.set(storage, 0, "key1", "hello")
-      TS.set(storage, 0, "key2", "world")
+      TS.tx(storage, [{0, {:set, "key1", "hello"}}])
+      TS.tx(storage, [{0, {:set, "key2", "world"}}])
 
       script = """
       local v1 = ts.get('key1')
@@ -849,7 +848,7 @@ defmodule Vdr.TSTest do
 
     test "combines ts.get and ts.hget" do
       storage = TS.create()
-      TS.set(storage, 0, "string_key", "prefix")
+      TS.tx(storage, [{0, {:set, "string_key", "prefix"}}])
       TS.tx(storage, [{0, {:hset, "hash_key", "field1", "suffix"}}])
 
       script = """
@@ -878,7 +877,7 @@ defmodule Vdr.TSTest do
 
     test "returns integer result" do
       storage = TS.create()
-      TS.set(storage, 0, "count", "5")
+      TS.tx(storage, [{0, {:set, "count", "5"}}])
 
       script = """
       local v = ts.get('count')
@@ -890,7 +889,7 @@ defmodule Vdr.TSTest do
 
     test "returns boolean result" do
       storage = TS.create()
-      TS.set(storage, 0, "key1", "value1")
+      TS.tx(storage, [{0, {:set, "key1", "value1"}}])
 
       script = """
       local v = ts.get('key1')
@@ -902,7 +901,7 @@ defmodule Vdr.TSTest do
 
     test "executes atomically under mutex" do
       storage = TS.create()
-      TS.set(storage, 0, "counter", "0")
+      TS.tx(storage, [{0, {:set, "counter", "0"}}])
 
       # Run multiple scripts concurrently
       tasks =
@@ -940,8 +939,8 @@ defmodule Vdr.TSTest do
 
     test "isolates by database" do
       storage = TS.create()
-      TS.set(storage, 0, "key", "db0")
-      TS.set(storage, 1, "key", "db1")
+      TS.tx(storage, [{0, {:set, "key", "db0"}}])
+      TS.tx(storage, [{1, {:set, "key", "db1"}}])
 
       script = "return ts.get('key')"
 
@@ -952,7 +951,7 @@ defmodule Vdr.TSTest do
     test "handles binary data in values" do
       storage = TS.create()
       binary_value = <<0, 1, 2, 3, 255, 254, 253>>
-      TS.set(storage, 0, "binary_key", binary_value)
+      TS.tx(storage, [{0, {:set, "binary_key", binary_value}}])
 
       script = "return ts.get('binary_key')"
       assert {:ok, ^binary_value} = TS.read_tx(storage, 0, script)
@@ -1027,7 +1026,7 @@ defmodule Vdr.TSTest do
 
     test "bytecode can be executed with tx" do
       storage = TS.create()
-      TS.set(storage, 0, "key", "value")
+      TS.tx(storage, [{0, {:set, "key", "value"}}])
 
       script = "return ts.get('key')"
       {:ok, bytecode} = TS.lua_load(storage, script)
@@ -1038,8 +1037,8 @@ defmodule Vdr.TSTest do
 
     test "bytecode can be reused across multiple tx calls" do
       storage = TS.create()
-      TS.set(storage, 0, "key0", "value0")
-      TS.set(storage, 1, "key1", "value1")
+      TS.tx(storage, [{0, {:set, "key0", "value0"}}])
+      TS.tx(storage, [{1, {:set, "key1", "value1"}}])
 
       script = "return ts.get('key' .. __db)"
       {:ok, bytecode} = TS.lua_load(storage, script)
@@ -1051,8 +1050,8 @@ defmodule Vdr.TSTest do
 
     test "bytecode works with complex scripts" do
       storage = TS.create()
-      TS.set(storage, 0, "a", "hello")
-      TS.set(storage, 0, "b", "world")
+      TS.tx(storage, [{0, {:set, "a", "hello"}}])
+      TS.tx(storage, [{0, {:set, "b", "world"}}])
 
       script = """
       local v1 = ts.get('a')

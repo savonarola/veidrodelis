@@ -39,7 +39,7 @@ defmodule Vdr.TSProj.SetStoreTest do
     end
 
     test "returns error on type mismatch", %{storage: storage} do
-      Vdr.TS.set(storage, 0, "mystring", "value")
+      Vdr.TS.tx(storage, [{0, {:set, "mystring", "value"}}])
       [{:error, :wrong_type}] = Vdr.TS.tx(storage, [{0, {:sadd, "mystring", ["a"]}}])
     end
   end
@@ -71,7 +71,7 @@ defmodule Vdr.TSProj.SetStoreTest do
     end
 
     test "returns error on type mismatch", %{storage: storage} do
-      Vdr.TS.set(storage, 0, "mystring", "value")
+      Vdr.TS.tx(storage, [{0, {:set, "mystring", "value"}}])
       [{:error, :wrong_type}] = Vdr.TS.tx(storage, [{0, {:srem, "mystring", ["a"]}}])
     end
   end
@@ -118,7 +118,7 @@ defmodule Vdr.TSProj.SetStoreTest do
     end
 
     test "returns error on type mismatch", %{storage: storage} do
-      Vdr.TS.set(storage, 0, "mystring", "value")
+      Vdr.TS.tx(storage, [{0, {:set, "mystring", "value"}}])
       Vdr.TS.tx(storage, [{0, {:sadd, "myset", ["a"]}}])
 
       [{:error, :wrong_type}] = Vdr.TS.tx(storage, [{0, {:smove, "mystring", "myset", "a"}}])
@@ -148,7 +148,7 @@ defmodule Vdr.TSProj.SetStoreTest do
     end
 
     test "returns error on type mismatch", %{storage: storage} do
-      Vdr.TS.set(storage, 0, "mystring", "value")
+      Vdr.TS.tx(storage, [{0, {:set, "mystring", "value"}}])
       Vdr.TS.tx(storage, [{0, {:sadd, "myset", ["a"]}}])
 
       [{:error, :wrong_type}] = Vdr.TS.tx(storage, [{0, {:sunionstore, "result", ["myset", "mystring"]}}])
@@ -177,7 +177,7 @@ defmodule Vdr.TSProj.SetStoreTest do
     end
 
     test "returns error on type mismatch", %{storage: storage} do
-      Vdr.TS.set(storage, 0, "mystring", "value")
+      Vdr.TS.tx(storage, [{0, {:set, "mystring", "value"}}])
       Vdr.TS.tx(storage, [{0, {:sadd, "myset", ["a"]}}])
 
       [{:error, :wrong_type}] = Vdr.TS.tx(storage, [{0, {:sinterstore, "result", ["myset", "mystring"]}}])
@@ -206,7 +206,7 @@ defmodule Vdr.TSProj.SetStoreTest do
     end
 
     test "returns error on type mismatch", %{storage: storage} do
-      Vdr.TS.set(storage, 0, "mystring", "value")
+      Vdr.TS.tx(storage, [{0, {:set, "mystring", "value"}}])
       Vdr.TS.tx(storage, [{0, {:sadd, "myset", ["a"]}}])
 
       [{:error, :wrong_type}] = Vdr.TS.tx(storage, [{0, {:sdiffstore, "result", ["myset", "mystring"]}}])
@@ -226,7 +226,7 @@ defmodule Vdr.TSProj.SetStoreTest do
     end
 
     test "returns error on type mismatch", %{storage: storage} do
-      Vdr.TS.set(storage, 0, "mystring", "value")
+      Vdr.TS.tx(storage, [{0, {:set, "mystring", "value"}}])
       assert {:error, :wrong_type} = Vdr.TS.smembers(storage, 0, "mystring")
     end
   end
@@ -249,7 +249,7 @@ defmodule Vdr.TSProj.SetStoreTest do
     end
 
     test "returns error on type mismatch", %{storage: storage} do
-      Vdr.TS.set(storage, 0, "mystring", "value")
+      Vdr.TS.tx(storage, [{0, {:set, "mystring", "value"}}])
       assert {:error, :wrong_type} = Vdr.TS.sismember(storage, 0, "mystring", "a")
     end
   end
@@ -273,7 +273,7 @@ defmodule Vdr.TSProj.SetStoreTest do
     end
 
     test "returns error on type mismatch", %{storage: storage} do
-      Vdr.TS.set(storage, 0, "mystring", "value")
+      Vdr.TS.tx(storage, [{0, {:set, "mystring", "value"}}])
       assert {:error, :wrong_type} = Vdr.TS.scard(storage, 0, "mystring")
     end
   end
