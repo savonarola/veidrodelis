@@ -257,9 +257,11 @@ defmodule Vdr.RedisStream.Parser do
 
         # Sorted set commands
         "ZADD" ->
-          [key | score_member_pairs] = args
+          [key | rest] = args
+          # Parse ZADD options and score-member pairs
+          {options, score_member_pairs} = parse_zadd_options(rest, [])
           members = parse_zadd_args(score_member_pairs, [])
-          %RedisCommand.ZAdd{key: key, members: members}
+          %RedisCommand.ZAdd{key: key, members: members, options: options}
 
         "ZUNIONSTORE" when length(args) >= 2 ->
           parse_zunionstore(args)
@@ -396,6 +398,22 @@ defmodule Vdr.RedisStream.Parser do
 
   defp parse_zstore_options([_ | rest], weights, aggregate) do
     parse_zstore_options(rest, weights, aggregate)
+  end
+
+  # Parse ZADD options, separating them from score-member pairs
+  # Returns {options_list, remaining_args}
+  defp parse_zadd_options([], acc_options), do: {Enum.reverse(acc_options), []}
+
+  defp parse_zadd_options([arg | rest], acc_options) do
+    case String.upcase(arg) do
+      "NX" -> parse_zadd_options(rest, [:nx | acc_options])
+      "XX" -> parse_zadd_options(rest, [:xx | acc_options])
+      "GT" -> parse_zadd_options(rest, [:gt | acc_options])
+      "LT" -> parse_zadd_options(rest, [:lt | acc_options])
+      "CH" -> parse_zadd_options(rest, [:ch | acc_options])
+      "INCR" -> parse_zadd_options(rest, [:incr | acc_options])
+      _ -> {Enum.reverse(acc_options), [arg | rest]}  # Found score-member pairs
+    end
   end
 
   # Parse ZADD arguments: [score, member, score, member, ...]

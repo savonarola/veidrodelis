@@ -57,13 +57,17 @@ defmodule Vdr.RedisStream.Command do
 
     ## Example
         %Vdr.RedisStream.Command.ZAdd{key: "myzset", members: [{1.5, "member1"}, {2.0, "member2"}]}
+        %Vdr.RedisStream.Command.ZAdd{key: "myzset", members: [{1.5, "member1"}], options: [:nx]}
+        %Vdr.RedisStream.Command.ZAdd{key: "myzset", members: [{7.5, "member1"}], options: [:incr]}
+        %Vdr.RedisStream.Command.ZAdd{key: "myzset", members: [{7.5, "member1"}], options: [:nx, :ch]}
     """
     @type t :: %__MODULE__{
             key: binary(),
-            members: [{float() | :nan | :pos_inf | :neg_inf, binary()}]
+            members: [{float() | :nan | :pos_inf | :neg_inf, binary()}],
+            options: [:nx | :xx | :gt | :lt | :ch | :incr]
           }
 
-    defstruct [:key, :members]
+    defstruct [:key, :members, options: []]
   end
 
   defmodule HSet do
