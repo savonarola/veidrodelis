@@ -1,4 +1,5 @@
 use std::collections::{BTreeMap, BTreeSet as StdBTreeSet, HashMap};
+use std::collections::btree_map::Entry as BTreeEntry;
 use std::cmp::Ordering;
 use std::sync::Arc;
 use im::Vector;
@@ -11,6 +12,14 @@ use mlua::{Lua, Value as LuaValue};
 
 
 pub type Score = OrderedFloat<f64>;
+
+/// Aggregation type for sorted set operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Aggregate {
+    Sum,
+    Min,
+    Max,
+}
 
 #[derive(Clone, Debug)]
 pub struct Bytes(Arc<Vec<u8>>);
@@ -674,6 +683,14 @@ impl StorageInner {
         db_map.insert(Bytes::new(key), StorageValue::String(Bytes::new(value)));
     }
 
+    /// Set multiple key-value pairs atomically in a specific database
+    pub fn mset(&mut self, db: u64, pairs: &[(&[u8], &[u8])]) {
+        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        for (key, value) in pairs {
+            db_map.insert(Bytes::new(key), StorageValue::String(Bytes::new(value)));
+        }
+    }
+
     /// Get a value by key from a specific database
     pub fn get(&self, db: u64, key: &[u8]) -> Result<Option<Bytes>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
@@ -692,13 +709,105 @@ impl StorageInner {
         }
     }
 
+    /// Null handler for PEXPIREAT - accepts but ignores expiration timestamp
+    /// In future, this could store expiration metadata and trigger background cleanup
+    pub fn pexpireat(&mut self, _db: u64, _key: &[u8], _timestamp_ms: i64) -> Result<(), &'static str> {
+        // For now, just accept and ignore the expiration
+        // TODO: Implement actual expiration tracking and background cleanup
+        Ok(())
+    }
+
+    /// Rename a key. Overwrites destination key if it exists.
+    pub fn rename(&mut self, db: u64, old_key: &[u8], new_key: &[u8]) -> Result<(), &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(());
+        };
+
+        // Remove old key and get its value
+        let Some(value) = db_map.remove(old_key) else {
+            return Ok(());
+        };
+
+        // Insert at new key (overwrites if exists)
+        db_map.insert(Bytes::new(new_key), value);
+        Ok(())
+    }
+
+    /// Rename a key only if the new key doesn't exist.
+    pub fn renamenx(&mut self, db: u64, old_key: &[u8], new_key: &[u8]) -> Result<(), &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(());
+        };
+
+        // Check if destination already exists
+        if db_map.contains_key(new_key) {
+            return Ok(());
+        }
+
+        // Remove old key and get its value
+        let Some(value) = db_map.remove(old_key) else {
+            return Ok(());
+        };
+
+        // Insert at new key
+        db_map.insert(Bytes::new(new_key), value);
+        Ok(())
+    }
+
+    /// Move a key from one database to another. Overwrites destination key if it exists.
+    pub fn move_key(&mut self, source_db: u64, dest_db: u64, key: &[u8]) -> Result<(), &'static str> {
+        // Get value from source db
+        let value = {
+            let Some(source_map) = self.map.get_mut(&source_db) else {
+                return Ok(());
+            };
+
+            let Some(value) = source_map.remove(key) else {
+                return Ok(());
+            };
+
+            value
+        };
+
+        // Insert into destination db
+        let dest_map = self.map.entry(dest_db).or_insert_with(BTreeMap::new);
+        dest_map.insert(Bytes::new(key), value);
+
+        Ok(())
+    }
+
+    /// Append value to an existing string. Creates key if it doesn't exist.
+    pub fn append(&mut self, db: u64, key: &[u8], value: &[u8]) -> Result<(), &'static str> {
+        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+
+        match db_map.entry(Bytes::new(key)) {
+            BTreeEntry::Occupied(mut e) => {
+                match e.get_mut() {
+                    StorageValue::String(existing) => {
+                        // Create new concatenated value
+                        let mut new_bytes = existing.as_slice().to_vec();
+                        new_bytes.extend_from_slice(value);
+                        *existing = Bytes::new(&new_bytes);
+                        Ok(())
+                    }
+                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
+            }
+            BTreeEntry::Vacant(e) => {
+                // Key doesn't exist, create it
+                e.insert(StorageValue::String(Bytes::new(value)));
+                Ok(())
+            }
+        }
+    }
+
     /// Clear all entries from all databases
     pub fn clear(&mut self) {
         self.map.clear();
     }
 
-    /// Add members to a set. Returns number of members actually added (excluding duplicates).
-    pub fn sadd(&mut self, db: u64, key: &[u8], members: &[&[u8]]) -> Result<usize, &'static str> {
+    /// Add members to a set.
+    pub fn sadd(&mut self, db: u64, key: &[u8], members: &[&[u8]]) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -719,24 +828,21 @@ impl StorageInner {
             _ => unreachable!(), // We already validated the type above
         };
 
-        let mut added = 0;
         for member in members {
-            if set.insert(Bytes::new(member)) {
-                added += 1;
-            }
+            set.insert(Bytes::new(member));
         }
 
-        Ok(added)
+        Ok(())
     }
 
     /// Remove members from a set. Removes key if set becomes empty.
-    pub fn srem(&mut self, db: u64, key: &[u8], members: &[&[u8]]) -> Result<usize, &'static str> {
+    pub fn srem(&mut self, db: u64, key: &[u8], members: &[&[u8]]) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
-            return Ok(0);
+            return Ok(());
         };
 
         let Some(value) = db_map.get_mut(key) else {
-            return Ok(0);
+            return Ok(());
         };
 
         let set = match value {
@@ -746,11 +852,8 @@ impl StorageInner {
             }
         };
 
-        let mut removed = 0;
         for member in members {
-            if set.remove(*member) {
-                removed += 1;
-            }
+            set.remove(*member);
         }
 
         // Remove key if set is empty
@@ -758,15 +861,15 @@ impl StorageInner {
             db_map.remove(key);
         }
 
-        Ok(removed)
+        Ok(())
     }
 
     /// Move a member from source to destination set. Deletes source if it becomes empty.
-    pub fn smove(&mut self, db: u64, source_key: &[u8], dest_key: &[u8], member: &[u8]) -> Result<bool, &'static str> {
+    pub fn smove(&mut self, db: u64, source_key: &[u8], dest_key: &[u8], member: &[u8]) -> Result<(), &'static str> {
         // Get mutable access to database
         let db_map = match self.map.get_mut(&db) {
             Some(map) => map,
-            None => return Ok(false),
+            None => return Ok(()),
         };
 
         // Check source type
@@ -775,7 +878,7 @@ impl StorageInner {
             Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
-            None => return Ok(false),
+            None => return Ok(()),
         };
 
         // Remove from source using take() which returns the Arc if it exists
@@ -785,7 +888,7 @@ impl StorageInner {
         };
 
         let Some(member_arc) = member_arc else {
-            return Ok(false);
+            return Ok(());
         };
 
         // Check if source set is now empty and should be deleted
@@ -801,7 +904,7 @@ impl StorageInner {
 
         // Add member to destination set
         match db_map.entry(Bytes::new(dest_key)) {
-            std::collections::btree_map::Entry::Occupied(mut e) => {
+            BTreeEntry::Occupied(mut e) => {
                 match e.get_mut() {
                     StorageValue::Set(set) => {
                         set.insert(member_arc);
@@ -811,18 +914,18 @@ impl StorageInner {
                     }
                 }
             }
-            std::collections::btree_map::Entry::Vacant(e) => {
+            BTreeEntry::Vacant(e) => {
                 let mut new_set = StdBTreeSet::new();
                 new_set.insert(member_arc);
                 e.insert(StorageValue::Set(new_set));
             }
         }
 
-        Ok(true)
+        Ok(())
     }
 
     /// Store union of multiple sets in destination key.
-    pub fn sunionstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]]) -> Result<usize, &'static str> {
+    pub fn sunionstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]]) -> Result<(), &'static str> {
         // First delete destination
         self.del(db, dest_key);
 
@@ -844,28 +947,26 @@ impl StorageInner {
             }
         }
 
-        let cardinality = union_set.len();
-
         // Store result if non-empty
         if !union_set.is_empty() {
             let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
             db_map.insert(Bytes::new(dest_key), StorageValue::Set(union_set));
         }
 
-        Ok(cardinality)
+        Ok(())
     }
 
     /// Store intersection of multiple sets in destination key.
-    pub fn sinterstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]]) -> Result<usize, &'static str> {
+    pub fn sinterstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]]) -> Result<(), &'static str> {
         // First delete destination
         self.del(db, dest_key);
 
         if source_keys.is_empty() {
-            return Ok(0);
+            return Ok(());
         }
 
         let Some(db_map) = self.map.get(&db) else {
-            return Ok(0);
+            return Ok(());
         };
 
         // Start with first set - collect into a new set
@@ -894,28 +995,26 @@ impl StorageInner {
             }
         }
 
-        let cardinality = intersection_set.len();
-
         // Store result if non-empty
         if !intersection_set.is_empty() {
             let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
             db_map.insert(Bytes::new(dest_key), StorageValue::Set(intersection_set));
         }
 
-        Ok(cardinality)
+        Ok(())
     }
 
     /// Store difference of sets in destination key.
-    pub fn sdiffstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]]) -> Result<usize, &'static str> {
+    pub fn sdiffstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]]) -> Result<(), &'static str> {
         // First delete destination
         self.del(db, dest_key);
 
         if source_keys.is_empty() {
-            return Ok(0);
+            return Ok(());
         }
 
         let Some(db_map) = self.map.get(&db) else {
-            return Ok(0);
+            return Ok(());
         };
 
         // Start with first set - collect into a new set
@@ -943,15 +1042,13 @@ impl StorageInner {
             }
         }
 
-        let cardinality = diff_set.len();
-
         // Store result if non-empty
         if !diff_set.is_empty() {
             let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
             db_map.insert(Bytes::new(dest_key), StorageValue::Set(diff_set));
         }
 
-        Ok(cardinality)
+        Ok(())
     }
 
     /// Get all members of a set.
@@ -990,7 +1087,7 @@ impl StorageInner {
     // List operations
 
     /// Push elements to the left (head) of the list.
-    pub fn lpush(&mut self, db: u64, key: &[u8], values: &[&[u8]]) -> Result<usize, &'static str> {
+    pub fn lpush(&mut self, db: u64, key: &[u8], values: &[&[u8]]) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -1016,11 +1113,11 @@ impl StorageInner {
             list.push_front(Bytes::new(value));
         }
 
-        Ok(list.len())
+        Ok(())
     }
 
     /// Push elements to the right (tail) of the list.
-    pub fn rpush(&mut self, db: u64, key: &[u8], values: &[&[u8]]) -> Result<usize, &'static str> {
+    pub fn rpush(&mut self, db: u64, key: &[u8], values: &[&[u8]]) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -1046,17 +1143,17 @@ impl StorageInner {
             list.push_back(Bytes::new(value));
         }
 
-        Ok(list.len())
+        Ok(())
     }
 
-    /// Pop element from the left (head) of the list. Returns the element or None.
-    pub fn lpop(&mut self, db: u64, key: &[u8]) -> Result<Option<Bytes>, &'static str> {
+    /// Pop element from the left (head) of the list.
+    pub fn lpop(&mut self, db: u64, key: &[u8]) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
-            return Ok(None);
+            return Ok(());
         };
 
         let Some(value) = db_map.get_mut(key) else {
-            return Ok(None);
+            return Ok(());
         };
 
         let list = match value {
@@ -1064,28 +1161,26 @@ impl StorageInner {
             _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
         };
 
-        if list.is_empty() {
-            return Ok(None);
+        if !list.is_empty() {
+            *list = list.skip(1);  // Remove first element
         }
-
-        let popped = list.pop_front().unwrap();
 
         // Remove key if list is empty
         if list.is_empty() {
             db_map.remove(key);
         }
 
-        Ok(Some(popped))
+        Ok(())
     }
 
-    /// Pop element from the right (tail) of the list. Returns the element or None.
-    pub fn rpop(&mut self, db: u64, key: &[u8]) -> Result<Option<Bytes>, &'static str> {
+    /// Pop element from the right (tail) of the list.
+    pub fn rpop(&mut self, db: u64, key: &[u8]) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
-            return Ok(None);
+            return Ok(());
         };
 
         let Some(value) = db_map.get_mut(key) else {
-            return Ok(None);
+            return Ok(());
         };
 
         let list = match value {
@@ -1093,18 +1188,209 @@ impl StorageInner {
             _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
         };
 
-        if list.is_empty() {
-            return Ok(None);
+        if !list.is_empty() {
+            list.pop_back();
         }
-
-        let popped = list.pop_back().unwrap();
 
         // Remove key if list is empty
         if list.is_empty() {
             db_map.remove(key);
         }
 
-        Ok(Some(popped))
+        Ok(())
+    }
+
+    /// Push elements to the left (head) of the list only if list exists.
+    pub fn lpushx(&mut self, db: u64, key: &[u8], values: &[&[u8]]) -> Result<(), &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(());
+        };
+
+        let Some(storage_value) = db_map.get_mut(key) else {
+            return Ok(());
+        };
+
+        let list = match storage_value {
+            StorageValue::List(list) => list,
+            _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+        };
+
+        // Push values to the front in order (each one becomes the new head)
+        for value in values {
+            list.push_front(Bytes::new(value));
+        }
+
+        Ok(())
+    }
+
+    /// Push elements to the right (tail) of the list only if list exists.
+    pub fn rpushx(&mut self, db: u64, key: &[u8], values: &[&[u8]]) -> Result<(), &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(());
+        };
+
+        let Some(storage_value) = db_map.get_mut(key) else {
+            return Ok(());
+        };
+
+        let list = match storage_value {
+            StorageValue::List(list) => list,
+            _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+        };
+
+        // Push values to the back
+        for value in values {
+            list.push_back(Bytes::new(value));
+        }
+
+        Ok(())
+    }
+
+    /// Remove elements from list.
+    /// count > 0: Remove elements equal to value moving from head to tail.
+    /// count < 0: Remove elements equal to value moving from tail to head.
+    /// count = 0: Remove all elements equal to value.
+    pub fn lrem(&mut self, db: u64, key: &[u8], count: i64, value: &[u8]) -> Result<(), &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(());
+        };
+
+        let Some(storage_value) = db_map.get_mut(key) else {
+            return Ok(());
+        };
+
+        let list = match storage_value {
+            StorageValue::List(list) => list,
+            _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+        };
+
+        let value_bytes = Bytes::new(value);
+
+        if count == 0 {
+            // Remove all occurrences
+            *list = list.iter().filter(|v| *v != &value_bytes).cloned().collect();
+        } else if count > 0 {
+            // Remove from head to tail
+            let max_remove = count as usize;
+            let mut new_list = Vector::new();
+            let mut removed = 0;
+            for item in list.iter() {
+                if removed < max_remove && item == &value_bytes {
+                    removed += 1;
+                } else {
+                    new_list.push_back(item.clone());
+                }
+            }
+            *list = new_list;
+        } else {
+            // Remove from tail to head (count < 0)
+            let max_remove = (-count) as usize;
+            let mut new_list = Vector::new();
+            let mut removed = 0;
+            for item in list.iter().rev() {
+                if removed < max_remove && item == &value_bytes {
+                    removed += 1;
+                } else {
+                    new_list.push_front(item.clone());
+                }
+            }
+            *list = new_list;
+        }
+
+        // Remove key if list is empty
+        if list.is_empty() {
+            db_map.remove(key);
+        }
+
+        Ok(())
+    }
+
+    /// Trim list to the specified range. Both start and stop are inclusive.
+    pub fn ltrim(&mut self, db: u64, key: &[u8], start: i64, stop: i64) -> Result<(), &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(());
+        };
+
+        let Some(storage_value) = db_map.get_mut(key) else {
+            return Ok(());
+        };
+
+        let list = match storage_value {
+            StorageValue::List(list) => list,
+            _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+        };
+
+        let len = list.len() as i64;
+
+        if len == 0 {
+            return Ok(());
+        }
+
+        // Normalize negative indices
+        let start_pos = if start < 0 {
+            (len + start).max(0) as usize
+        } else {
+            start.min(len - 1).max(0) as usize
+        };
+
+        let stop_pos = if stop < 0 {
+            (len + stop).max(0) as usize
+        } else {
+            stop.min(len - 1).max(0) as usize
+        };
+
+        // If range is invalid, delete the key
+        if start_pos > stop_pos || start_pos >= len as usize {
+            db_map.remove(key);
+            return Ok(());
+        }
+
+        // Extract the range
+        let trimmed: Vector<Bytes> = list
+            .iter()
+            .skip(start_pos)
+            .take(stop_pos - start_pos + 1)
+            .cloned()
+            .collect();
+
+        *list = trimmed;
+
+        // Remove key if list is empty
+        if list.is_empty() {
+            db_map.remove(key);
+        }
+
+        Ok(())
+    }
+
+    /// Insert element before or after pivot element in list.
+    pub fn linsert(&mut self, db: u64, key: &[u8], before: bool, pivot: &[u8], value: &[u8]) -> Result<(), &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(());
+        };
+
+        let Some(storage_value) = db_map.get_mut(key) else {
+            return Ok(());
+        };
+
+        let list = match storage_value {
+            StorageValue::List(list) => list,
+            _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+        };
+
+        let pivot_bytes = Bytes::new(pivot);
+        let value_bytes = Bytes::new(value);
+
+        // Find the pivot and insert
+        for i in 0..list.len() {
+            if list.get(i) == Some(&pivot_bytes) {
+                let insert_pos = if before { i } else { i + 1 };
+                list.insert(insert_pos, value_bytes);
+                break;
+            }
+        }
+
+        Ok(())
     }
 
     /// Get the length of a list.
@@ -1159,13 +1445,13 @@ impl StorageInner {
     }
 
     /// Set the list element at index to value.
-    pub fn lset(&mut self, db: u64, key: &[u8], index: i64, value: &[u8]) -> Result<bool, &'static str> {
+    pub fn lset(&mut self, db: u64, key: &[u8], index: i64, value: &[u8]) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
-            return Ok(false);
+            return Ok(());
         };
 
         let Some(storage_value) = db_map.get_mut(key) else {
-            return Ok(false);
+            return Ok(());
         };
 
         let list = match storage_value {
@@ -1182,24 +1468,23 @@ impl StorageInner {
             index
         };
 
-        if pos < 0 || pos >= len {
-            return Ok(false);
+        if pos >= 0 && pos < len {
+            *list = list.update(pos as usize, Bytes::new(value));
         }
 
-        *list = list.update(pos as usize, Bytes::new(value));
-        Ok(true)
+        Ok(())
     }
 
     /// Atomically pop from the right of source and push to the left of destination.
-    pub fn rpoplpush(&mut self, db: u64, source_key: &[u8], dest_key: &[u8]) -> Result<Option<Bytes>, &'static str> {
+    pub fn rpoplpush(&mut self, db: u64, source_key: &[u8], dest_key: &[u8]) -> Result<(), &'static str> {
         // Special case: same key means rotate
         if source_key == dest_key {
             let Some(db_map) = self.map.get_mut(&db) else {
-                return Ok(None);
+                return Ok(());
             };
 
             let Some(value) = db_map.get_mut(source_key) else {
-                return Ok(None);
+                return Ok(());
             };
 
             let list = match value {
@@ -1207,23 +1492,21 @@ impl StorageInner {
                 _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
             };
 
-            if list.is_empty() {
-                return Ok(None);
+            if !list.is_empty() {
+                let popped = list.pop_back().unwrap();
+                list.push_front(popped);
             }
-
-            let popped = list.pop_back().unwrap();
-            list.push_front(popped.clone());
-            return Ok(Some(popped));
+            return Ok(());
         }
 
         // Different keys: pop from source
         let popped = {
             let Some(db_map) = self.map.get_mut(&db) else {
-                return Ok(None);
+                return Ok(());
             };
 
             let Some(value) = db_map.get_mut(source_key) else {
-                return Ok(None);
+                return Ok(());
             };
 
             let list = match value {
@@ -1232,7 +1515,7 @@ impl StorageInner {
             };
 
             if list.is_empty() {
-                return Ok(None);
+                return Ok(());
             }
 
             let popped = list.pop_back().unwrap();
@@ -1265,15 +1548,15 @@ impl StorageInner {
             _ => unreachable!(),
         };
 
-        dest_list.push_front(popped.clone());
+        dest_list.push_front(popped);
 
-        Ok(Some(popped))
+        Ok(())
     }
 
     // Hash operations
 
     /// Set field in hash to value. Creates hash if it doesn't exist.
-    pub fn hset(&mut self, db: u64, key: &[u8], field: &[u8], value: &[u8]) -> Result<bool, &'static str> {
+    pub fn hset(&mut self, db: u64, key: &[u8], field: &[u8], value: &[u8]) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -1293,13 +1576,12 @@ impl StorageInner {
             _ => unreachable!(),
         };
 
-        // Insert returns None if field didn't exist (new field)
-        let is_new = hash.insert(Bytes::new(field), Bytes::new(value)).is_none();
-        Ok(is_new)
+        hash.insert(Bytes::new(field), Bytes::new(value));
+        Ok(())
     }
 
-    /// Set multiple fields in hash. Returns number of new fields added.
-    pub fn hmset(&mut self, db: u64, key: &[u8], fields: &[(&[u8], &[u8])]) -> Result<usize, &'static str> {
+    /// Set multiple fields in hash.
+    pub fn hmset(&mut self, db: u64, key: &[u8], fields: &[(&[u8], &[u8])]) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -1319,14 +1601,11 @@ impl StorageInner {
             _ => unreachable!(),
         };
 
-        let mut new_fields = 0;
         for (field, value) in fields {
-            if hash.insert(Bytes::new(field), Bytes::new(value)).is_none() {
-                new_fields += 1;
-            }
+            hash.insert(Bytes::new(field), Bytes::new(value));
         }
 
-        Ok(new_fields)
+        Ok(())
     }
 
     /// Get field value from hash. Returns None if key or field doesn't exist.
@@ -1401,14 +1680,14 @@ impl StorageInner {
         }
     }
 
-    /// Delete fields from hash. Returns number of fields deleted.
-    pub fn hdel(&mut self, db: u64, key: &[u8], fields: &[&[u8]]) -> Result<usize, &'static str> {
+    /// Delete fields from hash.
+    pub fn hdel(&mut self, db: u64, key: &[u8], fields: &[&[u8]]) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
-            return Ok(0);
+            return Ok(());
         };
 
         let Some(value) = db_map.get_mut(key) else {
-            return Ok(0);
+            return Ok(());
         };
 
         let hash = match value {
@@ -1416,11 +1695,8 @@ impl StorageInner {
             _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
         };
 
-        let mut deleted = 0;
         for field in fields {
-            if hash.remove(*field).is_some() {
-                deleted += 1;
-            }
+            hash.remove(*field);
         }
 
         // Remove key if hash is empty
@@ -1428,13 +1704,13 @@ impl StorageInner {
             db_map.remove(key);
         }
 
-        Ok(deleted)
+        Ok(())
     }
 
     // Sorted set (zset) operations
 
-    /// Add members with scores to sorted set. Returns number of new members added.
-    pub fn zadd(&mut self, db: u64, key: &[u8], members: &[(Score, &[u8])]) -> Result<usize, &'static str> {
+    /// Add members with scores to sorted set.
+    pub fn zadd(&mut self, db: u64, key: &[u8], members: &[(Score, &[u8])]) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -1454,7 +1730,6 @@ impl StorageInner {
             _ => unreachable!(),
         };
 
-        let mut added = 0;
         for (score, member) in members {
             // Check if member exists - use direct HashMap lookup with &[u8]
             if let Some(old_score) = zset.entries.get(*member) {
@@ -1468,24 +1743,23 @@ impl StorageInner {
                 zset.index.insert(ZSetIndexKey::create(*score, member));
             } else {
                 // New member
-                added += 1;
                 zset.entries.insert(Bytes::new(member), *score);
                 // Use ZSetIndexKey for insertion
                 zset.index.insert(ZSetIndexKey::create(*score, member));
             }
         }
 
-        Ok(added)
+        Ok(())
     }
 
-    /// Remove members from sorted set. Returns number of members removed.
-    pub fn zrem(&mut self, db: u64, key: &[u8], members: &[&[u8]]) -> Result<usize, &'static str> {
+    /// Remove members from sorted set.
+    pub fn zrem(&mut self, db: u64, key: &[u8], members: &[&[u8]]) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
-            return Ok(0);
+            return Ok(());
         };
 
         let Some(value) = db_map.get_mut(key) else {
-            return Ok(0);
+            return Ok(());
         };
 
         let zset = match value {
@@ -1493,14 +1767,12 @@ impl StorageInner {
             _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
         };
 
-        let mut removed = 0;
         for member in members {
             // Use direct HashMap removal with &[u8]
             if let Some(score) = zset.entries.remove(*member) {
                 // Use ZSetIndexKeyRef for removal
                 let lookup_key = ZSetIndexKeyRef::lookup_key_ref(score, member);
                 zset.index.remove(&lookup_key);
-                removed += 1;
             }
         }
 
@@ -1509,7 +1781,7 @@ impl StorageInner {
             db_map.remove(key);
         }
 
-        Ok(removed)
+        Ok(())
     }
 
     /// Get the score of a member in sorted set.
@@ -1591,17 +1863,24 @@ impl StorageInner {
                 let max_key = ZSetIndexKey::max_score_key(max);
 
                 // Use range() for O(log n) seek + O(k) iteration, avoiding full tree scan
-                // Explicitly specify the query type to resolve type inference
+                // Note: MaxScoreKey is fictional, so indexset may include entries beyond it
+                // We add boundary checks to drop elements that don't fit
                 let result: Vec<(Bytes, Option<Score>)> = zset
                     .index
                     .range::<_, ZSetIndexKey>((Bound::Included(&min_key), Bound::Included(&max_key)))
                     .filter_map(|key| {
                         // Clone the Arc-wrapped Bytes directly instead of reconstructing
-                        key.get_entry_and_score().map(|(entry, score)| {
-                            if with_scores {
-                                (entry, Some(score))
+                        key.get_entry_and_score().and_then(|(entry, score)| {
+                            // Additional boundary checks to handle fictional MaxScoreKey
+                            if score >= min && score <= max {
+                                Some(if with_scores {
+                                    (entry, Some(score))
+                                } else {
+                                    (entry, None)
+                                })
                             } else {
-                                (entry, None)
+                                // Skip entries outside the actual range
+                                None
                             }
                         })
                     })
@@ -1686,7 +1965,7 @@ impl StorageInner {
     }
 
     /// Increment the score of a member by delta. Creates member if it doesn't exist.
-    pub fn zincrby(&mut self, db: u64, key: &[u8], delta: Score, member: &[u8]) -> Result<Score, &'static str> {
+    pub fn zincrby(&mut self, db: u64, key: &[u8], delta: Score, member: &[u8]) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -1722,7 +2001,7 @@ impl StorageInner {
         // Use ZSetIndexKey for insertion
         zset.index.insert(ZSetIndexKey::create(new_score, member));
 
-        Ok(new_score)
+        Ok(())
     }
 
     /// Get the first (minimum) member from sorted set.
@@ -1796,6 +2075,330 @@ impl StorageInner {
             Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
             None => Ok(None),
         }
+    }
+
+    /// Pop member with highest score from sorted set.
+    pub fn zpopmax(&mut self, db: u64, key: &[u8]) -> Result<(), &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(());
+        };
+
+        let Some(value) = db_map.get_mut(key) else {
+            return Ok(());
+        };
+
+        let zset = match value {
+            StorageValue::ZSet(zset) => zset,
+            _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+        };
+
+        // Extract member and score from the last index entry
+        let member_score = zset.index.last().and_then(|index_key| {
+            index_key.get_entry_and_score().map(|(m, s)| (m.clone(), s))
+        });
+
+        if let Some((member, score)) = member_score {
+            zset.entries.remove(member.as_slice());
+            let lookup_key = ZSetIndexKeyRef::lookup_key_ref(score, member.as_slice());
+            zset.index.remove(&lookup_key);
+        }
+
+        // Remove key if zset is empty
+        if zset.is_empty() {
+            db_map.remove(key);
+        }
+
+        Ok(())
+    }
+
+    /// Pop member with lowest score from sorted set.
+    pub fn zpopmin(&mut self, db: u64, key: &[u8]) -> Result<(), &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(());
+        };
+
+        let Some(value) = db_map.get_mut(key) else {
+            return Ok(());
+        };
+
+        let zset = match value {
+            StorageValue::ZSet(zset) => zset,
+            _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+        };
+
+        // Extract member and score from the first index entry
+        let member_score = zset.index.first().and_then(|index_key| {
+            index_key.get_entry_and_score().map(|(m, s)| (m.clone(), s))
+        });
+
+        if let Some((member, score)) = member_score {
+            zset.entries.remove(member.as_slice());
+            let lookup_key = ZSetIndexKeyRef::lookup_key_ref(score, member.as_slice());
+            zset.index.remove(&lookup_key);
+        }
+
+        // Remove key if zset is empty
+        if zset.is_empty() {
+            db_map.remove(key);
+        }
+
+        Ok(())
+    }
+
+    /// Remove members by rank range (inclusive). Ranks are 0-based.
+    pub fn zremrangebyrank(&mut self, db: u64, key: &[u8], start: i64, stop: i64) -> Result<(), &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(());
+        };
+
+        let Some(value) = db_map.get_mut(key) else {
+            return Ok(());
+        };
+
+        let zset = match value {
+            StorageValue::ZSet(zset) => zset,
+            _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+        };
+
+        let len = zset.len() as i64;
+        if len == 0 {
+            return Ok(());
+        }
+
+        // Normalize negative indices
+        let start_pos = if start < 0 {
+            (len + start).max(0) as usize
+        } else {
+            start.min(len - 1).max(0) as usize
+        };
+
+        let stop_pos = if stop < 0 {
+            (len + stop).max(0) as usize
+        } else {
+            stop.min(len - 1).max(0) as usize
+        };
+
+        if start_pos > stop_pos {
+            return Ok(());
+        }
+
+        // Collect members and scores to remove using range_idx
+        let members_to_remove: Vec<(Bytes, Score)> = zset
+            .index
+            .range_idx(start_pos..=stop_pos)
+            .filter_map(|index_key| index_key.get_entry_and_score().map(|(m, s)| (m.clone(), s)))
+            .collect();
+
+        // Remove them
+        for (member, score) in members_to_remove {
+            zset.entries.remove(member.as_slice());
+            let lookup_key = ZSetIndexKeyRef::lookup_key_ref(score, member.as_slice());
+            zset.index.remove(&lookup_key);
+        }
+
+        // Remove key if zset is empty
+        if zset.is_empty() {
+            db_map.remove(key);
+        }
+
+        Ok(())
+    }
+
+    /// Remove members by score range (inclusive).
+    pub fn zremrangebyscore(&mut self, db: u64, key: &[u8], min: Score, max: Score, min_exclusive: bool, max_exclusive: bool) -> Result<(), &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(());
+        };
+
+        let Some(value) = db_map.get_mut(key) else {
+            return Ok(());
+        };
+
+        let zset = match value {
+            StorageValue::ZSet(zset) => zset,
+            _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+        };
+
+        // Use range to efficiently collect members with scores in [min, max] (inclusive)
+        // Note: MaxScoreKey is fictional, so indexset may include entries beyond it
+        // We add boundary checks after fetching to drop elements that don't fit
+        let min_key = ZSetIndexKey::min_score_key(min);
+        let max_key = ZSetIndexKey::max_score_key(max);
+
+        let members_to_remove: Vec<(Bytes, Score)> = zset
+            .index
+            .range(min_key..=max_key)
+            .filter_map(|index_key| index_key.get_entry_and_score().map(|(m, s)| (m.clone(), s)))
+            .filter(|(_member, score)| {
+                // Additional boundary checks to handle fictional MaxScoreKey
+                let in_min_range = if min_exclusive { *score > min } else { *score >= min };
+                let in_max_range = if max_exclusive { *score < max } else { *score <= max };
+                in_min_range && in_max_range
+            })
+            .collect();
+
+        // Remove them
+        for (member, score) in members_to_remove {
+            zset.entries.remove(member.as_slice());
+            let lookup_key = ZSetIndexKeyRef::lookup_key_ref(score, member.as_slice());
+            zset.index.remove(&lookup_key);
+        }
+
+        // Remove key if zset is empty
+        if zset.is_empty() {
+            db_map.remove(key);
+        }
+
+        Ok(())
+    }
+
+    /// Store union of sorted sets in destination key with weights and aggregation.
+    pub fn zunionstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]], weights: &[f64], aggregate: Aggregate) -> Result<(), &'static str> {
+        // First delete destination
+        self.del(db, dest_key);
+
+        if source_keys.is_empty() {
+            return Ok(());
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(());
+        };
+
+        // Use default weights if not provided
+        let default_weights = vec![1.0; source_keys.len()];
+        let weights = if weights.is_empty() {
+            &default_weights
+        } else {
+            weights
+        };
+
+        // Collect all member-score pairs with weights applied
+        let mut union_map: HashMap<Bytes, Vec<Score>> = HashMap::new();
+
+        for (i, source_key) in source_keys.iter().enumerate() {
+            let weight = OrderedFloat(*weights.get(i).unwrap_or(&1.0));
+
+            match db_map.get(*source_key) {
+                Some(StorageValue::ZSet(zset)) => {
+                    for (member, score) in &zset.entries {
+                        let weighted_score = *score * weight;
+                        union_map
+                            .entry(member.clone())
+                            .or_insert_with(Vec::new)
+                            .push(weighted_score);
+                    }
+                }
+                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::Set(_)) => {
+                    return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
+                None => continue,
+            }
+        }
+
+        if !union_map.is_empty() {
+            let mut new_zset = ZSet::new();
+            for (member, scores) in union_map {
+                let final_score = match aggregate {
+                    Aggregate::Sum => scores.iter().sum(),
+                    Aggregate::Min => *scores.iter().min().unwrap(),
+                    Aggregate::Max => *scores.iter().max().unwrap(),
+                };
+                new_zset.entries.insert(member.clone(), final_score);
+                new_zset.index.insert(ZSetIndexKey::create(final_score, member.as_slice()));
+            }
+
+            let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+            db_map.insert(Bytes::new(dest_key), StorageValue::ZSet(new_zset));
+        }
+
+        Ok(())
+    }
+
+    /// Store intersection of sorted sets in destination key with weights and aggregation.
+    pub fn zinterstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]], weights: &[f64], aggregate: Aggregate) -> Result<(), &'static str> {
+        // First delete destination
+        self.del(db, dest_key);
+
+        if source_keys.is_empty() {
+            return Ok(());
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(());
+        };
+
+        // Use default weights if not provided
+        let default_weights = vec![1.0; source_keys.len()];
+        let weights = if weights.is_empty() {
+            &default_weights
+        } else {
+            weights
+        };
+
+        // Start with first zset
+        let first_zset = match db_map.get(source_keys[0]) {
+            Some(StorageValue::ZSet(zset)) => zset,
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::Set(_)) => {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
+            None => return Ok(()),
+        };
+
+        let weight0 = OrderedFloat(*weights.get(0).unwrap_or(&1.0));
+        let mut intersection_map: HashMap<Bytes, Vec<Score>> = first_zset
+            .entries
+            .iter()
+            .map(|(member, score)| (member.clone(), vec![*score * weight0]))
+            .collect();
+
+        // Intersect with remaining zsets
+        for (i, source_key) in source_keys[1..].iter().enumerate() {
+            let weight = OrderedFloat(*weights.get(i + 1).unwrap_or(&1.0));
+
+            match db_map.get(*source_key) {
+                Some(StorageValue::ZSet(zset)) => {
+                    // Keep only members that exist in both
+                    intersection_map.retain(|member, scores| {
+                        if let Some(score) = zset.entries.get(member) {
+                            scores.push(*score * weight);
+                            true
+                        } else {
+                            false
+                        }
+                    });
+                }
+                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::Set(_)) => {
+                    return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
+                None => {
+                    // Intersection with empty set is empty
+                    return Ok(());
+                }
+            }
+
+            if intersection_map.is_empty() {
+                return Ok(());
+            }
+        }
+
+        if !intersection_map.is_empty() {
+            let mut new_zset = ZSet::new();
+            for (member, scores) in intersection_map {
+                let final_score = match aggregate {
+                    Aggregate::Sum => scores.iter().sum(),
+                    Aggregate::Min => *scores.iter().min().unwrap(),
+                    Aggregate::Max => *scores.iter().max().unwrap(),
+                };
+                new_zset.entries.insert(member.clone(), final_score);
+                new_zset.index.insert(ZSetIndexKey::create(final_score, member.as_slice()));
+            }
+
+            let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+            db_map.insert(Bytes::new(dest_key), StorageValue::ZSet(new_zset));
+        }
+
+        Ok(())
     }
 
     /// Execute a Lua script with access to ts.get and ts.hget functions.

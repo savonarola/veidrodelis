@@ -73,12 +73,6 @@ defmodule Veidrodelis.IntegrationTest do
     {:ok, redis} = Redix.start_link(host: @redis_host, port: @redis_port)
     Redix.command!(redis, ["FLUSHALL"])
 
-    on_exit(fn ->
-      if Process.alive?(redis) do
-        Redix.stop(redis)
-      end
-    end)
-
     {:ok, redis: redis}
   end
 
@@ -558,6 +552,276 @@ defmodule Veidrodelis.IntegrationTest do
       Logger.info("=== [Veidrodelis] Test completed successfully ===")
 
       Veidrodelis.stop(vdr)
+    end
+  end
+
+  # Triple comparison tests: verify that Redis value, TS value, and expected value are all equal
+  describe "string commands" do
+    setup %{redis: redis} do
+      {:ok, vdr} =
+        Veidrodelis.start_link(
+          id: @id,
+          host: @redis_host,
+          port: @redis_port,
+          impl: {Vdr.TSProj, []}
+        )
+
+      assert_happens_within 5000 do
+        Veidrodelis.get_replication_state(vdr) == :streaming
+      end
+
+      {:ok, redis: redis, vdr: vdr}
+    end
+
+    test "MSET replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["MSET", "k1", "v1", "k2", "v2"])
+
+      assert_happens_within 1000 do
+        expected_k1 = "v1"
+        expected_k2 = "v2"
+        redis_k1 = Redix.command!(redis, ["GET", "k1"])
+        redis_k2 = Redix.command!(redis, ["GET", "k2"])
+        ts_k1 = Veidrodelis.get(@id, 0, "k1")
+        ts_k2 = Veidrodelis.get(@id, 0, "k2")
+
+        redis_k1 == expected_k1 and ts_k1 == expected_k1 and
+          redis_k2 == expected_k2 and ts_k2 == expected_k2
+      end
+    end
+
+    test "APPEND replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["SET", "append_test", "Hello"])
+      Redix.command!(redis, ["APPEND", "append_test", " World"])
+
+      assert_happens_within 1000 do
+        expected = "Hello World"
+        redis_val = Redix.command!(redis, ["GET", "append_test"])
+        ts_val = Veidrodelis.get(@id, 0, "append_test")
+
+        redis_val == expected and ts_val == expected and redis_val == ts_val
+      end
+    end
+
+    test "RENAME replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["SET", "old_key", "rename_test"])
+      Redix.command!(redis, ["RENAME", "old_key", "new_key"])
+
+      assert_happens_within 1000 do
+        expected = "rename_test"
+        redis_new = Redix.command!(redis, ["GET", "new_key"])
+        redis_old = Redix.command!(redis, ["GET", "old_key"])
+        ts_new = Veidrodelis.get(@id, 0, "new_key")
+        ts_old = Veidrodelis.get(@id, 0, "old_key")
+
+        redis_new == expected and ts_new == expected and
+          redis_old == nil and ts_old == nil
+      end
+    end
+
+    test "RENAMENX replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["SET", "renamenx_src", "test"])
+      Redix.command!(redis, ["RENAMENX", "renamenx_src", "renamenx_dst"])
+
+      assert_happens_within 1000 do
+        expected = "test"
+        redis_dst = Redix.command!(redis, ["GET", "renamenx_dst"])
+        ts_dst = Veidrodelis.get(@id, 0, "renamenx_dst")
+
+        redis_dst == expected and ts_dst == expected
+      end
+    end
+  end
+
+  describe "list commands" do
+    setup %{redis: redis} do
+      {:ok, vdr} =
+        Veidrodelis.start_link(
+          id: @id,
+          host: @redis_host,
+          port: @redis_port,
+          impl: {Vdr.TSProj, []}
+        )
+
+      assert_happens_within 5000 do
+        Veidrodelis.get_replication_state(vdr) == :streaming
+      end
+
+      {:ok, redis: redis, vdr: vdr}
+    end
+
+    test "LPUSHX replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["LPUSH", "test_list", "a"])
+      Redix.command!(redis, ["LPUSHX", "test_list", "b"])
+
+      assert_happens_within 1000 do
+        expected = ["b", "a"]
+        redis_list = Redix.command!(redis, ["LRANGE", "test_list", "0", "-1"])
+        ts_list = Veidrodelis.lrange(@id, 0, "test_list", 0, -1)
+
+        redis_list == expected and ts_list == expected and redis_list == ts_list
+      end
+    end
+
+    test "RPUSHX replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["RPUSH", "test_list", "a"])
+      Redix.command!(redis, ["RPUSHX", "test_list", "b"])
+
+      assert_happens_within 1000 do
+        expected = ["a", "b"]
+        redis_list = Redix.command!(redis, ["LRANGE", "test_list", "0", "-1"])
+        ts_list = Veidrodelis.lrange(@id, 0, "test_list", 0, -1)
+
+        redis_list == expected and ts_list == expected and redis_list == ts_list
+      end
+    end
+
+    test "LREM replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["RPUSH", "rem_list", "x", "y", "x", "z", "x"])
+      Redix.command!(redis, ["LREM", "rem_list", "2", "x"])
+
+      assert_happens_within 1000 do
+        expected = ["y", "z", "x"]
+        redis_list = Redix.command!(redis, ["LRANGE", "rem_list", "0", "-1"])
+        ts_list = Veidrodelis.lrange(@id, 0, "rem_list", 0, -1)
+
+        redis_list == expected and ts_list == expected and redis_list == ts_list
+      end
+    end
+
+    test "LTRIM replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["RPUSH", "trim_list", "a", "b", "c", "d", "e"])
+      Redix.command!(redis, ["LTRIM", "trim_list", "1", "3"])
+
+      assert_happens_within 1000 do
+        expected = ["b", "c", "d"]
+        redis_list = Redix.command!(redis, ["LRANGE", "trim_list", "0", "-1"])
+        ts_list = Veidrodelis.lrange(@id, 0, "trim_list", 0, -1)
+
+        redis_list == expected and ts_list == expected and redis_list == ts_list
+      end
+    end
+
+    test "LINSERT replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["RPUSH", "insert_list", "a", "c"])
+      Redix.command!(redis, ["LINSERT", "insert_list", "BEFORE", "c", "b"])
+
+      assert_happens_within 1000 do
+        expected = ["a", "b", "c"]
+        redis_list = Redix.command!(redis, ["LRANGE", "insert_list", "0", "-1"])
+        ts_list = Veidrodelis.lrange(@id, 0, "insert_list", 0, -1)
+
+        redis_list == expected and ts_list == expected and redis_list == ts_list
+      end
+    end
+  end
+
+  describe "sorted set commands" do
+    setup %{redis: redis} do
+      {:ok, vdr} =
+        Veidrodelis.start_link(
+          id: @id,
+          host: @redis_host,
+          port: @redis_port,
+          impl: {Vdr.TSProj, []}
+        )
+
+      assert_happens_within 5000 do
+        Veidrodelis.get_replication_state(vdr) == :streaming
+      end
+
+      {:ok, redis: redis, vdr: vdr}
+    end
+
+    test "ZPOPMAX replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "pop_test", "1", "a", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZPOPMAX", "pop_test", "1"])
+
+      assert_happens_within 1000 do
+        expected_card = 2
+        redis_card = Redix.command!(redis, ["ZCARD", "pop_test"])
+        ts_card = Veidrodelis.zcard(@id, 0, "pop_test")
+
+        redis_card == expected_card and ts_card == expected_card and redis_card == ts_card
+      end
+    end
+
+    test "ZPOPMIN replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "pop_test", "1", "a", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZPOPMIN", "pop_test", "1"])
+
+      assert_happens_within 1000 do
+        expected_card = 2
+        redis_card = Redix.command!(redis, ["ZCARD", "pop_test"])
+        ts_card = Veidrodelis.zcard(@id, 0, "pop_test")
+
+        redis_card == expected_card and ts_card == expected_card
+      end
+    end
+
+    test "ZREMRANGEBYRANK replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "rank_test", "1", "a", "2", "b", "3", "c", "4", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYRANK", "rank_test", "1", "2"])
+
+      assert_happens_within 1000 do
+        expected = ["a", "d"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "rank_test", "0", "-1"])
+        ts_members = Veidrodelis.zrange(@id, 0, "rank_test", 0, -1, false)
+
+        redis_members == expected and ts_members == expected and redis_members == ts_members
+      end
+    end
+
+    test "ZREMRANGEBYSCORE replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "score_test", "1", "a", "2", "b", "3", "c", "4", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYSCORE", "score_test", "2", "3"])
+
+      assert_happens_within 1000 do
+        expected = ["a", "d"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "score_test", "0", "-1"])
+        ts_members = Veidrodelis.zrange(@id, 0, "score_test", 0, -1, false)
+
+        redis_members == expected and ts_members == expected and redis_members == ts_members
+      end
+    end
+
+    test "ZUNIONSTORE replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zset_a", "1", "a", "2", "b"])
+      Redix.command!(redis, ["ZADD", "zset_b", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZUNIONSTORE", "zset_union", "2", "zset_a", "zset_b"])
+
+      assert_happens_within 1000 do
+        expected_card = 3
+        expected_score_b = 4.0  # 2.0 + 2.0
+        redis_card = Redix.command!(redis, ["ZCARD", "zset_union"])
+        ts_card = Veidrodelis.zcard(@id, 0, "zset_union")
+        redis_score = Redix.command!(redis, ["ZSCORE", "zset_union", "b"])
+        ts_score = Veidrodelis.zscore(@id, 0, "zset_union", "b")
+
+        redis_score_float = case Float.parse(redis_score) do
+          {f, _} -> f
+          :error -> String.to_integer(redis_score) * 1.0
+        end
+        redis_card == expected_card and ts_card == expected_card and
+          redis_score_float == expected_score_b and ts_score == expected_score_b
+      end
+    end
+
+    test "ZINTERSTORE replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zset_a", "1", "a", "2", "b"])
+      Redix.command!(redis, ["ZADD", "zset_b", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZINTERSTORE", "zset_inter", "2", "zset_a", "zset_b"])
+
+      assert_happens_within 1000 do
+        expected_card = 1
+        expected_members = ["b"]
+        redis_card = Redix.command!(redis, ["ZCARD", "zset_inter"])
+        ts_card = Veidrodelis.zcard(@id, 0, "zset_inter")
+        redis_members = Redix.command!(redis, ["ZRANGE", "zset_inter", "0", "-1"])
+        ts_members = Veidrodelis.zrange(@id, 0, "zset_inter", 0, -1, false)
+
+        redis_card == expected_card and ts_card == expected_card and
+          redis_members == expected_members and ts_members == expected_members
+      end
     end
   end
 end

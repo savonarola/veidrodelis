@@ -197,10 +197,13 @@ defmodule Veidrodelis do
 
   @doc """
   Returns the specified range of elements in the sorted set stored at key.
+  
+  If `with_scores` is `true`, returns a list of `{member, score}` tuples.
+  If `with_scores` is `false`, returns a list of members only.
   """
-  @spec zrange(instance_id(), db(), key(), integer(), integer()) :: [{any(), float()}]
-  def zrange(id, db, key, start_idx, stop_idx) do
-    with_handle(id, :zrange, [db, key, start_idx, stop_idx])
+  @spec zrange(instance_id(), db(), key(), integer(), integer(), boolean()) :: [{any(), float()}] | [any()]
+  def zrange(id, db, key, start_idx, stop_idx, with_scores \\ true) do
+    with_handle(id, :zrange, [db, key, start_idx, stop_idx, with_scores])
   end
 
   @doc """

@@ -426,7 +426,7 @@ defmodule Vdr.MapProj.ZSets do
   Returns a list of {binary member, score} tuples.
   """
   @spec zrange(store(), db(), key(), integer(), integer()) :: [{binary(), score()}]
-  def zrange(store, db, key, start, stop) do
+  def zrange(store, db, key, start, stop, with_scores \\ true) do
     db_map = Map.get(store, db, %{})
 
     case Map.get(db_map, key) do
@@ -442,7 +442,12 @@ defmodule Vdr.MapProj.ZSets do
         if stop_idx < start_idx or start_idx >= count do
           []
         else
-          take_range_from_iterator(:gb_sets.iterator(index), start_idx, stop_idx)
+          results = take_range_from_iterator(:gb_sets.iterator(index), start_idx, stop_idx)
+          if with_scores do
+            results
+          else
+            Enum.map(results, fn {member, _score} -> member end)
+          end
         end
 
       _ ->

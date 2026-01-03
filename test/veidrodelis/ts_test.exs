@@ -298,7 +298,7 @@ defmodule Vdr.TSTest do
 
     test "returns 0 when no elements in range" do
       storage = TS.create()
-      [{:ok, 3}] = TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}]}}])
+      [:ok] = TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}]}}])
 
       # Range before all elements
       assert {:ok, 0} == TS.zcount(storage, 0, "myzset", -10.0, 0.5)

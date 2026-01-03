@@ -295,14 +295,18 @@ defmodule Vdr.TSProj do
   end
 
   # Sorted set accessors
-  def zrange(%{ts_storage: ts_storage}, db, key, start, stop)
+  def zrange(%{ts_storage: ts_storage}, db, key, start, stop, with_scores)
       when is_binary(key) do
-    case Vdr.TS.zrange(ts_storage, db, key, start, stop, true) do
-      {:ok, flat_list} ->
+    case Vdr.TS.zrange(ts_storage, db, key, start, stop, with_scores) do
+      {:ok, flat_list} when with_scores ->
         # Convert flat list [member1, score1, member2, score2, ...] to [{member1, score1}, {member2, score2}, ...]
         flat_list
         |> Enum.chunk_every(2)
         |> Enum.map(fn [member, score] -> {member, score} end)
+
+      {:ok, members} ->
+        # Return members only (without scores)
+        members
 
       {:error, _} = error ->
         error
@@ -387,11 +391,11 @@ defmodule Vdr.TSProj do
   end
 
   defp convert_command(db, %RedisCommand.LPushX{key: key, values: values}) do
-    {db, {:lpush, key, values}}
+    {db, {:lpushx, key, values}}
   end
 
   defp convert_command(db, %RedisCommand.RPushX{key: key, values: values}) do
-    {db, {:rpush, key, values}}
+    {db, {:rpushx, key, values}}
   end
 
   defp convert_command(db, %RedisCommand.LPop{key: key}) do
@@ -426,9 +430,103 @@ defmodule Vdr.TSProj do
     {db, {:zrem, key, members}}
   end
 
+  defp convert_command(db, %RedisCommand.MSet{pairs: pairs}) do
+    {db, {:mset, pairs}}
+  end
+
+  defp convert_command(db, %RedisCommand.Append{key: key, value: value}) do
+    {db, {:append, key, value}}
+  end
+
+  defp convert_command(db, %RedisCommand.Rename{key: old_key, newkey: new_key}) do
+    {db, {:rename, old_key, new_key}}
+  end
+
+  defp convert_command(db, %RedisCommand.RenameNX{key: old_key, newkey: new_key}) do
+    {db, {:renamenx, old_key, new_key}}
+  end
+
+  defp convert_command(db, %RedisCommand.Move{key: key, db: target_db}) do
+    {db, {:move_key, key, target_db}}
+  end
+
+  defp convert_command(db, %RedisCommand.LRem{key: key, count: count, value: value}) do
+    {db, {:lrem, key, count, value}}
+  end
+
+  defp convert_command(db, %RedisCommand.LTrim{key: key, start: start, stop: stop}) do
+    {db, {:ltrim, key, start, stop}}
+  end
+
+  defp convert_command(db, %RedisCommand.LInsert{key: key, before_after: before_after, pivot: pivot, element: element}) do
+    {db, {:linsert, key, before_after, pivot, element}}
+  end
+
+  defp convert_command(db, %RedisCommand.ZPopMax{key: key, count: _count}) do
+    # Rust implementation only supports popping one element at a time
+    # For count > 1, we'd need to call it multiple times, but for replication
+    # we just need to pop once to match Redis behavior
+    {db, {:zpopmax, key}}
+  end
+
+  defp convert_command(db, %RedisCommand.ZPopMin{key: key, count: _count}) do
+    # Rust implementation only supports popping one element at a time
+    # For count > 1, we'd need to call it multiple times, but for replication
+    # we just need to pop once to match Redis behavior
+    {db, {:zpopmin, key}}
+  end
+
+  defp convert_command(db, %RedisCommand.ZRemRangeByRank{key: key, start: start, stop: stop}) do
+    {db, {:zremrangebyrank, key, start, stop}}
+  end
+
+  defp convert_command(db, %RedisCommand.ZRemRangeByScore{key: key, min: min_str, max: max_str}) do
+    # Parse min and max as floats (they come as strings from Redis)
+    # Handle exclusive ranges like "(1.0" - the "(" prefix indicates exclusivity
+    min_exclusive = String.starts_with?(min_str, "(")
+    max_exclusive = String.starts_with?(max_str, "(")
+    
+    min_str_clean = if min_exclusive, do: String.slice(min_str, 1..-1//1), else: min_str
+    max_str_clean = if max_exclusive, do: String.slice(max_str, 1..-1//1), else: max_str
+    
+    min = parse_score_to_float(min_str_clean)
+    max = parse_score_to_float(max_str_clean)
+    {db, {:zremrangebyscore, key, min, max, min_exclusive, max_exclusive}}
+  end
+
+  defp convert_command(db, %RedisCommand.ZUnionStore{destination: dest_key, keys: source_keys, weights: weights, aggregate: aggregate}) do
+    # Default weights to 1.0 for each key if not provided
+    weights_list = weights || Enum.map(source_keys, fn _ -> 1.0 end)
+    # Default aggregate to :sum if not provided
+    aggregate_atom = aggregate || :sum
+    {db, {:zunionstore, dest_key, source_keys, weights_list, aggregate_atom}}
+  end
+
+  defp convert_command(db, %RedisCommand.ZInterStore{destination: dest_key, keys: source_keys, weights: weights, aggregate: aggregate}) do
+    # Default weights to 1.0 for each key if not provided
+    weights_list = weights || Enum.map(source_keys, fn _ -> 1.0 end)
+    # Default aggregate to :sum if not provided
+    aggregate_atom = aggregate || :sum
+    {db, {:zinterstore, dest_key, source_keys, weights_list, aggregate_atom}}
+  end
+
   # Ignore all other commands
   defp convert_command(_db, _command) do
     nil
+  end
+
+  # Helper to parse score strings to floats (handles "-inf", "+inf", etc.)
+  defp parse_score_to_float(str) when is_binary(str) do
+    case str do
+      "-inf" -> :neg_infinity
+      "+inf" -> :infinity
+      "inf" -> :infinity
+      str ->
+        case Float.parse(str) do
+          {float, _} -> float
+          :error -> String.to_integer(str) * 1.0
+        end
+    end
   end
 
   # Unified command handler using the common NIF

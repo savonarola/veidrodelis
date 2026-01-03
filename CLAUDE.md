@@ -245,6 +245,7 @@ Veidrodelis API → Registry Lookup →
 - TS storage uses Arc-based reference counting - no need to manually manage memory
 - Direct NIF calls bypass GenServer overhead for maximum read performance
 - Multi-database support via the `db` parameter (defaults to 0)
+- **CRITICAL**: All mutating functions (write operations) should return `Result<(), &'static str>` (i.e., `Ok(())` on success). They are only used for replication where return values are not needed. Only read operations should return meaningful data (counts, values, etc.)
 
 ### Working with Transactions
 - Transactions are detected via the `__vdr_tx` marker key

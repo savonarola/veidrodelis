@@ -142,25 +142,52 @@ defmodule Vdr.TS do
 
   ## Supported Commands
 
+  **String operations:**
   - `{db, {:set, key, value}}` - Set a string value
-  - `{db, {:del, key}}` - Delete a key
+  - `{db, {:mset, pairs}}` - Set multiple key-value pairs (pairs is `[{key, value}, ...]`)
+  - `{db, {:del, keys}}` - Delete keys (keys is a list)
+  - `{db, {:pexpireat, key, timestamp}}` - Set expiration (null handler - ignored)
+  - `{db, {:rename, old_key, new_key}}` - Rename a key
+  - `{db, {:renamenx, old_key, new_key}}` - Rename only if new key doesn't exist
+  - `{db, {:move_key, key, target_db}}` - Move key to another database
+  - `{db, {:append, key, value}}` - Append value to a string
+
+  **Set operations:**
   - `{db, {:sadd, key, members}}` - Add members to a set
   - `{db, {:srem, key, members}}` - Remove members from a set
   - `{db, {:smove, source_key, dest_key, member}}` - Move member between sets
   - `{db, {:sunionstore, dest_key, source_keys}}` - Store union of sets
   - `{db, {:sinterstore, dest_key, source_keys}}` - Store intersection of sets
   - `{db, {:sdiffstore, dest_key, source_keys}}` - Store difference of sets
+
+  **List operations:**
   - `{db, {:lpush, key, values}}` - Push values to list head
   - `{db, {:rpush, key, values}}` - Push values to list tail
+  - `{db, {:lpushx, key, values}}` - Push to list head only if list exists
+  - `{db, {:rpushx, key, values}}` - Push to list tail only if list exists
   - `{db, {:lpop, key}}` - Pop value from list head
   - `{db, {:rpop, key}}` - Pop value from list tail
   - `{db, {:lset, key, index, value}}` - Set list element at index
+  - `{db, {:lrem, key, count, value}}` - Remove elements from list
+  - `{db, {:ltrim, key, start, stop}}` - Trim list to range
+  - `{db, {:linsert, key, direction, pivot, value}}` - Insert before/after pivot (direction is `:before` or `:after`)
   - `{db, {:rpoplpush, source_key, dest_key}}` - Pop from source and push to dest
+
+  **Hash operations:**
   - `{db, {:hset, key, field, value}}` - Set hash field
-  - `{db, {:hmset, key, fields}}` - Set multiple hash fields
+  - `{db, {:hmset, key, fields}}` - Set multiple hash fields (fields is `[{field, value}, ...]`)
   - `{db, {:hdel, key, fields}}` - Delete hash fields
+
+  **Sorted set operations:**
   - `{db, {:zadd, key, members}}` - Add members to sorted set (members is `[{score, member}, ...]`)
   - `{db, {:zrem, key, members}}` - Remove members from sorted set
+  - `{db, {:zincrby, key, delta, member}}` - Increment member's score
+  - `{db, {:zpopmax, key}}` - Remove and return member with highest score
+  - `{db, {:zpopmin, key}}` - Remove and return member with lowest score
+  - `{db, {:zremrangebyrank, key, start, stop}}` - Remove members by rank range
+  - `{db, {:zremrangebyscore, key, min, max, min_exclusive, max_exclusive}}` - Remove members by score range (exclusivity flags)
+  - `{db, {:zunionstore, dest_key, source_keys, weights, aggregate}}` - Store union (aggregate is `:sum`, `:min`, or `:max`)
+  - `{db, {:zinterstore, dest_key, source_keys, weights, aggregate}}` - Store intersection (aggregate is `:sum`, `:min`, or `:max`)
 
   ## Examples
 

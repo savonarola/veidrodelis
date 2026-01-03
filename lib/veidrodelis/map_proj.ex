@@ -192,8 +192,8 @@ defmodule Vdr.MapProj do
           result = Hashes.hlen(state.store, db, key)
           {:reply, result, state}
 
-        {:zrange, db, key, start_idx, stop_idx} ->
-          result = ZSets.zrange(state.store, db, key, start_idx, stop_idx)
+        {:zrange, db, key, start_idx, stop_idx, with_scores} ->
+          result = ZSets.zrange(state.store, db, key, start_idx, stop_idx, with_scores)
           {:reply, result, state}
 
         {:zcard, db, key} ->
@@ -325,8 +325,8 @@ defmodule Vdr.MapProj do
     end
   end
 
-  def zrange(pid, db, key, start_idx, stop_idx) when is_pid(pid) do
-    case Replica.call(pid, {:zrange, db, key, start_idx, stop_idx}) do
+  def zrange(pid, db, key, start_idx, stop_idx, with_scores \\ true) when is_pid(pid) do
+    case Replica.call(pid, {:zrange, db, key, start_idx, stop_idx, with_scores}) do
       {:ok, value} -> value
       error -> error
     end

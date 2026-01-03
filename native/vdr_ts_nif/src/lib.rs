@@ -6,7 +6,7 @@ use rustler::types::Binary;
 use rustler::{Encoder, Env, Resource, ResourceArc, Term};
 use std::sync::Mutex;
 
-use storage::{Score, StorageInner};
+use storage::{Aggregate, Score, StorageInner};
 
 /// The term storage resource (wrapper around Mutex to satisfy orphan rule)
 pub struct TStorage(Mutex<StorageInner>);
@@ -116,6 +116,73 @@ fn execute_single_command<'a>(
                             inner.del(db, key.as_slice());
                         }
                         return atoms::ok().encode(env);
+                    }
+                }
+            } else if cmd_atom == atoms::mset() {
+                // {db, {:mset, pairs}} where pairs is [{key, value}, ...]
+                if args.len() == 1 {
+                    if let Ok(pairs) = args[0].decode::<Vec<(Binary, Binary)>>() {
+                        let pairs_slices: Vec<(&[u8], &[u8])> = pairs
+                            .iter()
+                            .map(|(k, v)| (k.as_slice(), v.as_slice()))
+                            .collect();
+                        inner.mset(db, &pairs_slices);
+                        return atoms::ok().encode(env);
+                    }
+                }
+            } else if cmd_atom == atoms::pexpireat() {
+                // {db, {:pexpireat, key, timestamp}} - null handler, just return ok
+                return atoms::ok().encode(env);
+            } else if cmd_atom == atoms::rename() {
+                // {db, {:rename, old_key, new_key}}
+                if args.len() == 2 {
+                    if let (Ok(old_key), Ok(new_key)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.rename(db, old_key.as_slice(), new_key.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::renamenx() {
+                // {db, {:renamenx, old_key, new_key}}
+                if args.len() == 2 {
+                    if let (Ok(old_key), Ok(new_key)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.renamenx(db, old_key.as_slice(), new_key.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::move_key() {
+                // {db, {:move_key, key, target_db}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(target_db)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<u64>()
+                    ) {
+                        return match inner.move_key(db, target_db, key.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::append() {
+                // {db, {:append, key, value}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(value)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.append(db, key.as_slice(), value.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
                     }
                 }
             } else if cmd_atom == atoms::sadd() {
@@ -235,12 +302,7 @@ fn execute_single_command<'a>(
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.lpop(db, key.as_slice()) {
-                            Ok(Some(value)) => {
-                                let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
-                                binary.as_mut_slice().copy_from_slice(value.as_slice());
-                                (atoms::ok(), binary.release(env)).encode(env)
-                            }
-                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Ok(_) => atoms::ok().encode(env),
                             Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
                         };
                     }
@@ -250,12 +312,7 @@ fn execute_single_command<'a>(
                 if args.len() == 1 {
                     if let Ok(key) = args[0].decode::<Binary>() {
                         return match inner.rpop(db, key.as_slice()) {
-                            Ok(Some(value)) => {
-                                let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
-                                binary.as_mut_slice().copy_from_slice(value.as_slice());
-                                (atoms::ok(), binary.release(env)).encode(env)
-                            }
-                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Ok(_) => atoms::ok().encode(env),
                             Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
                         };
                     }
@@ -282,12 +339,86 @@ fn execute_single_command<'a>(
                         args[1].decode::<Binary>()
                     ) {
                         return match inner.rpoplpush(db, source_key.as_slice(), dest_key.as_slice()) {
-                            Ok(Some(value)) => {
-                                let mut binary = rustler::types::OwnedBinary::new(value.len()).unwrap();
-                                binary.as_mut_slice().copy_from_slice(value.as_slice());
-                                (atoms::ok(), binary.release(env)).encode(env)
-                            }
-                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::lpushx() {
+                // {db, {:lpushx, key, values}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(values)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
+                        return match inner.lpushx(db, key.as_slice(), &values_slices) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::rpushx() {
+                // {db, {:rpushx, key, values}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(values)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
+                        return match inner.rpushx(db, key.as_slice(), &values_slices) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::lrem() {
+                // {db, {:lrem, key, count, value}}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(count), Ok(value)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<i64>(),
+                        args[2].decode::<Binary>()
+                    ) {
+                        return match inner.lrem(db, key.as_slice(), count, value.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::ltrim() {
+                // {db, {:ltrim, key, start, stop}}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(start), Ok(stop)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<i64>(),
+                        args[2].decode::<i64>()
+                    ) {
+                        return match inner.ltrim(db, key.as_slice(), start, stop) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::linsert() {
+                // {db, {:linsert, key, direction, pivot, value}}
+                // direction is :before or :after atom
+                if args.len() == 4 {
+                    if let (Ok(key), Ok(direction), Ok(pivot), Ok(value)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<rustler::types::Atom>(),
+                        args[2].decode::<Binary>(),
+                        args[3].decode::<Binary>()
+                    ) {
+                        let before = if direction == atoms::before() {
+                            true
+                        } else if direction == atoms::after() {
+                            false
+                        } else {
+                            return (atoms::error(), rustler::types::atom::error().encode(env)).encode(env);
+                        };
+                        return match inner.linsert(db, key.as_slice(), before, pivot.as_slice(), value.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
                             Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
                         };
                     }
@@ -332,7 +463,7 @@ fn execute_single_command<'a>(
                     ) {
                         let fields_slices: Vec<&[u8]> = fields.iter().map(|f| f.as_slice()).collect();
                         return match inner.hdel(db, key.as_slice(), &fields_slices) {
-                            Ok(deleted) => (atoms::ok(), deleted).encode(env),
+                            Ok(_) => atoms::ok().encode(env),
                             Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
                         };
                     }
@@ -349,7 +480,7 @@ fn execute_single_command<'a>(
                             .map(|(score, member)| (OrderedFloat(*score), member.as_slice()))
                             .collect();
                         return match inner.zadd(db, key.as_slice(), &members_slices) {
-                            Ok(added) => (atoms::ok(), added).encode(env),
+                            Ok(_) => atoms::ok().encode(env),
                             Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
                         };
                     }
@@ -363,7 +494,113 @@ fn execute_single_command<'a>(
                     ) {
                         let members_slices: Vec<&[u8]> = members.iter().map(|m| m.as_slice()).collect();
                         return match inner.zrem(db, key.as_slice(), &members_slices) {
-                            Ok(removed) => (atoms::ok(), removed).encode(env),
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zpopmax() {
+                // {db, {:zpopmax, key}}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.zpopmax(db, key.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zpopmin() {
+                // {db, {:zpopmin, key}}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.zpopmin(db, key.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zremrangebyrank() {
+                // {db, {:zremrangebyrank, key, start, stop}}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(start), Ok(stop)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<i64>(),
+                        args[2].decode::<i64>()
+                    ) {
+                        return match inner.zremrangebyrank(db, key.as_slice(), start, stop) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zremrangebyscore() {
+                // {db, {:zremrangebyscore, key, min, max, min_exclusive, max_exclusive}}
+                if args.len() == 5 {
+                    if let (Ok(key), Ok(min), Ok(max), Ok(min_exclusive), Ok(max_exclusive)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<f64>(),
+                        args[2].decode::<f64>(),
+                        args[3].decode::<bool>(),
+                        args[4].decode::<bool>()
+                    ) {
+                        return match inner.zremrangebyscore(db, key.as_slice(), OrderedFloat(min), OrderedFloat(max), min_exclusive, max_exclusive) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zunionstore() {
+                // {db, {:zunionstore, dest_key, source_keys, weights, aggregate}}
+                // aggregate is :sum, :min, or :max atom
+                if args.len() == 4 {
+                    if let (Ok(dest_key), Ok(source_keys), Ok(weights), Ok(aggregate_atom)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>(),
+                        args[2].decode::<Vec<f64>>(),
+                        args[3].decode::<rustler::types::Atom>()
+                    ) {
+                        // Convert atom to Aggregate enum
+                        let aggregate = if aggregate_atom == atoms::sum() {
+                            Aggregate::Sum
+                        } else if aggregate_atom == atoms::min() {
+                            Aggregate::Min
+                        } else if aggregate_atom == atoms::max() {
+                            Aggregate::Max
+                        } else {
+                            return (atoms::error(), rustler::types::atom::error().encode(env)).encode(env);
+                        };
+
+                        let keys_slices: Vec<&[u8]> = source_keys.iter().map(|k| k.as_slice()).collect();
+                        return match inner.zunionstore(db, dest_key.as_slice(), &keys_slices, &weights, aggregate) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zinterstore() {
+                // {db, {:zinterstore, dest_key, source_keys, weights, aggregate}}
+                // aggregate is :sum, :min, or :max atom
+                if args.len() == 4 {
+                    if let (Ok(dest_key), Ok(source_keys), Ok(weights), Ok(aggregate_atom)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>(),
+                        args[2].decode::<Vec<f64>>(),
+                        args[3].decode::<rustler::types::Atom>()
+                    ) {
+                        // Convert atom to Aggregate enum
+                        let aggregate = if aggregate_atom == atoms::sum() {
+                            Aggregate::Sum
+                        } else if aggregate_atom == atoms::min() {
+                            Aggregate::Min
+                        } else if aggregate_atom == atoms::max() {
+                            Aggregate::Max
+                        } else {
+                            return (atoms::error(), rustler::types::atom::error().encode(env)).encode(env);
+                        };
+
+                        let keys_slices: Vec<&[u8]> = source_keys.iter().map(|k| k.as_slice()).collect();
+                        return match inner.zinterstore(db, dest_key.as_slice(), &keys_slices, &weights, aggregate) {
+                            Ok(_) => atoms::ok().encode(env),
                             Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
                         };
                     }
@@ -714,7 +951,7 @@ fn execute_single_command<'a>(
                         args[2].decode::<Binary>()
                     ) {
                         return match inner.zincrby(db, key.as_slice(), OrderedFloat(delta), member.as_slice()) {
-                            Ok(new_score) => (atoms::ok(), new_score.into_inner()).encode(env),
+                            Ok(_) => atoms::ok().encode(env),
                             Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
                         };
                     }
