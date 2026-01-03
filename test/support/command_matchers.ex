@@ -41,16 +41,34 @@ defmodule CommandMatchers do
     end
   end
 
-  def poll_until(check_fn, deadline) do
+  defmodule PollFailure do
+    defexception [:message]
+  end
+
+  defmodule AssertWithinFail do
+    defexception [:message, :cause]
+
+    @impl true
+    def message(t) do
+      "#{t.message}, cause: #{Exception.message(t.cause)}"
+    end
+  end
+
+  def poll_until(check_fn, deadline, exc \\ nil) do
     if System.monotonic_time(:millisecond) < deadline do
-      if check_fn.() do
+      try do
+        if not check_fn.() do
+          raise %PollFailure{message: "Condition failed"}
+        end
+
         :ok
-      else
-        Process.sleep(100)
-        poll_until(check_fn, deadline)
+      rescue
+        e ->
+          Process.sleep(100)
+          poll_until(check_fn, deadline, e)
       end
     else
-      raise "Condition did not happen within timeout"
+      raise %AssertWithinFail{message: "Assert failed to succeed within timeout", cause: exc}
     end
   end
 end

@@ -93,45 +93,46 @@ defmodule Mix.Tasks.VerifyZsetReplication do
     test_cases = define_test_cases()
 
     # Execute test cases and collect results
-    results = Enum.map(test_cases, fn {description, command, setup_fn} ->
-      # Run setup if provided
-      if setup_fn, do: setup_fn.(redis)
+    results =
+      Enum.map(test_cases, fn {description, command, setup_fn} ->
+        # Run setup if provided
+        if setup_fn, do: setup_fn.(redis)
 
-      # Mark the point before command
-      state_before = Replica.get_callback_state(replica)
-      commands_before = CapturingCallback.get_commands(state_before)
-      count_before = length(commands_before)
+        # Mark the point before command
+        state_before = Replica.get_callback_state(replica)
+        commands_before = CapturingCallback.get_commands(state_before)
+        count_before = length(commands_before)
 
-      # Execute command
-      result = Redix.command(redis, command)
+        # Execute command
+        result = Redix.command(redis, command)
 
-      # Wait for replication
-      :timer.sleep(150)
+        # Wait for replication
+        :timer.sleep(150)
 
-      # Get commands after
-      state_after = Replica.get_callback_state(replica)
-      commands_after = CapturingCallback.get_commands(state_after)
-      count_after = length(commands_after)
+        # Get commands after
+        state_after = Replica.get_callback_state(replica)
+        commands_after = CapturingCallback.get_commands(state_after)
+        _count_after = length(commands_after)
 
-      # Find new commands (those that appeared after count_before)
-      new_commands = Enum.drop(commands_after, count_before)
+        # Find new commands (those that appeared after count_before)
+        new_commands = Enum.drop(commands_after, count_before)
 
-      # Filter to only ZSET-related commands (ignore setup commands from setup_fn)
-      zset_commands =
-        Enum.filter(new_commands, fn cmd ->
-          match?(%Cmd.ZAdd{}, cmd) or
-            match?(%Cmd.ZRem{}, cmd) or
-            match?(%Cmd.ZPopMax{}, cmd) or
-            match?(%Cmd.ZPopMin{}, cmd) or
-            match?(%Cmd.ZRemRangeByRank{}, cmd) or
-            match?(%Cmd.ZRemRangeByScore{}, cmd) or
-            match?(%Cmd.ZRemRangeByLex{}, cmd) or
-            match?(%Cmd.ZUnionStore{}, cmd) or
-            match?(%Cmd.ZInterStore{}, cmd)
-        end)
+        # Filter to only ZSET-related commands (ignore setup commands from setup_fn)
+        zset_commands =
+          Enum.filter(new_commands, fn cmd ->
+            match?(%Cmd.ZAdd{}, cmd) or
+              match?(%Cmd.ZRem{}, cmd) or
+              match?(%Cmd.ZPopMax{}, cmd) or
+              match?(%Cmd.ZPopMin{}, cmd) or
+              match?(%Cmd.ZRemRangeByRank{}, cmd) or
+              match?(%Cmd.ZRemRangeByScore{}, cmd) or
+              match?(%Cmd.ZRemRangeByLex{}, cmd) or
+              match?(%Cmd.ZUnionStore{}, cmd) or
+              match?(%Cmd.ZInterStore{}, cmd)
+          end)
 
-      {description, command, zset_commands, result}
-    end)
+        {description, command, zset_commands, result}
+      end)
 
     # Stop replica
     Replica.stop(replica)
@@ -311,7 +312,20 @@ defmodule Mix.Tasks.VerifyZsetReplication do
         "ZREMRANGEBYSCORE inclusive range",
         ["ZREMRANGEBYSCORE", "zset18", "2", "4"],
         fn redis ->
-          Redix.command!(redis, ["ZADD", "zset18", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+          Redix.command!(redis, [
+            "ZADD",
+            "zset18",
+            "1",
+            "a",
+            "2",
+            "b",
+            "3",
+            "c",
+            "4",
+            "d",
+            "5",
+            "e"
+          ])
         end
       },
       # ZREMRANGEBYSCORE - exclusive
@@ -319,21 +333,60 @@ defmodule Mix.Tasks.VerifyZsetReplication do
         "ZREMRANGEBYSCORE exclusive min",
         ["ZREMRANGEBYSCORE", "zset19", "(2", "4"],
         fn redis ->
-          Redix.command!(redis, ["ZADD", "zset19", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+          Redix.command!(redis, [
+            "ZADD",
+            "zset19",
+            "1",
+            "a",
+            "2",
+            "b",
+            "3",
+            "c",
+            "4",
+            "d",
+            "5",
+            "e"
+          ])
         end
       },
       {
         "ZREMRANGEBYSCORE exclusive max",
         ["ZREMRANGEBYSCORE", "zset20", "2", "(4"],
         fn redis ->
-          Redix.command!(redis, ["ZADD", "zset20", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+          Redix.command!(redis, [
+            "ZADD",
+            "zset20",
+            "1",
+            "a",
+            "2",
+            "b",
+            "3",
+            "c",
+            "4",
+            "d",
+            "5",
+            "e"
+          ])
         end
       },
       {
         "ZREMRANGEBYSCORE both exclusive",
         ["ZREMRANGEBYSCORE", "zset21", "(2", "(4"],
         fn redis ->
-          Redix.command!(redis, ["ZADD", "zset21", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+          Redix.command!(redis, [
+            "ZADD",
+            "zset21",
+            "1",
+            "a",
+            "2",
+            "b",
+            "3",
+            "c",
+            "4",
+            "d",
+            "5",
+            "e"
+          ])
         end
       },
       # ZREMRANGEBYSCORE - infinity
@@ -341,14 +394,40 @@ defmodule Mix.Tasks.VerifyZsetReplication do
         "ZREMRANGEBYSCORE -inf to value",
         ["ZREMRANGEBYSCORE", "zset22", "-inf", "3"],
         fn redis ->
-          Redix.command!(redis, ["ZADD", "zset22", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+          Redix.command!(redis, [
+            "ZADD",
+            "zset22",
+            "1",
+            "a",
+            "2",
+            "b",
+            "3",
+            "c",
+            "4",
+            "d",
+            "5",
+            "e"
+          ])
         end
       },
       {
         "ZREMRANGEBYSCORE value to +inf",
         ["ZREMRANGEBYSCORE", "zset23", "3", "+inf"],
         fn redis ->
-          Redix.command!(redis, ["ZADD", "zset23", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+          Redix.command!(redis, [
+            "ZADD",
+            "zset23",
+            "1",
+            "a",
+            "2",
+            "b",
+            "3",
+            "c",
+            "4",
+            "d",
+            "5",
+            "e"
+          ])
         end
       },
       {
@@ -363,14 +442,40 @@ defmodule Mix.Tasks.VerifyZsetReplication do
         "ZREMRANGEBYLEX inclusive range",
         ["ZREMRANGEBYLEX", "zset25", "[b", "[d"],
         fn redis ->
-          Redix.command!(redis, ["ZADD", "zset25", "0", "a", "0", "b", "0", "c", "0", "d", "0", "e"])
+          Redix.command!(redis, [
+            "ZADD",
+            "zset25",
+            "0",
+            "a",
+            "0",
+            "b",
+            "0",
+            "c",
+            "0",
+            "d",
+            "0",
+            "e"
+          ])
         end
       },
       {
         "ZREMRANGEBYLEX exclusive range",
         ["ZREMRANGEBYLEX", "zset26", "(b", "(d"],
         fn redis ->
-          Redix.command!(redis, ["ZADD", "zset26", "0", "a", "0", "b", "0", "c", "0", "d", "0", "e"])
+          Redix.command!(redis, [
+            "ZADD",
+            "zset26",
+            "0",
+            "a",
+            "0",
+            "b",
+            "0",
+            "c",
+            "0",
+            "d",
+            "0",
+            "e"
+          ])
         end
       },
       {
@@ -481,11 +586,12 @@ defmodule Mix.Tasks.VerifyZsetReplication do
   end
 
   defp format_replicated_command(%Cmd.ZAdd{key: key, members: members, options: options}) do
-    options_str = if options != [] do
-      " " <> Enum.join(Enum.map(options, &String.upcase(to_string(&1))), " ")
-    else
-      ""
-    end
+    options_str =
+      if options != [] do
+        " " <> Enum.join(Enum.map(options, &String.upcase(to_string(&1))), " ")
+      else
+        ""
+      end
 
     member_strs =
       Enum.map(members, fn {score, member} ->

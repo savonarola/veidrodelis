@@ -344,7 +344,8 @@ defmodule Vdr.TSProj do
       script = "return ts.get('key1')"
       {:ok, result} = Vdr.TSProj.tx(handle_state, 0, script)
   """
-  @spec tx(%{ts_storage: reference()}, non_neg_integer(), binary()) :: {:ok, binary()} | {:error, term()}
+  @spec tx(%{ts_storage: reference()}, non_neg_integer(), binary()) ::
+          {:ok, binary()} | {:error, term()}
   def tx(%{ts_storage: ts_storage}, db, script) when is_binary(script) do
     Vdr.TS.read_tx(ts_storage, db, script)
   end
@@ -366,7 +367,11 @@ defmodule Vdr.TSProj do
     {db, {:srem, key, members}}
   end
 
-  defp convert_command(db, %RedisCommand.SMove{source: source_key, destination: dest_key, member: member}) do
+  defp convert_command(db, %RedisCommand.SMove{
+         source: source_key,
+         destination: dest_key,
+         member: member
+       }) do
     {db, {:smove, source_key, dest_key, member}}
   end
 
@@ -422,8 +427,12 @@ defmodule Vdr.TSProj do
     {db, {:hdel, key, fields}}
   end
 
-  defp convert_command(db, %RedisCommand.ZAdd{key: key, members: members}) do
-    {db, {:zadd, key, members}}
+  defp convert_command(db, %RedisCommand.ZAdd{key: key, members: members, options: options}) do
+    {db, {:zadd, key, members, options}}
+  end
+
+  defp convert_command(db, %RedisCommand.ZIncrBy{key: key, increment: increment, member: member}) do
+    {db, {:zincrby, key, increment, member}}
   end
 
   defp convert_command(db, %RedisCommand.ZRem{key: key, members: members}) do
@@ -458,22 +467,21 @@ defmodule Vdr.TSProj do
     {db, {:ltrim, key, start, stop}}
   end
 
-  defp convert_command(db, %RedisCommand.LInsert{key: key, before_after: before_after, pivot: pivot, element: element}) do
+  defp convert_command(db, %RedisCommand.LInsert{
+         key: key,
+         before_after: before_after,
+         pivot: pivot,
+         element: element
+       }) do
     {db, {:linsert, key, before_after, pivot, element}}
   end
 
-  defp convert_command(db, %RedisCommand.ZPopMax{key: key, count: _count}) do
-    # Rust implementation only supports popping one element at a time
-    # For count > 1, we'd need to call it multiple times, but for replication
-    # we just need to pop once to match Redis behavior
-    {db, {:zpopmax, key}}
+  defp convert_command(db, %RedisCommand.ZPopMax{key: key, count: count}) do
+    {db, {:zpopmax, key, count}}
   end
 
-  defp convert_command(db, %RedisCommand.ZPopMin{key: key, count: _count}) do
-    # Rust implementation only supports popping one element at a time
-    # For count > 1, we'd need to call it multiple times, but for replication
-    # we just need to pop once to match Redis behavior
-    {db, {:zpopmin, key}}
+  defp convert_command(db, %RedisCommand.ZPopMin{key: key, count: count}) do
+    {db, {:zpopmin, key, count}}
   end
 
   defp convert_command(db, %RedisCommand.ZRemRangeByRank{key: key, start: start, stop: stop}) do
@@ -483,18 +491,26 @@ defmodule Vdr.TSProj do
   defp convert_command(db, %RedisCommand.ZRemRangeByScore{key: key, min: min_str, max: max_str}) do
     # Parse min and max as floats (they come as strings from Redis)
     # Handle exclusive ranges like "(1.0" - the "(" prefix indicates exclusivity
-    min_exclusive = String.starts_with?(min_str, "(")
-    max_exclusive = String.starts_with?(max_str, "(")
-    
-    min_str_clean = if min_exclusive, do: String.slice(min_str, 1..-1//1), else: min_str
-    max_str_clean = if max_exclusive, do: String.slice(max_str, 1..-1//1), else: max_str
-    
-    min = parse_score_to_float(min_str_clean)
-    max = parse_score_to_float(max_str_clean)
-    {db, {:zremrangebyscore, key, min, max, min_exclusive, max_exclusive}}
+    # Convert to Bound tuples: :unbounded | {:included, score} | {:excluded, score}
+    min_bound = parse_score_bound(min_str)
+    max_bound = parse_score_bound(max_str)
+    {db, {:zremrangebyscore, key, min_bound, max_bound}}
   end
 
-  defp convert_command(db, %RedisCommand.ZUnionStore{destination: dest_key, keys: source_keys, weights: weights, aggregate: aggregate}) do
+  defp convert_command(db, %RedisCommand.ZRemRangeByLex{key: key, min: min_str, max: max_str}) do
+    # Parse lexicographic bounds
+    # Syntax: - (min unbounded), + (max unbounded), [value (inclusive), (value (exclusive)
+    min_bound = parse_lex_bound(min_str)
+    max_bound = parse_lex_bound(max_str)
+    {db, {:zremrangebylex, key, min_bound, max_bound}}
+  end
+
+  defp convert_command(db, %RedisCommand.ZUnionStore{
+         destination: dest_key,
+         keys: source_keys,
+         weights: weights,
+         aggregate: aggregate
+       }) do
     # Default weights to 1.0 for each key if not provided
     weights_list = weights || Enum.map(source_keys, fn _ -> 1.0 end)
     # Default aggregate to :sum if not provided
@@ -502,7 +518,12 @@ defmodule Vdr.TSProj do
     {db, {:zunionstore, dest_key, source_keys, weights_list, aggregate_atom}}
   end
 
-  defp convert_command(db, %RedisCommand.ZInterStore{destination: dest_key, keys: source_keys, weights: weights, aggregate: aggregate}) do
+  defp convert_command(db, %RedisCommand.ZInterStore{
+         destination: dest_key,
+         keys: source_keys,
+         weights: weights,
+         aggregate: aggregate
+       }) do
     # Default weights to 1.0 for each key if not provided
     weights_list = weights || Enum.map(source_keys, fn _ -> 1.0 end)
     # Default aggregate to :sum if not provided
@@ -518,14 +539,64 @@ defmodule Vdr.TSProj do
   # Helper to parse score strings to floats (handles "-inf", "+inf", etc.)
   defp parse_score_to_float(str) when is_binary(str) do
     case str do
-      "-inf" -> :neg_infinity
-      "+inf" -> :infinity
-      "inf" -> :infinity
+      "-inf" ->
+        :neg_infinity
+
+      "+inf" ->
+        :infinity
+
+      "inf" ->
+        :infinity
+
       str ->
         case Float.parse(str) do
           {float, _} -> float
           :error -> String.to_integer(str) * 1.0
         end
+    end
+  end
+
+  # Parse score bound from string to Bound tuple
+  # Returns: :unbounded | {:included, score} | {:excluded, score}
+  defp parse_score_bound(str) do
+    cond do
+      # Check for exclusive prefix "("
+      String.starts_with?(str, "(") ->
+        score_str = String.slice(str, 1..-1//1)
+        score = parse_score_to_float(score_str)
+        {:excluded, score}
+
+      # Otherwise inclusive
+      true ->
+        score = parse_score_to_float(str)
+
+        if score == :neg_infinity or score == :infinity do
+          :unbounded
+        else
+          {:included, score}
+        end
+    end
+  end
+
+  # Parse lexicographic bound from string to Bound tuple
+  # Returns: :unbounded | {:included, value} | {:excluded, value}
+  # Syntax: - (unbounded min), + (unbounded max), [value (inclusive), (value (exclusive)
+  defp parse_lex_bound(str) do
+    cond do
+      str == "-" or str == "+" ->
+        :unbounded
+
+      String.starts_with?(str, "[") ->
+        value = String.slice(str, 1..-1//1)
+        {:included, value}
+
+      String.starts_with?(str, "(") ->
+        value = String.slice(str, 1..-1//1)
+        {:excluded, value}
+
+      # Default to inclusive if no prefix
+      true ->
+        {:included, str}
     end
   end
 

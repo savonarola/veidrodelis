@@ -39,6 +39,7 @@ impl StorageInner {
 
     /// Null handler for PEXPIREAT - accepts but ignores expiration timestamp
     /// In future, this could store expiration metadata and trigger background cleanup
+    #[allow(dead_code)]
     pub fn pexpireat(&mut self, _db: u64, _key: &[u8], _timestamp_ms: i64) -> Result<(), &'static str> {
         // For now, just accept and ignore the expiration
         // TODO: Implement actual expiration tracking and background cleanup

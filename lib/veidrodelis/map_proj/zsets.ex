@@ -28,10 +28,18 @@ defmodule Vdr.MapProj.ZSets do
 
   @doc """
   Adds one or more members with scores to a sorted set.
+  Supports NX, XX, GT, LT, CH, and INCR options.
   Returns the updated store.
   """
-  @spec zadd(store(), db(), key(), [{score(), member()}]) :: store()
-  def zadd(store, db, key, score_members) when is_list(score_members) do
+  @spec zadd(store(), db(), key(), [{score(), member()}], [atom()]) :: store()
+  def zadd(store, db, key, score_members, options \\ []) when is_list(score_members) do
+    # Parse options
+    nx = :nx in options
+    xx = :xx in options
+    gt = :gt in options
+    lt = :lt in options
+    incr = :incr in options
+
     db_map = Map.get(store, db, %{})
 
     {entries, index} =
@@ -42,24 +50,62 @@ defmodule Vdr.MapProj.ZSets do
 
     {new_entries, new_index} =
       Enum.reduce(score_members, {entries, index}, fn {score, member}, {acc_entries, acc_index} ->
-        # Check if member already exists and remove old score from index
-        {acc_entries, acc_index} =
-          case :gb_trees.lookup(member, acc_entries) do
-            :none ->
-              {acc_entries, acc_index}
+        # Fetch old score once and reuse it
+        old_score_lookup = :gb_trees.lookup(member, acc_entries)
 
-            {:value, old_score} ->
-              # Remove old index entry
-              new_index = :gb_sets.del_element({old_score, member}, acc_index)
-              # Remove old entry from tree (will be re-inserted with new score)
-              new_entries = :gb_trees.delete(member, acc_entries)
-              {new_entries, new_index}
+        old_score =
+          case old_score_lookup do
+            {:value, s} -> s
+            :none -> nil
           end
 
-        # Add new entries
-        new_entries = :gb_trees.insert(member, score, acc_entries)
-        new_index = :gb_sets.add_element({score, member}, acc_index)
-        {new_entries, new_index}
+        exists = old_score != nil
+
+        # NX: only add if NOT exists
+        if nx && exists do
+          {acc_entries, acc_index}
+          # XX: only update if exists
+        else
+          if xx && !exists do
+            {acc_entries, acc_index}
+          else
+            # INCR: increment score
+            final_score =
+              if incr do
+                (old_score || 0.0) + score
+              else
+                score
+              end
+
+            # GT/LT: conditional update based on score comparison
+            should_update =
+              cond do
+                !exists -> true
+                gt && final_score <= old_score -> false
+                lt && final_score >= old_score -> false
+                true -> true
+              end
+
+            if should_update do
+              # Remove old entries if member existed
+              {acc_entries, acc_index} =
+                if exists do
+                  new_index = :gb_sets.del_element({old_score, member}, acc_index)
+                  new_entries = :gb_trees.delete(member, acc_entries)
+                  {new_entries, new_index}
+                else
+                  {acc_entries, acc_index}
+                end
+
+              # Add new entries
+              new_entries = :gb_trees.insert(member, final_score, acc_entries)
+              new_index = :gb_sets.add_element({final_score, member}, acc_index)
+              {new_entries, new_index}
+            else
+              {acc_entries, acc_index}
+            end
+          end
+        end
       end)
 
     zset_entry = %ZSet{entries: new_entries, index: new_index}
@@ -74,6 +120,47 @@ defmodule Vdr.MapProj.ZSets do
   @spec zadd_final(store(), db(), key(), score(), member()) :: store()
   def zadd_final(store, db, key, final_score, member) do
     zadd(store, db, key, [{final_score, member}])
+  end
+
+  @doc """
+  Increments the score of a member by the given delta.
+  Creates the member with delta as score if it doesn't exist.
+  Returns the updated store.
+  """
+  @spec zincrby(store(), db(), key(), score(), member()) :: store()
+  def zincrby(store, db, key, delta, member) do
+    db_map = Map.get(store, db, %{})
+
+    {entries, index} =
+      case Map.get(db_map, key) do
+        nil -> {:gb_trees.empty(), :gb_sets.new()}
+        %ZSet{entries: e, index: i} -> {e, i}
+      end
+
+    # Get current score (default to 0.0 if member doesn't exist)
+    old_score =
+      case :gb_trees.lookup(member, entries) do
+        {:value, score} -> score
+        :none -> 0.0
+      end
+
+    new_score = old_score + delta
+
+    # Remove old index entry if member existed
+    index =
+      if old_score != 0.0 or :gb_trees.is_defined(member, entries) do
+        :gb_sets.del_element({old_score, member}, index)
+      else
+        index
+      end
+
+    # Add new entries
+    entries = :gb_trees.enter(member, new_score, entries)
+    index = :gb_sets.add_element({new_score, member}, index)
+
+    zset = %ZSet{entries: entries, index: index}
+    db_map = Map.put(db_map, key, zset)
+    Map.put(store, db, db_map)
   end
 
   @doc """
@@ -154,7 +241,7 @@ defmodule Vdr.MapProj.ZSets do
           score() | :neg_inf | :pos_inf,
           score() | :neg_inf | :pos_inf
         ) :: store()
-  def zremrangebyscore(store, db, key, min, max) do
+  def zremrangebyscore(store, db, key, min_bound, max_bound) do
     db_map = Map.get(store, db, %{})
 
     case Map.get(db_map, key) do
@@ -162,8 +249,9 @@ defmodule Vdr.MapProj.ZSets do
         store
 
       %ZSet{entries: entries, index: index} ->
-        # Use iterator and filter by score range
-        members_to_remove = filter_by_score_iterator(:gb_sets.iterator(index), min, max, [])
+        # Use iterator and filter by score range with bounds
+        members_to_remove =
+          filter_by_score_iterator(:gb_sets.iterator(index), min_bound, max_bound, [])
 
         {new_entries, new_index} =
           Enum.reduce(members_to_remove, {entries, index}, fn {member, score},
@@ -443,6 +531,7 @@ defmodule Vdr.MapProj.ZSets do
           []
         else
           results = take_range_from_iterator(:gb_sets.iterator(index), start_idx, stop_idx)
+
           if with_scores do
             results
           else
@@ -609,20 +698,20 @@ defmodule Vdr.MapProj.ZSets do
           score() | :neg_inf | :pos_inf,
           [{binary(), score()}]
         ) :: [{binary(), score()}]
-  defp filter_by_score_iterator(iter, min, max, acc) do
+  defp filter_by_score_iterator(iter, min_bound, max_bound, acc) do
     case :gb_sets.next(iter) do
       :none ->
         Enum.reverse(acc)
 
       {{score, member}, next_iter} ->
         new_acc =
-          if score_in_range?(score, min, max) do
+          if score_in_range?(score, min_bound, max_bound) do
             [{member, score} | acc]
           else
             acc
           end
 
-        filter_by_score_iterator(next_iter, min, max, new_acc)
+        filter_by_score_iterator(next_iter, min_bound, max_bound, new_acc)
     end
   end
 
@@ -647,17 +736,21 @@ defmodule Vdr.MapProj.ZSets do
     end
   end
 
-  defp score_in_range?(score, min, max) do
+  # Check if score is within the given bounds
+  # Bounds: :unbounded | {:included, score} | {:excluded, score}
+  defp score_in_range?(score, min_bound, max_bound) do
     min_ok =
-      case min do
-        :neg_inf -> true
-        min_score -> score >= min_score
+      case min_bound do
+        :unbounded -> true
+        {:included, min_score} -> score >= min_score
+        {:excluded, min_score} -> score > min_score
       end
 
     max_ok =
-      case max do
-        :pos_inf -> true
-        max_score -> score <= max_score
+      case max_bound do
+        :unbounded -> true
+        {:included, max_score} -> score <= max_score
+        {:excluded, max_score} -> score < max_score
       end
 
     min_ok and max_ok

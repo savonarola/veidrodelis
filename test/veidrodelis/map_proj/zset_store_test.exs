@@ -9,6 +9,10 @@ defmodule Vdr.MapProj.ZSetStoreTest do
     {:ok, store: store}
   end
 
+  # Helper functions for score bounds
+  defp score_bound(:neg_inf), do: :unbounded
+  defp score_bound(score) when is_float(score), do: {:included, score}
+
   describe "zadd/4" do
     test "adds members with scores to a sorted set", %{store: store} do
       store = ZSets.zadd(store, 0, "myzset", [{1.0, "one"}, {2.0, "two"}])
@@ -161,7 +165,7 @@ defmodule Vdr.MapProj.ZSetStoreTest do
           {5.0, "five"}
         ])
 
-      store = ZSets.zremrangebyscore(store, 0, "myzset", 2.0, 4.0)
+      store = ZSets.zremrangebyscore(store, 0, "myzset", score_bound(2.0), score_bound(4.0))
 
       assert ZSets.zcard(store, 0, "myzset") == 2
       assert ZSets.zscore(store, 0, "myzset", "one") == 1.0
@@ -177,7 +181,7 @@ defmodule Vdr.MapProj.ZSetStoreTest do
           {3.0, "three"}
         ])
 
-      store = ZSets.zremrangebyscore(store, 0, "myzset", :neg_inf, 2.0)
+      store = ZSets.zremrangebyscore(store, 0, "myzset", score_bound(:neg_inf), score_bound(2.0))
 
       assert ZSets.zcard(store, 0, "myzset") == 1
       assert ZSets.zscore(store, 0, "myzset", "three") == 3.0
@@ -501,7 +505,7 @@ defmodule Vdr.MapProj.ZSetStoreTest do
           {5.0, "five"}
         ])
 
-      result = ZSets.zrangebyscore(store, 0, "myzset", 2.0, 4.0)
+      result = ZSets.zrangebyscore(store, 0, "myzset", score_bound(2.0), score_bound(4.0))
 
       assert length(result) == 3
       assert Enum.map(result, fn {_member, score} -> score end) == [2.0, 3.0, 4.0]
@@ -515,7 +519,7 @@ defmodule Vdr.MapProj.ZSetStoreTest do
           {3.0, "three"}
         ])
 
-      result = ZSets.zrangebyscore(store, 0, "myzset", :neg_inf, 2.0)
+      result = ZSets.zrangebyscore(store, 0, "myzset", score_bound(:neg_inf), score_bound(2.0))
 
       assert length(result) == 2
     end
@@ -616,7 +620,7 @@ defmodule Vdr.MapProj.ZSetStoreTest do
       assert ZSets.zscore(store, 0, "myzset", "member") == 1.0
 
       # Verify range query works (uses index)
-      result = ZSets.zrangebyscore(store, 0, "myzset", 0.0, 2.0)
+      result = ZSets.zrangebyscore(store, 0, "myzset", score_bound(0.0), score_bound(2.0))
       assert length(result) == 1
     end
 
@@ -625,12 +629,12 @@ defmodule Vdr.MapProj.ZSetStoreTest do
       store = ZSets.zadd(store, 0, "myzset", [{5.0, "member"}])
 
       # Old score should be gone
-      result_old = ZSets.zrangebyscore(store, 0, "myzset", 0.0, 2.0)
+      result_old = ZSets.zrangebyscore(store, 0, "myzset", score_bound(0.0), score_bound(2.0))
       assert length(result_old) == 0
 
       # New score should be in both structures
       assert ZSets.zscore(store, 0, "myzset", "member") == 5.0
-      result_new = ZSets.zrangebyscore(store, 0, "myzset", 4.0, 6.0)
+      result_new = ZSets.zrangebyscore(store, 0, "myzset", score_bound(4.0), score_bound(6.0))
       assert length(result_new) == 1
     end
 
@@ -640,7 +644,7 @@ defmodule Vdr.MapProj.ZSetStoreTest do
 
       # Both lookups should fail
       assert ZSets.zscore(store, 0, "myzset", "member") == nil
-      result = ZSets.zrangebyscore(store, 0, "myzset", 0.0, 2.0)
+      result = ZSets.zrangebyscore(store, 0, "myzset", score_bound(0.0), score_bound(2.0))
       assert length(result) == 0
     end
   end
@@ -666,7 +670,7 @@ defmodule Vdr.MapProj.ZSetStoreTest do
           {1.0, "c"}
         ])
 
-      result = ZSets.zrangebyscore(store, 0, "myzset", 1.0, 1.0)
+      result = ZSets.zrangebyscore(store, 0, "myzset", score_bound(1.0), score_bound(1.0))
       assert length(result) == 3
       assert Enum.all?(result, fn {_member, score} -> score == 1.0 end)
     end
@@ -711,7 +715,7 @@ defmodule Vdr.MapProj.ZSetStoreTest do
       assert length(result) == 10
 
       # Score range query should work
-      result = ZSets.zrangebyscore(store, 0, "large_zset", 100.0, 200.0)
+      result = ZSets.zrangebyscore(store, 0, "large_zset", score_bound(100.0), score_bound(200.0))
       # 100 to 200 inclusive
       assert length(result) == 101
     end

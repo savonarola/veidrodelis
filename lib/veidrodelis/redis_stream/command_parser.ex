@@ -105,8 +105,12 @@ defmodule Vdr.RedisStream.CommandParser do
 
   # Sorted set commands
   def parse(["ZADD", key | args]) do
-    members = parse_zadd_args(args)
-    {:ok, %RedisCommand.ZAdd{key: key, members: members}}
+    {options, members} = parse_zadd_args(args)
+    {:ok, %RedisCommand.ZAdd{key: key, members: members, options: options}}
+  end
+
+  def parse(["ZINCRBY", key, increment, member]) do
+    {:ok, %RedisCommand.ZIncrBy{key: key, increment: parse_float(increment), member: member}}
   end
 
   def parse(["ZREM", key | members]), do: {:ok, %RedisCommand.ZRem{key: key, members: members}}
@@ -189,28 +193,49 @@ defmodule Vdr.RedisStream.CommandParser do
   defp parse_pairs([]), do: []
   defp parse_pairs([k, v | rest]), do: [{k, v} | parse_pairs(rest)]
 
-  defp parse_zadd_args([]), do: []
-
-  defp parse_zadd_args([score_str, member | rest]) do
-    score = parse_float(score_str)
-    [{score, member} | parse_zadd_args(rest)]
+  defp parse_zadd_args(args) do
+    {options, rest} = extract_zadd_options(args, [])
+    members = parse_score_member_pairs(rest)
+    {options, members}
   end
 
-  defp parse_float(str) do
-    case str do
-      "nan" ->
-        :nan
+  defp extract_zadd_options([], acc), do: {Enum.reverse(acc), []}
 
-      "+inf" ->
-        :pos_inf
+  defp extract_zadd_options([arg | rest] = all_args, acc) do
+    case String.upcase(arg) do
+      "NX" -> extract_zadd_options(rest, [:nx | acc])
+      "XX" -> extract_zadd_options(rest, [:xx | acc])
+      "GT" -> extract_zadd_options(rest, [:gt | acc])
+      "LT" -> extract_zadd_options(rest, [:lt | acc])
+      "CH" -> extract_zadd_options(rest, [:ch | acc])
+      "INCR" -> extract_zadd_options(rest, [:incr | acc])
+      # Not an option, start of score-member pairs
+      _ -> {Enum.reverse(acc), all_args}
+    end
+  end
 
-      "-inf" ->
-        :neg_inf
+  defp parse_score_member_pairs([]), do: []
 
-      _ ->
-        case Float.parse(str) do
-          {float, _} -> float
-          :error -> String.to_integer(str) * 1.0
+  defp parse_score_member_pairs([score_str, member | rest]) do
+    score = parse_float(score_str)
+    [{score, member} | parse_score_member_pairs(rest)]
+  end
+
+  defp parse_float("inf"), do: :pos_inf
+  defp parse_float("+inf"), do: :pos_inf
+  defp parse_float("-inf"), do: :neg_inf
+  defp parse_float("nan"), do: :nan
+
+  defp parse_float(bin) when is_binary(bin) do
+    case Float.parse(bin) do
+      {float, _} ->
+        float
+
+      :error ->
+        # Try as integer
+        case Integer.parse(bin) do
+          {int, _} -> int * 1.0
+          :error -> 0.0
         end
     end
   end

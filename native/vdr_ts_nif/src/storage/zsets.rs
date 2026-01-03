@@ -1,7 +1,7 @@
 use std::collections::{BTreeMap, HashMap};
 use std::ops::Bound;
 use super::bytes::Bytes;
-use super::types::{StorageValue, ZSet};
+use super::types::{StorageValue, ZSet, ZAddOption};
 use super::zset_index::{Score, ZSetIndexKey, ZSetIndexKeyRef};
 use crate::storage::StorageInner;
 use ordered_float::OrderedFloat;
@@ -16,7 +16,41 @@ pub enum Aggregate {
 
 impl StorageInner {
     /// Add members with scores to sorted set.
-    pub fn zadd(&mut self, db: u64, key: &[u8], members: &[(Score, &[u8])]) -> Result<(), &'static str> {
+    /// Supports NX, XX, GT, LT, CH, and INCR options.
+    pub fn zadd(&mut self, db: u64, key: &[u8], members: &[(Score, &[u8])], options: &[ZAddOption]) -> Result<(), &'static str> {
+        // Parse options
+        let mut nx = false;
+        let mut xx = false;
+        let mut gt = false;
+        let mut lt = false;
+        let mut incr = false;
+
+        for opt in options {
+            match opt {
+                ZAddOption::NX => nx = true,
+                ZAddOption::XX => xx = true,
+                ZAddOption::GT => gt = true,
+                ZAddOption::LT => lt = true,
+                ZAddOption::CH => {}, // CH only affects return value, ignore in replication
+                ZAddOption::INCR => incr = true,
+            }
+        }
+
+        // Validate: NX and XX are mutually exclusive
+        if nx && xx {
+            return Err("ERR NX and XX options at the same time are not compatible");
+        }
+
+        // Validate: GT/LT conflict with NX
+        if (gt || lt) && nx {
+            return Err("ERR GT, LT, and/or NX options at the same time are not compatible");
+        }
+
+        // INCR requires exactly one score-member pair
+        if incr && members.len() != 1 {
+            return Err("ERR INCR option supports a single increment-element pair");
+        }
+
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -37,22 +71,47 @@ impl StorageInner {
         };
 
         for (score, member) in members {
-            // Check if member exists - use direct HashMap lookup with &[u8]
-            if let Some(old_score) = zset.entries.get(*member) {
-                // Member exists - update score
-                // Use ZSetIndexKeyRef for lookup
-                let lookup_key = ZSetIndexKeyRef::lookup_key_ref(*old_score, member);
-                zset.index.remove(&lookup_key);
+            // Fetch old score once and reuse it
+            let old_score = zset.entries.get(*member).copied();
+            let exists = old_score.is_some();
 
-                zset.entries.insert(Bytes::new(member), *score);
-                // Use ZSetIndexKey for insertion
-                zset.index.insert(ZSetIndexKey::create(*score, member));
-            } else {
-                // New member
-                zset.entries.insert(Bytes::new(member), *score);
-                // Use ZSetIndexKey for insertion
-                zset.index.insert(ZSetIndexKey::create(*score, member));
+            // NX: only add if NOT exists
+            if nx && exists {
+                continue;
             }
+
+            // XX: only update if exists
+            if xx && !exists {
+                continue;
+            }
+
+            // INCR: increment score
+            let final_score = if incr {
+                old_score.unwrap_or(OrderedFloat(0.0)) + *score
+            } else {
+                *score
+            };
+
+            // GT/LT: conditional update based on score comparison
+            if let Some(old_score) = old_score {
+                // GT: only update if new score > old score
+                if gt && final_score <= old_score {
+                    continue;
+                }
+
+                // LT: only update if new score < old score
+                if lt && final_score >= old_score {
+                    continue;
+                }
+
+                // Remove old index entry
+                let lookup_key = ZSetIndexKeyRef::lookup_key_ref(old_score, member);
+                zset.index.remove(&lookup_key);
+            }
+
+            // Add new entries
+            zset.entries.insert(Bytes::new(member), final_score);
+            zset.index.insert(ZSetIndexKey::create(final_score, member));
         }
 
         Ok(())
@@ -383,8 +442,9 @@ impl StorageInner {
         }
     }
 
-    /// Pop member with highest score from sorted set.
-    pub fn zpopmax(&mut self, db: u64, key: &[u8]) -> Result<(), &'static str> {
+    /// Pop member(s) with highest score from sorted set.
+    /// Pops up to `count` members. If count is 0 or greater than set size, pops all available.
+    pub fn zpopmax(&mut self, db: u64, key: &[u8], count: usize) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(());
         };
@@ -398,15 +458,18 @@ impl StorageInner {
             _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
         };
 
-        // Extract member and score from the last index entry
-        let member_score = zset.index.last().and_then(|index_key| {
-            index_key.get_entry_and_score().map(|(m, s)| (m.clone(), s))
-        });
-
-        if let Some((member, score)) = member_score {
-            zset.entries.remove(member.as_slice());
-            let lookup_key = ZSetIndexKeyRef::lookup_key_ref(score, member.as_slice());
-            zset.index.remove(&lookup_key);
+        // Pop up to count elements from the end (highest scores)
+        for _ in 0..count {
+            // Use pop_last to remove the highest score element
+            if let Some(index_key) = zset.index.pop_last() {
+                if let Some((member, _score)) = index_key.get_entry_and_score() {
+                    // Remove from entries map
+                    zset.entries.remove(member.as_slice());
+                }
+            } else {
+                // No more elements
+                break;
+            }
         }
 
         // Remove key if zset is empty
@@ -417,8 +480,9 @@ impl StorageInner {
         Ok(())
     }
 
-    /// Pop member with lowest score from sorted set.
-    pub fn zpopmin(&mut self, db: u64, key: &[u8]) -> Result<(), &'static str> {
+    /// Pop member(s) with lowest score from sorted set.
+    /// Pops up to `count` members. If count is 0 or greater than set size, pops all available.
+    pub fn zpopmin(&mut self, db: u64, key: &[u8], count: usize) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(());
         };
@@ -432,15 +496,18 @@ impl StorageInner {
             _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
         };
 
-        // Extract member and score from the first index entry
-        let member_score = zset.index.first().and_then(|index_key| {
-            index_key.get_entry_and_score().map(|(m, s)| (m.clone(), s))
-        });
-
-        if let Some((member, score)) = member_score {
-            zset.entries.remove(member.as_slice());
-            let lookup_key = ZSetIndexKeyRef::lookup_key_ref(score, member.as_slice());
-            zset.index.remove(&lookup_key);
+        // Pop up to count elements from the beginning (lowest scores)
+        for _ in 0..count {
+            // Use pop_first to remove the lowest score element
+            if let Some(index_key) = zset.index.pop_first() {
+                if let Some((member, _score)) = index_key.get_entry_and_score() {
+                    // Remove from entries map
+                    zset.entries.remove(member.as_slice());
+                }
+            } else {
+                // No more elements
+                break;
+            }
         }
 
         // Remove key if zset is empty
@@ -510,8 +577,11 @@ impl StorageInner {
         Ok(())
     }
 
-    /// Remove members by score range (inclusive).
-    pub fn zremrangebyscore(&mut self, db: u64, key: &[u8], min: Score, max: Score, _min_exclusive: bool, _max_exclusive: bool) -> Result<(), &'static str> {
+    /// Remove members by score range with flexible bounds (inclusive, exclusive, or unbounded).
+    /// Bounds use std::ops::Bound: Unbounded, Included(score), or Excluded(score).
+    pub fn zremrangebyscore(&mut self, db: u64, key: &[u8], min_bound: std::ops::Bound<Score>, max_bound: std::ops::Bound<Score>) -> Result<(), &'static str> {
+        use std::ops::Bound;
+
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(());
         };
@@ -525,19 +595,109 @@ impl StorageInner {
             _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
         };
 
-        // Use range to efficiently collect members with scores in [min, max] (inclusive)
-        // Note: MaxScoreKey is fictional, so indexset may include entries beyond it
-        // We add boundary checks after fetching to drop elements that don't fit
-        let min_key = ZSetIndexKey::min_score_key(min);
-        let max_key = ZSetIndexKey::max_score_key(max);
+        // Create boundary keys for efficient range query (similar to zrangebyscore)
+        let min_key = match &min_bound {
+            Bound::Unbounded => None,
+            Bound::Included(score) | Bound::Excluded(score) => Some(ZSetIndexKey::min_score_key(*score)),
+        };
 
+        let max_key = match &max_bound {
+            Bound::Unbounded => None,
+            Bound::Included(score) | Bound::Excluded(score) => Some(ZSetIndexKey::max_score_key(*score)),
+        };
+
+        let start_bound = match &min_key {
+            Some(key) => Bound::Included(key),
+            None => Bound::Unbounded,
+        };
+
+        let end_bound = match &max_key {
+            Some(key) => Bound::Included(key),
+            None => Bound::Unbounded,
+        };
+
+        // Collect members to remove with additional filtering based on actual bounds
         let members_to_remove: Vec<(Bytes, Score)> = zset
             .index
-            .range(min_key..max_key)
-            .filter_map(|index_key| index_key.get_entry_and_score().map(|(m, s)| (m.clone(), s)))
+            .range::<_, ZSetIndexKey>((start_bound, end_bound))
+            .filter_map(|index_key| {
+                index_key.get_entry_and_score().and_then(|(m, s)| {
+                    // Apply actual bound checks based on the original min/max bounds
+                    let min_ok = match min_bound {
+                        Bound::Unbounded => true,
+                        Bound::Included(min) => s >= min,
+                        Bound::Excluded(min) => s > min,
+                    };
+
+                    let max_ok = match max_bound {
+                        Bound::Unbounded => true,
+                        Bound::Included(max) => s <= max,
+                        Bound::Excluded(max) => s < max,
+                    };
+
+                    if min_ok && max_ok {
+                        Some((m.clone(), s))
+                    } else {
+                        None
+                    }
+                })
+            })
             .collect();
 
         // Remove them
+        for (member, score) in members_to_remove {
+            zset.entries.remove(member.as_slice());
+            let lookup_key = ZSetIndexKeyRef::lookup_key_ref(score, member.as_slice());
+            zset.index.remove(&lookup_key);
+        }
+
+        // Remove key if zset is empty
+        if zset.is_empty() {
+            db_map.remove(key);
+        }
+
+        Ok(())
+    }
+
+    /// Remove members by lexicographic range with flexible bounds (inclusive, exclusive, or unbounded).
+    /// Bounds use std::ops::Bound: Unbounded, Included(value), or Excluded(value).
+    pub fn zremrangebylex(&mut self, db: u64, key: &[u8], min_bound: std::ops::Bound<Bytes>, max_bound: std::ops::Bound<Bytes>) -> Result<(), &'static str> {
+        use std::ops::Bound;
+
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(());
+        };
+
+        let Some(value) = db_map.get_mut(key) else {
+            return Ok(());
+        };
+
+        let zset = match value {
+            StorageValue::ZSet(zset) => zset,
+            _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+        };
+
+        // Convert Bytes bounds to &[u8] bounds for BTreeMap range query
+        let start_bound = match &min_bound {
+            Bound::Unbounded => Bound::Unbounded,
+            Bound::Included(val) => Bound::Included(val.as_slice()),
+            Bound::Excluded(val) => Bound::Excluded(val.as_slice()),
+        };
+
+        let end_bound = match &max_bound {
+            Bound::Unbounded => Bound::Unbounded,
+            Bound::Included(val) => Bound::Included(val.as_slice()),
+            Bound::Excluded(val) => Bound::Excluded(val.as_slice()),
+        };
+
+        // Collect members to remove using BTreeMap range query on entries
+        let members_to_remove: Vec<(Bytes, Score)> = zset
+            .entries
+            .range::<[u8], _>((start_bound, end_bound))
+            .map(|(member, score)| (member.clone(), *score))
+            .collect();
+
+        // Remove from both entries and index
         for (member, score) in members_to_remove {
             zset.entries.remove(member.as_slice());
             let lookup_key = ZSetIndexKeyRef::lookup_key_ref(score, member.as_slice());

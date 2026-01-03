@@ -141,7 +141,9 @@ defmodule Veidrodelis.DoubleBufferTest do
         Veidrodelis.get(@test_id, 0, "key2") == "value2"
       end
 
-      assert Veidrodelis.get(@test_id, 0, "key3") == "value3"
+      assert_happens_within 1000 do
+        Veidrodelis.get(@test_id, 0, "key3") == "value3"
+      end
 
       Veidrodelis.stop(pid)
     end

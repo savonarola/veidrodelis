@@ -6,7 +6,79 @@ use rustler::types::Binary;
 use rustler::{Encoder, Env, Resource, ResourceArc, Term};
 use std::sync::Mutex;
 
-use storage::{Aggregate, Score, StorageInner};
+use storage::{Aggregate, Score, StorageInner, ZAddOption};
+use std::ops::Bound;
+
+/// Helper function to decode Elixir bound tuples into Rust Bound<Score>
+/// Elixir format: :unbounded | {:included, score} | {:excluded, score}
+fn decode_score_bound(term: Term) -> Result<Bound<Score>, rustler::Error> {
+    // Try to decode as atom first (for :unbounded)
+    if let Ok(atom) = term.decode::<rustler::types::Atom>() {
+        if atom == atoms::unbounded() {
+            return Ok(Bound::Unbounded);
+        }
+    }
+
+    // Try to decode as tuple {atom, score}
+    let tuple = term.decode::<(rustler::types::Atom, f64)>()?;
+    let (bound_atom, score) = tuple;
+
+    if bound_atom == atoms::included() {
+        Ok(Bound::Included(OrderedFloat(score)))
+    } else if bound_atom == atoms::excluded() {
+        Ok(Bound::Excluded(OrderedFloat(score)))
+    } else {
+        Err(rustler::Error::BadArg)
+    }
+}
+
+/// Helper function to decode Elixir bound tuples into Rust Bound<Bytes>
+/// Elixir format: :unbounded | {:included, value} | {:excluded, value}
+fn decode_lex_bound(term: Term) -> Result<Bound<storage::Bytes>, rustler::Error> {
+    use storage::Bytes;
+
+    // Try to decode as atom first (for :unbounded)
+    if let Ok(atom) = term.decode::<rustler::types::Atom>() {
+        if atom == atoms::unbounded() {
+            return Ok(Bound::Unbounded);
+        }
+    }
+
+    // Try to decode as tuple {atom, value}
+    let tuple = term.decode::<(rustler::types::Atom, Binary)>()?;
+    let (bound_atom, value) = tuple;
+
+    if bound_atom == atoms::included() {
+        Ok(Bound::Included(Bytes::new(value.as_slice())))
+    } else if bound_atom == atoms::excluded() {
+        Ok(Bound::Excluded(Bytes::new(value.as_slice())))
+    } else {
+        Err(rustler::Error::BadArg)
+    }
+}
+
+/// Helper function to decode a score value which can be either f64 or special atoms
+/// Elixir format: float | :pos_inf | :neg_inf | :nan
+fn decode_score(term: Term) -> Result<f64, rustler::Error> {
+    // IMPORTANT: Check for atoms FIRST! If we try f64 first, atoms decode as 0
+    if let Ok(atom) = term.decode::<rustler::types::Atom>() {
+        if atom == atoms::pos_inf() {
+            return Ok(f64::INFINITY);
+        } else if atom == atoms::neg_inf() {
+            return Ok(f64::NEG_INFINITY);
+        } else if atom == atoms::nan() {
+            return Ok(f64::NAN);
+        }
+        // Fall through if atom doesn't match special values
+    }
+
+    // Try to decode as f64
+    if let Ok(score) = term.decode::<f64>() {
+        return Ok(score);
+    }
+
+    Err(rustler::Error::BadArg)
+}
 
 /// The term storage resource (wrapper around Mutex to satisfy orphan rule)
 pub struct TStorage(Mutex<StorageInner>);
@@ -469,20 +541,59 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zadd() {
-                // {db, {:zadd, key, members}}  where members is [{score, member}, ...]
-                if args.len() == 2 {
-                    if let (Ok(key), Ok(members)) = (
-                        args[0].decode::<Binary>(),
-                        args[1].decode::<Vec<(f64, Binary)>>()
-                    ) {
-                        let members_slices: Vec<(Score, &[u8])> = members
-                            .iter()
-                            .map(|(score, member)| (OrderedFloat(*score), member.as_slice()))
-                            .collect();
-                        return match inner.zadd(db, key.as_slice(), &members_slices) {
-                            Ok(_) => atoms::ok().encode(env),
-                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                // {db, {:zadd, key, members}} or {db, {:zadd, key, members, options}}
+                // where members is [{score, member}, ...], options is list of atoms
+                // Scores can be f64, :pos_inf, :neg_inf, or :nan
+                if args.len() == 2 || args.len() == 3 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        // Manually decode members list to handle special score atoms
+                        let members_result: Result<Vec<(f64, Binary)>, rustler::Error> =
+                            args[1].decode::<Vec<Term>>()
+                                .and_then(|terms| {
+                                    terms.iter().map(|term| {
+                                        let tuple = term.decode::<(Term, Binary)>()?;
+                                        let score = decode_score(tuple.0)?;
+                                        Ok((score, tuple.1))
+                                    }).collect()
+                                });
+
+                        if let Ok(members) = members_result {
+                        let options = if args.len() == 3 {
+                            // Decode atoms and convert to ZAddOption enum
+                            args[2].decode::<Vec<rustler::types::Atom>>()
+                                .map(|atoms| {
+                                    atoms.iter().filter_map(|atom| {
+                                        if *atom == atoms::nx() {
+                                            Some(ZAddOption::NX)
+                                        } else if *atom == atoms::xx() {
+                                            Some(ZAddOption::XX)
+                                        } else if *atom == atoms::gt() {
+                                            Some(ZAddOption::GT)
+                                        } else if *atom == atoms::lt() {
+                                            Some(ZAddOption::LT)
+                                        } else if *atom == atoms::ch() {
+                                            Some(ZAddOption::CH)
+                                        } else if *atom == atoms::incr() {
+                                            Some(ZAddOption::INCR)
+                                        } else {
+                                            None
+                                        }
+                                    }).collect()
+                                })
+                                .unwrap_or_default()
+                        } else {
+                            vec![]
                         };
+
+                            let members_slices: Vec<(Score, &[u8])> = members
+                                .iter()
+                                .map(|(score, member)| (OrderedFloat(*score), member.as_slice()))
+                                .collect();
+                            return match inner.zadd(db, key.as_slice(), &members_slices, &options) {
+                                Ok(_) => atoms::ok().encode(env),
+                                Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                            };
+                        }
                     }
                 }
             } else if cmd_atom == atoms::zrem() {
@@ -500,20 +611,26 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zpopmax() {
-                // {db, {:zpopmax, key}}
-                if args.len() == 1 {
-                    if let Ok(key) = args[0].decode::<Binary>() {
-                        return match inner.zpopmax(db, key.as_slice()) {
+                // {db, {:zpopmax, key, count}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(count)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<usize>()
+                    ) {
+                        return match inner.zpopmax(db, key.as_slice(), count) {
                             Ok(_) => atoms::ok().encode(env),
                             Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
                         };
                     }
                 }
             } else if cmd_atom == atoms::zpopmin() {
-                // {db, {:zpopmin, key}}
-                if args.len() == 1 {
-                    if let Ok(key) = args[0].decode::<Binary>() {
-                        return match inner.zpopmin(db, key.as_slice()) {
+                // {db, {:zpopmin, key, count}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(count)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<usize>()
+                    ) {
+                        return match inner.zpopmin(db, key.as_slice(), count) {
                             Ok(_) => atoms::ok().encode(env),
                             Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
                         };
@@ -534,19 +651,35 @@ fn execute_single_command<'a>(
                     }
                 }
             } else if cmd_atom == atoms::zremrangebyscore() {
-                // {db, {:zremrangebyscore, key, min, max, min_exclusive, max_exclusive}}
-                if args.len() == 5 {
-                    if let (Ok(key), Ok(min), Ok(max), Ok(min_exclusive), Ok(max_exclusive)) = (
-                        args[0].decode::<Binary>(),
-                        args[1].decode::<f64>(),
-                        args[2].decode::<f64>(),
-                        args[3].decode::<bool>(),
-                        args[4].decode::<bool>()
-                    ) {
-                        return match inner.zremrangebyscore(db, key.as_slice(), OrderedFloat(min), OrderedFloat(max), min_exclusive, max_exclusive) {
-                            Ok(_) => atoms::ok().encode(env),
-                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
-                        };
+                // {db, {:zremrangebyscore, key, min_bound, max_bound}}
+                // Bounds: :unbounded | {:included, score} | {:excluded, score}
+                if args.len() == 3 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        if let (Ok(min_bound), Ok(max_bound)) = (
+                            decode_score_bound(args[1]),
+                            decode_score_bound(args[2])
+                        ) {
+                            return match inner.zremrangebyscore(db, key.as_slice(), min_bound, max_bound) {
+                                Ok(_) => atoms::ok().encode(env),
+                                Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                            };
+                        }
+                    }
+                }
+            } else if cmd_atom == atoms::zremrangebylex() {
+                // {db, {:zremrangebylex, key, min_bound, max_bound}}
+                // Bounds: :unbounded | {:included, value} | {:excluded, value}
+                if args.len() == 3 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        if let (Ok(min_bound), Ok(max_bound)) = (
+                            decode_lex_bound(args[1]),
+                            decode_lex_bound(args[2])
+                        ) {
+                            return match inner.zremrangebylex(db, key.as_slice(), min_bound, max_bound) {
+                                Ok(_) => atoms::ok().encode(env),
+                                Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                            };
+                        }
                     }
                 }
             } else if cmd_atom == atoms::zunionstore() {

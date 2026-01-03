@@ -70,6 +70,23 @@ defmodule Vdr.RedisStream.Command do
     defstruct [:key, :members, options: []]
   end
 
+  defmodule ZIncrBy do
+    @moduledoc """
+    Represents a Redis ZINCRBY command.
+
+    ## Example
+        %Vdr.RedisStream.Command.ZIncrBy{key: "myzset", increment: 5.5, member: "member1"}
+        %Vdr.RedisStream.Command.ZIncrBy{key: "myzset", increment: -2.0, member: "counter"}
+    """
+    @type t :: %__MODULE__{
+            key: binary(),
+            increment: float() | :nan | :pos_inf | :neg_inf,
+            member: binary()
+          }
+
+    defstruct [:key, :increment, :member]
+  end
+
   defmodule HSet do
     @moduledoc """
     Represents a Redis HSET command.
@@ -627,6 +644,7 @@ defmodule Vdr.RedisStream.Command do
           | RPush.t()
           | SAdd.t()
           | ZAdd.t()
+          | ZIncrBy.t()
           | HSet.t()
           | PExpireAt.t()
           | Del.t()

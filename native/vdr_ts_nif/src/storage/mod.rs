@@ -12,12 +12,8 @@ mod hashes;
 // Re-export public types
 pub use bytes::Bytes;
 pub use zset_index::Score;
-pub use types::StorageValue;
+pub use types::{StorageValue, ZAddOption};
 pub use zsets::Aggregate;
-
-// Internal re-exports for use within the storage module
-pub(crate) use zset_index::{ZSetIndexKey, ZSetIndexKeyRef};
-pub(crate) use types::ZSet;
 
 use std::collections::BTreeMap;
 use mlua::Lua;

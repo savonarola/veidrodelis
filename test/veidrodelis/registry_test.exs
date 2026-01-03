@@ -254,6 +254,10 @@ defmodule Vdr.RegistryTest do
       id = make_ref()
       handle = %{data: "test"}
 
+      old_level = Logger.level()
+      Logger.configure(level: :critical)
+      on_exit(fn -> Logger.configure(level: old_level) end)
+
       test_pid = spawn(fn -> raise "error" end)
       Registry.register(test_pid, id, handle)
 

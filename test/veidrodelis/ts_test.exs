@@ -312,7 +312,10 @@ defmodule Vdr.TSTest do
 
     test "counts all elements when range covers all" do
       storage = TS.create()
-      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}])
+
+      TS.tx(storage, [
+        {0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}
+      ])
 
       # Range that covers all elements
       assert {:ok, 5} == TS.zcount(storage, 0, "myzset", 0.0, 10.0)
@@ -321,7 +324,10 @@ defmodule Vdr.TSTest do
 
     test "min boundary is inclusive" do
       storage = TS.create()
-      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}])
+
+      TS.tx(storage, [
+        {0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}
+      ])
 
       # Min boundary exactly at element - should include it
       assert {:ok, 4} == TS.zcount(storage, 0, "myzset", 2.0, 10.0)
@@ -331,7 +337,10 @@ defmodule Vdr.TSTest do
 
     test "max boundary is inclusive" do
       storage = TS.create()
-      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}])
+
+      TS.tx(storage, [
+        {0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}
+      ])
 
       # Max boundary exactly at element - should include it
       assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 0.0, 3.0)
@@ -341,7 +350,10 @@ defmodule Vdr.TSTest do
 
     test "both boundaries are inclusive" do
       storage = TS.create()
-      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}])
+
+      TS.tx(storage, [
+        {0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}
+      ])
 
       # Both boundaries exactly at elements - should include both
       assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 2.0, 4.0)
@@ -366,7 +378,10 @@ defmodule Vdr.TSTest do
 
     test "multiple elements with same score" do
       storage = TS.create()
-      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b1"}, {2.0, "b2"}, {2.0, "b3"}, {3.0, "c"}]}}])
+
+      TS.tx(storage, [
+        {0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b1"}, {2.0, "b2"}, {2.0, "b3"}, {3.0, "c"}]}}
+      ])
 
       # Range that includes all elements with score 2.0
       assert {:ok, 3} == TS.zcount(storage, 0, "myzset", 2.0, 2.0)
@@ -379,7 +394,10 @@ defmodule Vdr.TSTest do
 
     test "negative and positive scores" do
       storage = TS.create()
-      TS.tx(storage, [{0, {:zadd, "myzset", [{-5.0, "a"}, {-2.0, "b"}, {0.0, "c"}, {2.0, "d"}, {5.0, "e"}]}}])
+
+      TS.tx(storage, [
+        {0, {:zadd, "myzset", [{-5.0, "a"}, {-2.0, "b"}, {0.0, "c"}, {2.0, "d"}, {5.0, "e"}]}}
+      ])
 
       # Range spanning negative to positive
       assert {:ok, 3} == TS.zcount(storage, 0, "myzset", -3.0, 3.0)
@@ -397,7 +415,10 @@ defmodule Vdr.TSTest do
 
     test "fractional boundaries" do
       storage = TS.create()
-      TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}])
+
+      TS.tx(storage, [
+        {0, {:zadd, "myzset", [{1.0, "a"}, {2.0, "b"}, {3.0, "c"}, {4.0, "d"}, {5.0, "e"}]}}
+      ])
 
       # Boundaries between integer scores
       assert {:ok, 2} == TS.zcount(storage, 0, "myzset", 1.5, 3.5)
@@ -522,6 +543,7 @@ defmodule Vdr.TSTest do
       local score, member = ts.zfirst('myzset')
       return member .. ':' .. score
       """
+
       assert {:ok, "a:1"} == TS.read_tx(storage, 0, script)
     end
 
@@ -536,6 +558,7 @@ defmodule Vdr.TSTest do
         return 'not nil'
       end
       """
+
       assert {:ok, "nil"} == TS.read_tx(storage, 0, script)
     end
   end
@@ -585,6 +608,7 @@ defmodule Vdr.TSTest do
       local score, member = ts.zlast('myzset')
       return member .. ':' .. score
       """
+
       assert {:ok, "c:3"} == TS.read_tx(storage, 0, script)
     end
   end
@@ -646,6 +670,7 @@ defmodule Vdr.TSTest do
       local score, member = ts.znext('myzset', 1.0, 'a')
       return member .. ':' .. score
       """
+
       assert {:ok, "b:2"} == TS.read_tx(storage, 0, script)
     end
 
@@ -661,6 +686,7 @@ defmodule Vdr.TSTest do
         return 'not nil'
       end
       """
+
       assert {:ok, "nil"} == TS.read_tx(storage, 0, script)
     end
   end
@@ -722,6 +748,7 @@ defmodule Vdr.TSTest do
       local score, member = ts.zprev('myzset', 3.0, 'c')
       return member .. ':' .. score
       """
+
       assert {:ok, "b:2"} == TS.read_tx(storage, 0, script)
     end
 
@@ -737,6 +764,7 @@ defmodule Vdr.TSTest do
         return 'not nil'
       end
       """
+
       assert {:ok, "nil"} == TS.read_tx(storage, 0, script)
     end
   end
@@ -795,6 +823,7 @@ defmodule Vdr.TSTest do
       end
       return table.concat(result, ',')
       """
+
       assert {:ok, "a,b,c"} == TS.read_tx(storage, 0, script)
     end
 
@@ -811,6 +840,7 @@ defmodule Vdr.TSTest do
       end
       return table.concat(result, ',')
       """
+
       assert {:ok, "c,b,a"} == TS.read_tx(storage, 0, script)
     end
   end
@@ -911,6 +941,7 @@ defmodule Vdr.TSTest do
             local v = ts.get('counter')
             return v .. '-' .. '#{i}'
             """
+
             TS.read_tx(storage, 0, script)
           end)
         end
@@ -918,9 +949,9 @@ defmodule Vdr.TSTest do
       results = Task.await_many(tasks)
       # All should succeed
       assert Enum.all?(results, fn
-        {:ok, _} -> true
-        _ -> false
-      end)
+               {:ok, _} -> true
+               _ -> false
+             end)
     end
 
     test "handles empty script result" do
@@ -933,7 +964,8 @@ defmodule Vdr.TSTest do
     test "returns error for Lua syntax error" do
       storage = TS.create()
 
-      script = "return ts.get('key'"  # Missing closing paren
+      # Missing closing paren
+      script = "return ts.get('key'"
       assert {:error, _} = TS.read_tx(storage, 0, script)
     end
 
@@ -1019,7 +1051,8 @@ defmodule Vdr.TSTest do
 
     test "returns error for invalid script" do
       storage = TS.create()
-      script = "return ts.get('key'"  # Missing closing paren
+      # Missing closing paren
+      script = "return ts.get('key'"
 
       assert {:error, _} = TS.lua_load(storage, script)
     end

@@ -882,7 +882,18 @@ defmodule VeidrodelisTSTest do
 
     test "processes zrange", %{redis: redis} do
       # Create a zset
-      Redix.command!(redis, ["ZADD", "myzset", "1.0", "one", "2.0", "two", "3.0", "three", "4.0", "four"])
+      Redix.command!(redis, [
+        "ZADD",
+        "myzset",
+        "1.0",
+        "one",
+        "2.0",
+        "two",
+        "3.0",
+        "three",
+        "4.0",
+        "four"
+      ])
 
       # Start Veidrodelis instance
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())

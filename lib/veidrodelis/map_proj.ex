@@ -470,8 +470,20 @@ defmodule Vdr.MapProj do
     Hashes.hdel(store, db, key, fields)
   end
 
-  defp do_handle_command(store, db, %RedisCommand.ZAdd{key: key, members: members}) do
-    ZSets.zadd(store, db, key, members)
+  defp do_handle_command(store, db, %RedisCommand.ZAdd{
+         key: key,
+         members: members,
+         options: options
+       }) do
+    ZSets.zadd(store, db, key, members, options)
+  end
+
+  defp do_handle_command(store, db, %RedisCommand.ZIncrBy{
+         key: key,
+         increment: increment,
+         member: member
+       }) do
+    ZSets.zincrby(store, db, key, increment, member)
   end
 
   defp do_handle_command(store, db, %RedisCommand.ZRem{key: key, members: members}) do
@@ -496,10 +508,14 @@ defmodule Vdr.MapProj do
     ZSets.zremrangebyrank(store, db, key, start_idx, stop_idx)
   end
 
-  defp do_handle_command(store, db, %RedisCommand.ZRemRangeByScore{key: key, min: min, max: max}) do
-    min_score = parse_score(min)
-    max_score = parse_score(max)
-    ZSets.zremrangebyscore(store, db, key, min_score, max_score)
+  defp do_handle_command(store, db, %RedisCommand.ZRemRangeByScore{
+         key: key,
+         min: min_str,
+         max: max_str
+       }) do
+    min_bound = parse_score_bound(min_str)
+    max_bound = parse_score_bound(max_str)
+    ZSets.zremrangebyscore(store, db, key, min_bound, max_bound)
   end
 
   defp do_handle_command(store, db, %RedisCommand.ZRemRangeByLex{key: key, min: min, max: max}) do
@@ -559,6 +575,28 @@ defmodule Vdr.MapProj do
     case Float.parse(bin) do
       {score, _} -> score
       :error -> 0.0
+    end
+  end
+
+  # Parse score bound from string to bound tuple
+  # Returns: :unbounded | {:included, score} | {:excluded, score}
+  defp parse_score_bound(str) do
+    cond do
+      # Check for exclusive prefix "("
+      String.starts_with?(str, "(") ->
+        score_str = String.slice(str, 1..-1//1)
+        score = parse_score(score_str)
+        {:excluded, score}
+
+      # Otherwise inclusive
+      true ->
+        score = parse_score(str)
+
+        if score == :neg_inf or score == :pos_inf do
+          :unbounded
+        else
+          {:included, score}
+        end
     end
   end
 

@@ -99,6 +99,7 @@ defmodule Vdr.TS do
   @spec get(reference(), non_neg_integer(), binary()) :: binary() | nil
   def get(storage, db, key) do
     [result] = tx(storage, [{db, {:get, key}}])
+
     case result do
       {:ok, value} -> value
       {:error, _} -> nil
@@ -179,13 +180,14 @@ defmodule Vdr.TS do
   - `{db, {:hdel, key, fields}}` - Delete hash fields
 
   **Sorted set operations:**
-  - `{db, {:zadd, key, members}}` - Add members to sorted set (members is `[{score, member}, ...]`)
+  - `{db, {:zadd, key, members, options}}` - Add members to sorted set (members is `[{score, member}, ...]`, options is `[:nx, :xx, :gt, :lt, :ch, :incr]`)
   - `{db, {:zrem, key, members}}` - Remove members from sorted set
   - `{db, {:zincrby, key, delta, member}}` - Increment member's score
   - `{db, {:zpopmax, key}}` - Remove and return member with highest score
   - `{db, {:zpopmin, key}}` - Remove and return member with lowest score
   - `{db, {:zremrangebyrank, key, start, stop}}` - Remove members by rank range
-  - `{db, {:zremrangebyscore, key, min, max, min_exclusive, max_exclusive}}` - Remove members by score range (exclusivity flags)
+  - `{db, {:zremrangebyscore, key, min_bound, max_bound}}` - Remove members by score range (bounds: `:unbounded` | `{:included, score}` | `{:excluded, score}`)
+  - `{db, {:zremrangebylex, key, min_bound, max_bound}}` - Remove members by lexicographic range (bounds: `:unbounded` | `{:included, value}` | `{:excluded, value}`)
   - `{db, {:zunionstore, dest_key, source_keys, weights, aggregate}}` - Store union (aggregate is `:sum`, `:min`, or `:max`)
   - `{db, {:zinterstore, dest_key, source_keys, weights, aggregate}}` - Store intersection (aggregate is `:sum`, `:min`, or `:max`)
 
@@ -526,15 +528,20 @@ defmodule Vdr.TS do
           {:ok, [binary() | float()]} | {:error, :wrong_type}
   def zrange(storage, db, key, start, stop, with_scores) do
     [result] = tx(storage, [{db, {:zrange, key, start, stop, with_scores}}])
+
     case result do
       {:ok, tuples} when with_scores ->
         # Convert list of tuples to flat list: [{m1, s1}, {m2, s2}] -> [m1, s1, m2, s2]
-        flat_list = Enum.flat_map(tuples, fn
-          {member, score} -> [member, score]
-          member -> [member]
-        end)
+        flat_list =
+          Enum.flat_map(tuples, fn
+            {member, score} -> [member, score]
+            member -> [member]
+          end)
+
         {:ok, flat_list}
-      other -> other
+
+      other ->
+        other
     end
   end
 
@@ -558,15 +565,20 @@ defmodule Vdr.TS do
           {:ok, [binary() | float()]} | {:error, :wrong_type}
   def zrangebyscore(storage, db, key, min, max, with_scores) do
     [result] = tx(storage, [{db, {:zrangebyscore, key, min, max, with_scores}}])
+
     case result do
       {:ok, tuples} when with_scores ->
         # Convert list of tuples to flat list: [{m1, s1}, {m2, s2}] -> [m1, s1, m2, s2]
-        flat_list = Enum.flat_map(tuples, fn
-          {member, score} -> [member, score]
-          member -> [member]
-        end)
+        flat_list =
+          Enum.flat_map(tuples, fn
+            {member, score} -> [member, score]
+            member -> [member]
+          end)
+
         {:ok, flat_list}
-      other -> other
+
+      other ->
+        other
     end
   end
 
@@ -859,17 +871,37 @@ defmodule Vdr.TS do
 
   # Whitelist of read-only commands
   @readonly_commands MapSet.new([
-    :get, :smembers, :sismember, :scard,
-    :llen, :lrange,
-    :hget, :hmget, :hgetall, :hkeys, :hvals, :hlen, :hexists,
-    :zscore, :zcard, :zrank, :zrevrank, :zcount, :zrange, :zrangebyscore,
-    :zfirst, :zlast, :znext, :zprev
-  ])
+                       :get,
+                       :smembers,
+                       :sismember,
+                       :scard,
+                       :llen,
+                       :lrange,
+                       :hget,
+                       :hmget,
+                       :hgetall,
+                       :hkeys,
+                       :hvals,
+                       :hlen,
+                       :hexists,
+                       :zscore,
+                       :zcard,
+                       :zrank,
+                       :zrevrank,
+                       :zcount,
+                       :zrange,
+                       :zrangebyscore,
+                       :zfirst,
+                       :zlast,
+                       :znext,
+                       :zprev
+                     ])
 
   defp validate_readonly_commands(commands) do
     Enum.reduce_while(commands, :ok, fn cmd, :ok ->
       if is_tuple(cmd) and tuple_size(cmd) > 0 do
         command_name = elem(cmd, 0)
+
         if is_atom(command_name) and MapSet.member?(@readonly_commands, command_name) do
           {:cont, :ok}
         else

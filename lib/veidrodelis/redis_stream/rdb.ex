@@ -128,6 +128,11 @@ defmodule Vdr.RedisStream.RDB do
     parse_hset_args(rest, [{field, value} | acc])
   end
 
+  defp parse_float("inf"), do: :pos_inf
+  defp parse_float("+inf"), do: :pos_inf
+  defp parse_float("-inf"), do: :neg_inf
+  defp parse_float("nan"), do: :nan
+
   defp parse_float(bin) when is_binary(bin) do
     case Float.parse(bin) do
       {float, _} ->

@@ -29,6 +29,7 @@ defmodule Veidrodelis.MixProject do
     [
       {:rustler, "~> 0.36", runtime: false},
       {:redix, "~> 1.5", only: [:dev, :test]},
+      {:castore, only: [:dev, :test]},
       {:req, "~> 0.5", only: :test}
     ]
   end

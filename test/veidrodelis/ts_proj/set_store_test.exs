@@ -151,7 +151,8 @@ defmodule Vdr.TSProj.SetStoreTest do
       Vdr.TS.tx(storage, [{0, {:set, "mystring", "value"}}])
       Vdr.TS.tx(storage, [{0, {:sadd, "myset", ["a"]}}])
 
-      [{:error, :wrong_type}] = Vdr.TS.tx(storage, [{0, {:sunionstore, "result", ["myset", "mystring"]}}])
+      [{:error, :wrong_type}] =
+        Vdr.TS.tx(storage, [{0, {:sunionstore, "result", ["myset", "mystring"]}}])
     end
   end
 
@@ -180,7 +181,8 @@ defmodule Vdr.TSProj.SetStoreTest do
       Vdr.TS.tx(storage, [{0, {:set, "mystring", "value"}}])
       Vdr.TS.tx(storage, [{0, {:sadd, "myset", ["a"]}}])
 
-      [{:error, :wrong_type}] = Vdr.TS.tx(storage, [{0, {:sinterstore, "result", ["myset", "mystring"]}}])
+      [{:error, :wrong_type}] =
+        Vdr.TS.tx(storage, [{0, {:sinterstore, "result", ["myset", "mystring"]}}])
     end
   end
 
@@ -209,7 +211,8 @@ defmodule Vdr.TSProj.SetStoreTest do
       Vdr.TS.tx(storage, [{0, {:set, "mystring", "value"}}])
       Vdr.TS.tx(storage, [{0, {:sadd, "myset", ["a"]}}])
 
-      [{:error, :wrong_type}] = Vdr.TS.tx(storage, [{0, {:sdiffstore, "result", ["myset", "mystring"]}}])
+      [{:error, :wrong_type}] =
+        Vdr.TS.tx(storage, [{0, {:sdiffstore, "result", ["myset", "mystring"]}}])
     end
   end
 

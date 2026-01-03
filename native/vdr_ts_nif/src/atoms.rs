@@ -38,6 +38,7 @@ rustler::atoms! {
     zpopmin,
     zremrangebyrank,
     zremrangebyscore,
+    zremrangebylex,
     zunionstore,
     zinterstore,
     // Read command atoms
@@ -73,4 +74,19 @@ rustler::atoms! {
     sum,
     min,
     max,
+    // Bound atoms for range operations
+    unbounded,
+    included,
+    excluded,
+    // ZADD option atoms
+    nx,
+    xx,
+    gt,
+    lt,
+    ch,
+    incr,
+    // Special score value atoms
+    pos_inf,
+    neg_inf,
+    nan,
 }
