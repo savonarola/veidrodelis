@@ -2227,14 +2227,8 @@ impl StorageInner {
 
         let members_to_remove: Vec<(Bytes, Score)> = zset
             .index
-            .range(min_key..=max_key)
+            .range(min_key..max_key)
             .filter_map(|index_key| index_key.get_entry_and_score().map(|(m, s)| (m.clone(), s)))
-            .filter(|(_member, score)| {
-                // Additional boundary checks to handle fictional MaxScoreKey
-                let in_min_range = if min_exclusive { *score > min } else { *score >= min };
-                let in_max_range = if max_exclusive { *score < max } else { *score <= max };
-                in_min_range && in_max_range
-            })
             .collect();
 
         // Remove them
