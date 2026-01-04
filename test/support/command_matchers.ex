@@ -23,16 +23,7 @@ defmodule CommandMatchers do
     end
   end
 
-  defmacro assert_happens_within(timeout, do: block) do
-    quote do
-      deadline = System.monotonic_time(:millisecond) + unquote(timeout)
-      check_fn = fn -> unquote(block) end
-
-      CommandMatchers.poll_until(check_fn, deadline)
-    end
-  end
-
-  defmacro wait_happens_within(timeout, do: block) do
+  defmacro assert_within(timeout, do: block) do
     quote do
       deadline = System.monotonic_time(:millisecond) + unquote(timeout)
       check_fn = fn -> unquote(block) end

@@ -28,7 +28,7 @@ defmodule Veidrodelis.TransactionTest do
       opts = [id: @id, host: @redis_host, port: @redis_port]
       {:ok, vdr} = Veidrodelis.start_link(opts)
 
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
@@ -39,7 +39,7 @@ defmodule Veidrodelis.TransactionTest do
       Redix.command!(redis, ["DEL", "__vdr_tx"])
 
       # Verify
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get(@id, 0, "key1") == "value1" &&
           Veidrodelis.get(@id, 0, "key2") == "value2"
       end
@@ -54,7 +54,7 @@ defmodule Veidrodelis.TransactionTest do
       opts = [id: @id, host: @redis_host, port: @redis_port]
       {:ok, vdr} = Veidrodelis.start_link(opts)
 
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
@@ -68,7 +68,7 @@ defmodule Veidrodelis.TransactionTest do
       Redix.command!(redis, ["DEL", "__vdr_tx"])
 
       # Verify all data types
-      assert_happens_within 3000 do
+      assert_within 3000 do
         Veidrodelis.get(@id, 0, "str_key") == "str_value" &&
           Veidrodelis.llen(@id, 0, "list_key") == 2 &&
           Veidrodelis.scard(@id, 0, "set_key") == 2 &&
@@ -88,7 +88,7 @@ defmodule Veidrodelis.TransactionTest do
       opts = [id: @id, host: @redis_host, port: @redis_port]
       {:ok, vdr} = Veidrodelis.start_link(opts)
 
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
@@ -105,7 +105,7 @@ defmodule Veidrodelis.TransactionTest do
       Redix.command!(redis, ["DEL", "__vdr_tx", "pre_key2"])
 
       # Verify
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get(@id, 0, "tx_key") == "tx_value" &&
           Veidrodelis.get(@id, 0, "pre_key1") == nil &&
           Veidrodelis.get(@id, 0, "pre_key2") == nil
@@ -119,7 +119,7 @@ defmodule Veidrodelis.TransactionTest do
       opts = [id: @id, host: @redis_host, port: @redis_port]
       {:ok, vdr} = Veidrodelis.start_link(opts)
 
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
@@ -140,7 +140,7 @@ defmodule Veidrodelis.TransactionTest do
       opts = [id: @id, host: @redis_host, port: @redis_port]
       {:ok, vdr} = Veidrodelis.start_link(opts)
 
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
@@ -149,7 +149,7 @@ defmodule Veidrodelis.TransactionTest do
       Redix.command!(redis, ["SET", "tx1_key", "tx1_value"])
       Redix.command!(redis, ["DEL", "__vdr_tx"])
 
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get(@id, 0, "tx1_key") == "tx1_value"
       end
 
@@ -158,7 +158,7 @@ defmodule Veidrodelis.TransactionTest do
       Redix.command!(redis, ["SET", "tx2_key", "tx2_value"])
       Redix.command!(redis, ["DEL", "__vdr_tx"])
 
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get(@id, 0, "tx2_key") == "tx2_value"
       end
 
@@ -175,7 +175,7 @@ defmodule Veidrodelis.TransactionTest do
       opts = [id: @id, host: @redis_host, port: @redis_port, impl: {Vdr.TSProj, []}]
       {:ok, vdr} = Veidrodelis.start_link(opts)
 
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
@@ -186,7 +186,7 @@ defmodule Veidrodelis.TransactionTest do
       Redix.command!(redis, ["DEL", "__vdr_tx"])
 
       # Verify
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get(@id, 0, "ts_key1") == "ts_value1" &&
           Veidrodelis.get(@id, 0, "ts_key2") == "ts_value2"
       end
@@ -201,7 +201,7 @@ defmodule Veidrodelis.TransactionTest do
       opts = [id: @id, host: @redis_host, port: @redis_port, impl: {Vdr.TSProj, []}]
       {:ok, vdr} = Veidrodelis.start_link(opts)
 
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
@@ -215,7 +215,7 @@ defmodule Veidrodelis.TransactionTest do
       Redix.command!(redis, ["DEL", "__vdr_tx"])
 
       # Verify
-      assert_happens_within 3000 do
+      assert_within 3000 do
         Veidrodelis.get(@id, 0, "ts_str") == "ts_value" &&
           Veidrodelis.llen(@id, 0, "ts_list") == 2 &&
           Veidrodelis.scard(@id, 0, "ts_set") == 2 &&

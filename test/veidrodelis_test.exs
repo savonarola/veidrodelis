@@ -45,12 +45,12 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
       # Verify data in store
-      wait_happens_within 100 do
+      assert_within 100 do
         Veidrodelis.get(@id, 0, "key1") == "value1" &&
           Veidrodelis.get(@id, 0, "key2") == "value2" &&
           Redix.command!(redis, ["GET", "key1"]) == "value1" &&
@@ -70,12 +70,12 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts(id: instance_id))
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
       # Verify data in store
-      wait_happens_within 100 do
+      assert_within 100 do
         members = Veidrodelis.smembers(@id, 0, "myset")
         redis_members = Redix.command!(redis, ["SMEMBERS", "myset"])
 
@@ -100,12 +100,12 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
       # Verify data in store
-      wait_happens_within 100 do
+      assert_within 100 do
         elements = Veidrodelis.lrange(@id, 0, "mylist", 0, -1)
         redis_elements = Redix.command!(redis, ["LRANGE", "mylist", "0", "-1"])
 
@@ -125,12 +125,12 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
       # Verify data in store
-      wait_happens_within 100 do
+      assert_within 100 do
         value1 = Veidrodelis.hget(@id, 0, "myhash", "field1")
         value2 = Veidrodelis.hget(@id, 0, "myhash", "field2")
 
@@ -160,12 +160,12 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
       # Verify data in store (zrange returns tuples with scores)
-      assert_happens_within 1000 do
+      assert_within 1000 do
         members_with_scores = Veidrodelis.zrange(@id, 0, "myzset", 0, -1)
 
         members_with_scores == [
@@ -187,7 +187,7 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication to start
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -196,7 +196,7 @@ defmodule VeidrodelisTest do
       Redix.command!(redis, ["SADD", "stream_set", "s1", "s2"])
 
       # Wait for commands to replicate
-      assert_happens_within 1000 do
+      assert_within 1000 do
         Veidrodelis.get(@id, 0, "stream_key") != nil &&
           Veidrodelis.scard(@id, 0, "stream_set") == 2
       end
@@ -216,7 +216,7 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -224,7 +224,7 @@ defmodule VeidrodelisTest do
       Redix.command!(redis, ["SET", "typekey", "string_value"])
 
       # Wait for it to replicate
-      wait_happens_within 500 do
+      assert_within 500 do
         Veidrodelis.get(@id, 0, "typekey") == "string_value"
       end
 
@@ -233,7 +233,7 @@ defmodule VeidrodelisTest do
       Redix.command!(redis, ["RPUSH", "typekey", "list_item1", "list_item2"])
 
       # Wait for it to replicate
-      wait_happens_within 500 do
+      assert_within 500 do
         Veidrodelis.get(@id, 0, "typekey") == nil &&
           Veidrodelis.lrange(@id, 0, "typekey", 0, -1) == [
             "list_item1",
@@ -246,7 +246,7 @@ defmodule VeidrodelisTest do
       Redix.command!(redis, ["SADD", "typekey", "set_member1", "set_member2"])
 
       # Wait for it to replicate
-      wait_happens_within 500 do
+      assert_within 500 do
         Veidrodelis.llen(@id, 0, "typekey") == 0 &&
           Veidrodelis.scard(@id, 0, "typekey") == 2
       end
@@ -274,12 +274,12 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
       # Verify data in both databases
-      wait_happens_within 100 do
+      assert_within 100 do
         Veidrodelis.get(@id, 0, "db0_key") == "db0_value" &&
           Veidrodelis.get(@id, 1, "db1_key") == "db1_value"
       end
@@ -307,12 +307,12 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
       # Verify intersection result (only 'c' is in all three sets)
-      wait_happens_within 100 do
+      assert_within 100 do
         result_members = Veidrodelis.smembers(@id, 0, "result_inter")
         set1_members = Veidrodelis.smembers(@id, 0, "set1")
 
@@ -337,12 +337,12 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
       # Verify union result (should have all unique elements: 1,2,3,4,5)
-      wait_happens_within 100 do
+      assert_within 100 do
         result_members = Veidrodelis.smembers(@id, 0, "result_union")
 
         length(result_members) == 5 &&
@@ -369,12 +369,12 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
       # Verify difference result (should have: a, e)
-      wait_happens_within 100 do
+      assert_within 100 do
         result_members = Veidrodelis.smembers(@id, 0, "result_diff")
 
         length(result_members) == 2 &&
@@ -406,7 +406,7 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -415,7 +415,7 @@ defmodule VeidrodelisTest do
       # member2: 2*2 + 3*3 = 13
       # member3: 3*2 + 0*3 = 6
       # member4: 0*2 + 4*3 = 12
-      assert_happens_within 1000 do
+      assert_within 1000 do
         result = Veidrodelis.zrange(@id, 0, "result_weighted_union", 0, -1)
 
         result == [
@@ -449,14 +449,14 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
       # Verify intersection with MIN (only alice and bob exist in both)
       # alice: min(10, 15) = 10
       # bob: min(20, 25) = 20
-      wait_happens_within 100 do
+      assert_within 100 do
         result = Veidrodelis.zrange(@id, 0, "result_inter_min", 0, -1)
 
         result == [
@@ -488,14 +488,14 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
       # Verify intersection with MAX
       # task1: max(5, 7) = 7
       # task2: max(8, 3) = 8
-      wait_happens_within 100 do
+      assert_within 100 do
         result = Veidrodelis.zrange(@id, 0, "result_inter_max", 0, -1)
 
         result == [
@@ -533,7 +533,7 @@ defmodule VeidrodelisTest do
       {:ok, pid} = Veidrodelis.start_link(veidrodelis_opts())
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -541,7 +541,7 @@ defmodule VeidrodelisTest do
       # product1: 8.5*0.5 + 7.0*0.3 + 9.5*0.2 = 4.25 + 2.1 + 1.9 = 8.25
       # product2: 9.0*0.5 + 6.5*0.3 + 0*0.2 = 4.5 + 1.95 + 0 = 6.45
       # product3: 0*0.5 + 0*0.3 + 8.0*0.2 = 0 + 0 + 1.6 = 1.6
-      wait_happens_within 100 do
+      assert_within 100 do
         result = Veidrodelis.zrange(@id, 0, "combined_rating", 0, -1)
 
         result == [
@@ -573,7 +573,7 @@ defmodule VeidrodelisTest do
       # Test ts.get access to replicated data
       Redix.command!(redis, ["SET", "lua_key", "lua_value"])
 
-      wait_happens_within 500 do
+      assert_within 500 do
         Veidrodelis.get(id, 0, "lua_key") == "lua_value"
       end
 

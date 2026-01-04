@@ -381,7 +381,7 @@ defmodule Veidrodelis.IntegrationTest do
 
       {:ok, replica} = Replica.start_link(opts)
 
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -397,7 +397,7 @@ defmodule Veidrodelis.IntegrationTest do
 
       issue_diverse_commands(redis, 1)
 
-      assert_happens_within 3000 do
+      assert_within 3000 do
         callback_state = Replica.get_callback_state(replica)
         db1_commands = CollectorCallback.commands_for_db(callback_state, 1)
         length(db1_commands) > 50
@@ -437,7 +437,7 @@ defmodule Veidrodelis.IntegrationTest do
 
       {:ok, vdr} = Veidrodelis.start_link(opts)
 
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
@@ -543,7 +543,7 @@ defmodule Veidrodelis.IntegrationTest do
       issue_diverse_commands(redis, 1)
 
       # Wait for streaming replication
-      assert_happens_within 3000 do
+      assert_within 3000 do
         Veidrodelis.get(@id, 1, "simple_key") == "simple_value" &&
           Veidrodelis.llen(@id, 1, "mylist") == 4 &&
           Veidrodelis.scard(@id, 1, "myset") == 3 &&
@@ -600,7 +600,7 @@ defmodule Veidrodelis.IntegrationTest do
           impl: {Vdr.TSProj, []}
         )
 
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
@@ -610,7 +610,7 @@ defmodule Veidrodelis.IntegrationTest do
     test "MSET replicates correctly", %{redis: redis} do
       Redix.command!(redis, ["MSET", "k1", "v1", "k2", "v2"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected_k1 = "v1"
         expected_k2 = "v2"
         redis_k1 = Redix.command!(redis, ["GET", "k1"])
@@ -627,7 +627,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["SET", "append_test", "Hello"])
       Redix.command!(redis, ["APPEND", "append_test", " World"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected = "Hello World"
         redis_val = Redix.command!(redis, ["GET", "append_test"])
         ts_val = Veidrodelis.get(@id, 0, "append_test")
@@ -640,7 +640,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["SET", "old_key", "rename_test"])
       Redix.command!(redis, ["RENAME", "old_key", "new_key"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected = "rename_test"
         redis_new = Redix.command!(redis, ["GET", "new_key"])
         redis_old = Redix.command!(redis, ["GET", "old_key"])
@@ -656,7 +656,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["SET", "renamenx_src", "test"])
       Redix.command!(redis, ["RENAMENX", "renamenx_src", "renamenx_dst"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected = "test"
         redis_dst = Redix.command!(redis, ["GET", "renamenx_dst"])
         ts_dst = Veidrodelis.get(@id, 0, "renamenx_dst")
@@ -676,7 +676,7 @@ defmodule Veidrodelis.IntegrationTest do
           impl: {Vdr.TSProj, []}
         )
 
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
@@ -687,7 +687,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["LPUSH", "test_list", "a"])
       Redix.command!(redis, ["LPUSHX", "test_list", "b"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected = ["b", "a"]
         redis_list = Redix.command!(redis, ["LRANGE", "test_list", "0", "-1"])
         ts_list = Veidrodelis.lrange(@id, 0, "test_list", 0, -1)
@@ -700,7 +700,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["RPUSH", "test_list", "a"])
       Redix.command!(redis, ["RPUSHX", "test_list", "b"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected = ["a", "b"]
         redis_list = Redix.command!(redis, ["LRANGE", "test_list", "0", "-1"])
         ts_list = Veidrodelis.lrange(@id, 0, "test_list", 0, -1)
@@ -713,7 +713,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["RPUSH", "rem_list", "x", "y", "x", "z", "x"])
       Redix.command!(redis, ["LREM", "rem_list", "2", "x"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected = ["y", "z", "x"]
         redis_list = Redix.command!(redis, ["LRANGE", "rem_list", "0", "-1"])
         ts_list = Veidrodelis.lrange(@id, 0, "rem_list", 0, -1)
@@ -726,7 +726,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["RPUSH", "trim_list", "a", "b", "c", "d", "e"])
       Redix.command!(redis, ["LTRIM", "trim_list", "1", "3"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected = ["b", "c", "d"]
         redis_list = Redix.command!(redis, ["LRANGE", "trim_list", "0", "-1"])
         ts_list = Veidrodelis.lrange(@id, 0, "trim_list", 0, -1)
@@ -739,7 +739,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["RPUSH", "insert_list", "a", "c"])
       Redix.command!(redis, ["LINSERT", "insert_list", "BEFORE", "c", "b"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected = ["a", "b", "c"]
         redis_list = Redix.command!(redis, ["LRANGE", "insert_list", "0", "-1"])
         ts_list = Veidrodelis.lrange(@id, 0, "insert_list", 0, -1)
@@ -759,7 +759,7 @@ defmodule Veidrodelis.IntegrationTest do
           impl: {Vdr.TSProj, []}
         )
 
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Veidrodelis.get_replication_state(vdr) == :streaming
       end
 
@@ -770,7 +770,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "pop_test", "1", "a", "2", "b", "3", "c"])
       Redix.command!(redis, ["ZPOPMAX", "pop_test", "1"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected_card = 2
         redis_card = Redix.command!(redis, ["ZCARD", "pop_test"])
         ts_card = Veidrodelis.zcard(@id, 0, "pop_test")
@@ -783,7 +783,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "pop_test", "1", "a", "2", "b", "3", "c"])
       Redix.command!(redis, ["ZPOPMIN", "pop_test", "1"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected_card = 2
         redis_card = Redix.command!(redis, ["ZCARD", "pop_test"])
         ts_card = Veidrodelis.zcard(@id, 0, "pop_test")
@@ -796,7 +796,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "rank_test", "1", "a", "2", "b", "3", "c", "4", "d"])
       Redix.command!(redis, ["ZREMRANGEBYRANK", "rank_test", "1", "2"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected = ["a", "d"]
         redis_members = Redix.command!(redis, ["ZRANGE", "rank_test", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "rank_test", 0, -1, false)
@@ -809,7 +809,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "score_test", "1", "a", "2", "b", "3", "c", "4", "d"])
       Redix.command!(redis, ["ZREMRANGEBYSCORE", "score_test", "2", "3"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected = ["a", "d"]
         redis_members = Redix.command!(redis, ["ZRANGE", "score_test", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "score_test", 0, -1, false)
@@ -823,7 +823,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "zset_b", "2", "b", "3", "c"])
       Redix.command!(redis, ["ZUNIONSTORE", "zset_union", "2", "zset_a", "zset_b"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected_card = 3
         # 2.0 + 2.0
         expected_score_b = 4.0
@@ -848,7 +848,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "zset_b", "2", "b", "3", "c"])
       Redix.command!(redis, ["ZINTERSTORE", "zset_inter", "2", "zset_a", "zset_b"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected_card = 1
         expected_members = ["b"]
         redis_card = Redix.command!(redis, ["ZCARD", "zset_inter"])
@@ -867,7 +867,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "nx_test", "1", "existing"])
       Redix.command!(redis, ["ZADD", "nx_test", "NX", "2", "existing", "3", "new"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         assert {1.0, ""} == Float.parse(Redix.command!(redis, ["ZSCORE", "nx_test", "existing"]))
         assert 1.0 == Veidrodelis.zscore(@id, 0, "nx_test", "existing")
         assert {3.0, ""} == Float.parse(Redix.command!(redis, ["ZSCORE", "nx_test", "new"]))
@@ -879,7 +879,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "xx_test", "1", "existing"])
       Redix.command!(redis, ["ZADD", "xx_test", "XX", "5", "existing", "3", "new"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # "existing" should be updated to 5
         # "new" should NOT be added
         redis_score_existing = Redix.command!(redis, ["ZSCORE", "xx_test", "existing"])
@@ -896,7 +896,7 @@ defmodule Veidrodelis.IntegrationTest do
       # Should not update (3 < 5)
       Redix.command!(redis, ["ZADD", "gt_test", "GT", "3", "member"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         redis_score = Redix.command!(redis, ["ZSCORE", "gt_test", "member"])
         ts_score = Veidrodelis.zscore(@id, 0, "gt_test", "member")
 
@@ -909,7 +909,7 @@ defmodule Veidrodelis.IntegrationTest do
       # Should update (3 < 5)
       Redix.command!(redis, ["ZADD", "lt_test", "LT", "3", "member"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         redis_score = Redix.command!(redis, ["ZSCORE", "lt_test", "member"])
         ts_score = Veidrodelis.zscore(@id, 0, "lt_test", "member")
 
@@ -922,7 +922,7 @@ defmodule Veidrodelis.IntegrationTest do
       # Should be 5 + 3 = 8
       Redix.command!(redis, ["ZADD", "incr_test", "INCR", "3", "member"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         redis_score = Redix.command!(redis, ["ZSCORE", "incr_test", "member"])
         ts_score = Veidrodelis.zscore(@id, 0, "incr_test", "member")
 
@@ -935,7 +935,7 @@ defmodule Veidrodelis.IntegrationTest do
       # Should be 10.0 + 5.5 = 15.5
       Redix.command!(redis, ["ZINCRBY", "zincrby_existing", "5.5", "counter"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         redis_score = Redix.command!(redis, ["ZSCORE", "zincrby_existing", "counter"])
         ts_score = Veidrodelis.zscore(@id, 0, "zincrby_existing", "counter")
 
@@ -948,7 +948,7 @@ defmodule Veidrodelis.IntegrationTest do
       # Should create "new_member" with score 7.5 (0 + 7.5)
       Redix.command!(redis, ["ZINCRBY", "zincrby_new_member", "7.5", "new_member"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         redis_count = Redix.command!(redis, ["ZCARD", "zincrby_new_member"])
         ts_count = Veidrodelis.zcard(@id, 0, "zincrby_new_member")
         redis_score = Redix.command!(redis, ["ZSCORE", "zincrby_new_member", "new_member"])
@@ -963,7 +963,7 @@ defmodule Veidrodelis.IntegrationTest do
       # Should create key and member with score 42.0 (0 + 42.0)
       Redix.command!(redis, ["ZINCRBY", "zincrby_new_key", "42.0", "member1"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         redis_count = Redix.command!(redis, ["ZCARD", "zincrby_new_key"])
         ts_count = Veidrodelis.zcard(@id, 0, "zincrby_new_key")
         redis_score = Redix.command!(redis, ["ZSCORE", "zincrby_new_key", "member1"])
@@ -979,7 +979,7 @@ defmodule Veidrodelis.IntegrationTest do
       # Should be 100.0 + (-25.5) = 74.5
       Redix.command!(redis, ["ZINCRBY", "zincrby_decr", "-25.5", "score"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         redis_score = Redix.command!(redis, ["ZSCORE", "zincrby_decr", "score"])
         ts_score = Veidrodelis.zscore(@id, 0, "zincrby_decr", "score")
 
@@ -991,7 +991,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "excl_min", "1", "a", "2", "b", "3", "c", "4", "d"])
       Redix.command!(redis, ["ZREMRANGEBYSCORE", "excl_min", "(2", "3"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # Only "c" removed (score 3), "b" (score 2) kept
         expected = ["a", "b", "d"]
         redis_members = Redix.command!(redis, ["ZRANGE", "excl_min", "0", "-1"])
@@ -1005,7 +1005,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "excl_max", "1", "a", "2", "b", "3", "c", "4", "d"])
       Redix.command!(redis, ["ZREMRANGEBYSCORE", "excl_max", "2", "(3"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # Only "b" removed (score 2), "c" (score 3) kept
         expected = ["a", "c", "d"]
         redis_members = Redix.command!(redis, ["ZRANGE", "excl_max", "0", "-1"])
@@ -1019,7 +1019,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "excl_both", "1", "a", "2", "b", "3", "c", "4", "d"])
       Redix.command!(redis, ["ZREMRANGEBYSCORE", "excl_both", "(2", "(4"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # Only "c" removed, "b" and "d" kept
         expected = ["a", "b", "d"]
         redis_members = Redix.command!(redis, ["ZRANGE", "excl_both", "0", "-1"])
@@ -1033,7 +1033,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "inf_min", "1", "a", "2", "b", "3", "c", "4", "d"])
       Redix.command!(redis, ["ZREMRANGEBYSCORE", "inf_min", "-inf", "2"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # "a" and "b" removed
         expected = ["c", "d"]
         redis_members = Redix.command!(redis, ["ZRANGE", "inf_min", "0", "-1"])
@@ -1047,7 +1047,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "inf_max", "1", "a", "2", "b", "3", "c", "4", "d"])
       Redix.command!(redis, ["ZREMRANGEBYSCORE", "inf_max", "3", "+inf"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # "c" and "d" removed
         expected = ["a", "b"]
         redis_members = Redix.command!(redis, ["ZRANGE", "inf_max", "0", "-1"])
@@ -1061,7 +1061,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "inf_all", "1", "a", "2", "b", "3", "c"])
       Redix.command!(redis, ["ZREMRANGEBYSCORE", "inf_all", "-inf", "+inf"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         redis_card = Redix.command!(redis, ["ZCARD", "inf_all"])
         ts_card = Veidrodelis.zcard(@id, 0, "inf_all")
 
@@ -1074,7 +1074,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "lex_incl", "0", "a", "0", "b", "0", "c", "0", "d"])
       Redix.command!(redis, ["ZREMRANGEBYLEX", "lex_incl", "[b", "[c"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # "b" and "c" removed
         expected = ["a", "d"]
         redis_members = Redix.command!(redis, ["ZRANGE", "lex_incl", "0", "-1"])
@@ -1088,7 +1088,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "lex_excl", "0", "a", "0", "b", "0", "c", "0", "d"])
       Redix.command!(redis, ["ZREMRANGEBYLEX", "lex_excl", "(a", "(d"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # "b" and "c" removed, "a" and "d" kept
         expected = ["a", "d"]
         redis_members = Redix.command!(redis, ["ZRANGE", "lex_excl", "0", "-1"])
@@ -1102,7 +1102,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "lex_min", "0", "a", "0", "b", "0", "c", "0", "d"])
       Redix.command!(redis, ["ZREMRANGEBYLEX", "lex_min", "-", "[b"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # "a" and "b" removed
         expected = ["c", "d"]
         redis_members = Redix.command!(redis, ["ZRANGE", "lex_min", "0", "-1"])
@@ -1116,7 +1116,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "lex_max", "0", "a", "0", "b", "0", "c", "0", "d"])
       Redix.command!(redis, ["ZREMRANGEBYLEX", "lex_max", "[c", "+"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # "c" and "d" removed
         expected = ["a", "b"]
         redis_members = Redix.command!(redis, ["ZRANGE", "lex_max", "0", "-1"])
@@ -1130,7 +1130,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "lex_all", "0", "a", "0", "b", "0", "c"])
       Redix.command!(redis, ["ZREMRANGEBYLEX", "lex_all", "-", "+"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         redis_card = Redix.command!(redis, ["ZCARD", "lex_all"])
         ts_card = Veidrodelis.zcard(@id, 0, "lex_all")
 
@@ -1142,7 +1142,7 @@ defmodule Veidrodelis.IntegrationTest do
       # Redis supports +inf and -inf as scores
       Redix.command!(redis, ["ZADD", "inf_scores", "-inf", "min", "0", "mid", "+inf", "max"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         expected = ["min", "mid", "max"]
         redis_members = Redix.command!(redis, ["ZRANGE", "inf_scores", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "inf_scores", 0, -1, false)
@@ -1168,7 +1168,7 @@ defmodule Veidrodelis.IntegrationTest do
       # Remove from score 1 to +inf (inclusive)
       Redix.command!(redis, ["ZREMRANGEBYSCORE", "inf_members", "1", "+inf"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # Only -inf member remains
         expected = ["minval"]
         redis_members = Redix.command!(redis, ["ZRANGE", "inf_members", "0", "-1"])
@@ -1193,7 +1193,7 @@ defmodule Veidrodelis.IntegrationTest do
         "3"
       ])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # a: 1*2 = 2, b: 2*2 + 1*3 = 7, c: 3*3 = 9
         redis_score_b = Redix.command!(redis, ["ZSCORE", "union_weighted", "b"])
         ts_score_b = Veidrodelis.zscore(@id, 0, "union_weighted", "b")
@@ -1216,7 +1216,7 @@ defmodule Veidrodelis.IntegrationTest do
         "MIN"
       ])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # b should have min(5, 3) = 3
         redis_score_b = Redix.command!(redis, ["ZSCORE", "union_min_result", "b"])
         ts_score_b = Veidrodelis.zscore(@id, 0, "union_min_result", "b")
@@ -1239,7 +1239,7 @@ defmodule Veidrodelis.IntegrationTest do
         "MAX"
       ])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # b should have max(5, 3) = 5
         redis_score_b = Redix.command!(redis, ["ZSCORE", "union_max_result", "b"])
         ts_score_b = Veidrodelis.zscore(@id, 0, "union_max_result", "b")
@@ -1263,7 +1263,7 @@ defmodule Veidrodelis.IntegrationTest do
         "3"
       ])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # Only b is in both: 2*2 + 3*3 = 13
         redis_card = Redix.command!(redis, ["ZCARD", "inter_weighted"])
         ts_card = Veidrodelis.zcard(@id, 0, "inter_weighted")
@@ -1289,7 +1289,7 @@ defmodule Veidrodelis.IntegrationTest do
         "MAX"
       ])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # Only b: max(5, 3) = 5
         redis_score_b = Redix.command!(redis, ["ZSCORE", "inter_max_result", "b"])
         ts_score_b = Veidrodelis.zscore(@id, 0, "inter_max_result", "b")
@@ -1302,7 +1302,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "rank_neg", "1", "a", "2", "b", "3", "c", "4", "d"])
       Redix.command!(redis, ["ZREMRANGEBYRANK", "rank_neg", "-2", "-1"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # Last two removed
         expected = ["a", "b"]
         redis_members = Redix.command!(redis, ["ZRANGE", "rank_neg", "0", "-1"])
@@ -1316,7 +1316,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "popmax_count", "1", "a", "2", "b", "3", "c", "4", "d"])
       Redix.command!(redis, ["ZPOPMAX", "popmax_count", "2"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # Top 2 (d, c) removed
         expected = ["a", "b"]
         redis_members = Redix.command!(redis, ["ZRANGE", "popmax_count", "0", "-1"])
@@ -1330,7 +1330,7 @@ defmodule Veidrodelis.IntegrationTest do
       Redix.command!(redis, ["ZADD", "popmin_count", "1", "a", "2", "b", "3", "c", "4", "d"])
       Redix.command!(redis, ["ZPOPMIN", "popmin_count", "2"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # Bottom 2 (a, b) removed
         expected = ["c", "d"]
         redis_members = Redix.command!(redis, ["ZRANGE", "popmin_count", "0", "-1"])

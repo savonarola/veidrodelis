@@ -83,7 +83,7 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for RDB transfer to complete
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -94,7 +94,7 @@ defmodule Veidrodelis.ReplicaTest do
       Redix.command!(redis, ["DEL", "key3"])
 
       # Wait for commands to replicate
-      assert_happens_within 1000 do
+      assert_within 1000 do
         # Step 4: Get callback state and verify
         callback_state = Replica.get_callback_state(replica)
         commands = CollectorCallback.commands(callback_state)
@@ -131,7 +131,7 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for sync
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -144,7 +144,7 @@ defmodule Veidrodelis.ReplicaTest do
       Redix.command!(redis, ["SET", "key2", "value2"])
 
       # Wait for replication
-      assert_happens_within 500 do
+      assert_within 500 do
         Replica.get_offset(replica) > initial_offset
       end
 
@@ -162,7 +162,7 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for sync
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -188,7 +188,7 @@ defmodule Veidrodelis.ReplicaTest do
 
       {:ok, replica} = Replica.start_link(opts)
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -213,7 +213,7 @@ defmodule Veidrodelis.ReplicaTest do
 
       {:ok, replica} = Replica.start_link(opts)
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -245,11 +245,11 @@ defmodule Veidrodelis.ReplicaTest do
 
       {:ok, replica} = Replica.start_link(opts)
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         commands = CollectorCallback.commands(Replica.get_callback_state(replica))
         command_in_list(%RedisCommand.SAdd{key: "testset"}, commands)
       end
@@ -274,11 +274,11 @@ defmodule Veidrodelis.ReplicaTest do
 
       {:ok, replica} = Replica.start_link(opts)
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         commands =
           replica
           |> Replica.get_callback_state()
@@ -311,7 +311,7 @@ defmodule Veidrodelis.ReplicaTest do
 
       {:ok, replica} = Replica.start_link(opts)
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -350,7 +350,7 @@ defmodule Veidrodelis.ReplicaTest do
 
       {:ok, replica} = Replica.start_link(opts)
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -386,7 +386,7 @@ defmodule Veidrodelis.ReplicaTest do
 
       {:ok, replica} = Replica.start_link(opts)
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -423,7 +423,7 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for initial sync
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -433,7 +433,7 @@ defmodule Veidrodelis.ReplicaTest do
       Redix.command!(redis, ["RPUSH", "streamlist", "item1"])
 
       # Wait for replication
-      assert_happens_within 1000 do
+      assert_within 1000 do
         callback_state = Replica.get_callback_state(replica)
         commands = CollectorCallback.commands(callback_state)
 
@@ -470,7 +470,7 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for sync
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -517,7 +517,7 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for sync
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 

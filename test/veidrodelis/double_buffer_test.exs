@@ -37,7 +37,7 @@ defmodule Veidrodelis.DoubleBufferTest do
       assert result in [{:error, :not_connected}, {:error, :not_ready}]
 
       # Wait for streaming to start
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -59,7 +59,7 @@ defmodule Veidrodelis.DoubleBufferTest do
         )
 
       # Wait for streaming to start
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -87,7 +87,7 @@ defmodule Veidrodelis.DoubleBufferTest do
         )
 
       # Wait for streaming
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -126,7 +126,7 @@ defmodule Veidrodelis.DoubleBufferTest do
         )
 
       # Wait for streaming
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -137,11 +137,11 @@ defmodule Veidrodelis.DoubleBufferTest do
       Redix.command!(redis, ["SET", "key3", "value3"])
 
       # Wait for data to arrive
-      assert_happens_within 1000 do
+      assert_within 1000 do
         Veidrodelis.get(@test_id, 0, "key2") == "value2"
       end
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         Veidrodelis.get(@test_id, 0, "key3") == "value3"
       end
 
@@ -160,7 +160,7 @@ defmodule Veidrodelis.DoubleBufferTest do
           port: @redis_port
         )
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -169,7 +169,7 @@ defmodule Veidrodelis.DoubleBufferTest do
       # Update the key
       Redix.command!(redis, ["SET", "update_key", "updated"])
 
-      assert_happens_within 1000 do
+      assert_within 1000 do
         Veidrodelis.get(@test_id, 0, "update_key") == "updated"
       end
 
@@ -192,7 +192,7 @@ defmodule Veidrodelis.DoubleBufferTest do
         )
 
       # Wait for streaming
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -218,7 +218,7 @@ defmodule Veidrodelis.DoubleBufferTest do
         )
 
       # Wait for streaming
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -249,7 +249,7 @@ defmodule Veidrodelis.DoubleBufferTest do
       assert result in [{:error, :not_connected}, {:error, :not_ready}]
 
       # Wait for streaming
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -269,7 +269,7 @@ defmodule Veidrodelis.DoubleBufferTest do
           port: @redis_port
         )
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -294,7 +294,7 @@ defmodule Veidrodelis.DoubleBufferTest do
           port: @redis_port
         )
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -317,7 +317,7 @@ defmodule Veidrodelis.DoubleBufferTest do
           port: @redis_port
         )
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -349,7 +349,7 @@ defmodule Veidrodelis.DoubleBufferTest do
           port: @redis_port
         )
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 
@@ -372,7 +372,7 @@ defmodule Veidrodelis.DoubleBufferTest do
           port: @redis_port
         )
 
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Veidrodelis.get_replication_state(pid) == :streaming
       end
 

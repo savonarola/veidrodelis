@@ -65,7 +65,7 @@ defmodule Veidrodelis.ReplicaPeriodicAckTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for replica to reach streaming state
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -103,7 +103,7 @@ defmodule Veidrodelis.ReplicaPeriodicAckTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for replica to reach streaming state
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Replica.get_replication_state(replica) == :streaming
       end
 

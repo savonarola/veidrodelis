@@ -98,7 +98,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for initial sync
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -121,7 +121,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       :ok = Toxiproxy.restore_connection("redis")
 
       # Wait longer for both replica and redix to reconnect and stabilize
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -133,7 +133,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       Redix.stop(redis_new)
 
       # Wait for replication to process
-      assert_happens_within 2000 do
+      assert_within 2000 do
         callback_state = Replica.get_callback_state(replica)
         commands = CollectorCallback.commands(callback_state)
         command_in_list(%RedisCommand.Set{key: "after_reconnect", value: "value2"}, commands)
@@ -158,7 +158,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for initial sync
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -185,7 +185,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for initial sync
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -199,12 +199,12 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       :ok = Toxiproxy.restore_connection("redis")
 
       # Wait for reconnection
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Replica.get_replication_state(replica) == :streaming
       end
 
       # on_replication_start should NOT be called again for partial resync
-      assert_happens_within 2000 do
+      assert_within 2000 do
         callback_state = Replica.get_callback_state(replica)
         replication_starts = CollectorCallback.replication_starts(callback_state)
         assert replication_starts <= 1
@@ -240,7 +240,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       :ok = Toxiproxy.enable("redis")
 
       # Wait for successful connection
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -266,7 +266,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for initial sync
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -274,7 +274,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       :ok = Toxiproxy.simulate_outage("redis", 2000)
 
       # Wait for reconnection
-      assert_happens_within 5000 do
+      assert_within 5000 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -285,7 +285,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       Redix.stop(redis_new)
 
       # Wait for replication
-      assert_happens_within 2000 do
+      assert_within 2000 do
         callback_state = Replica.get_callback_state(replica)
         commands = CollectorCallback.commands(callback_state)
         command_in_list(%RedisCommand.Set{key: "after_outage"}, commands)
@@ -319,7 +319,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for initial sync
-      assert_happens_within 1500 do
+      assert_within 1500 do
         Replica.get_replication_state(replica) == :streaming
       end
 
@@ -333,7 +333,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       :ok = Toxiproxy.restore_connection("redis")
 
       # Wait for reconnection
-      assert_happens_within 2000 do
+      assert_within 2000 do
         Replica.get_replication_state(replica) == :streaming
       end
 
