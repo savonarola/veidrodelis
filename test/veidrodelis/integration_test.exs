@@ -382,7 +382,7 @@ defmodule Veidrodelis.IntegrationTest do
       {:ok, replica} = Replica.start_link(opts)
 
       assert_within 5000 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       Logger.info("=== [Replica] Phase 3: Verifying RDB commands ===")
@@ -400,7 +400,7 @@ defmodule Veidrodelis.IntegrationTest do
       assert_within 3000 do
         callback_state = Replica.get_callback_state(replica)
         db1_commands = CollectorCallback.commands_for_db(callback_state, 1)
-        length(db1_commands) > 50
+        assert 50 < length(db1_commands)
       end
 
       Logger.info("=== [Replica] Phase 5: Verifying streaming commands ===")
@@ -438,7 +438,7 @@ defmodule Veidrodelis.IntegrationTest do
       {:ok, vdr} = Veidrodelis.start_link(opts)
 
       assert_within 5000 do
-        Veidrodelis.get_replication_state(vdr) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(vdr)
       end
 
       Logger.info("=== [Veidrodelis] Phase 3: Verifying RDB data via query API ===")
@@ -447,38 +447,38 @@ defmodule Veidrodelis.IntegrationTest do
       Process.sleep(200)
 
       # String values
-      assert Veidrodelis.get(@id, 0, "simple_key") == "simple_value"
-      assert Veidrodelis.get(@id, 0, "mkey1") == "mval1"
-      assert Veidrodelis.get(@id, 0, "mkey2") == "mval2"
-      assert Veidrodelis.get(@id, 0, "append_key") == "initial_appended"
-      assert Veidrodelis.get(@id, 0, "new_name") == "rename_value"
-      assert Veidrodelis.get(@id, 0, "renamenx_new") == "value"
-      assert Veidrodelis.get(@id, 0, "expire_key") == "will_expire"
+      assert "simple_value" == Veidrodelis.get(@id, 0, "simple_key")
+      assert "mval1" == Veidrodelis.get(@id, 0, "mkey1")
+      assert "mval2" == Veidrodelis.get(@id, 0, "mkey2")
+      assert "initial_appended" == Veidrodelis.get(@id, 0, "append_key")
+      assert "rename_value" == Veidrodelis.get(@id, 0, "new_name")
+      assert "value" == Veidrodelis.get(@id, 0, "renamenx_new")
+      assert "will_expire" == Veidrodelis.get(@id, 0, "expire_key")
 
       # Deleted keys should not exist
-      assert Veidrodelis.get(@id, 0, "delete_key1") == nil
-      assert Veidrodelis.get(@id, 0, "delete_key2") == nil
-      assert Veidrodelis.get(@id, 0, "old_name") == nil
+      assert nil == Veidrodelis.get(@id, 0, "delete_key1")
+      assert nil == Veidrodelis.get(@id, 0, "delete_key2")
+      assert nil == Veidrodelis.get(@id, 0, "old_name")
 
       # List values
-      assert Veidrodelis.llen(@id, 0, "mylist") == 4
-      assert Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["elem0", "elem1", "elem2", "elem3"]
-      assert Veidrodelis.lrange(@id, 0, "trim_list", 0, -1) == ["b", "c", "d"]
-      assert Veidrodelis.lrange(@id, 0, "set_list", 0, -1) == ["x", "Y", "z"]
-      assert Veidrodelis.lrange(@id, 0, "insert_list", 0, -1) == ["a", "b", "c"]
+      assert 4 == Veidrodelis.llen(@id, 0, "mylist")
+      assert ["elem0", "elem1", "elem2", "elem3"] == Veidrodelis.lrange(@id, 0, "mylist", 0, -1)
+      assert ["b", "c", "d"] == Veidrodelis.lrange(@id, 0, "trim_list", 0, -1)
+      assert ["x", "Y", "z"] == Veidrodelis.lrange(@id, 0, "set_list", 0, -1)
+      assert ["a", "b", "c"] == Veidrodelis.lrange(@id, 0, "insert_list", 0, -1)
 
       # After LPOP and RPOP, pop_list should have only "b"
-      assert Veidrodelis.lrange(@id, 0, "pop_list", 0, -1) == ["b"]
+      assert ["b"] == Veidrodelis.lrange(@id, 0, "pop_list", 0, -1)
 
       # Set values
-      assert Veidrodelis.scard(@id, 0, "myset") == 3
+      assert 3 == Veidrodelis.scard(@id, 0, "myset")
       members = Veidrodelis.smembers(@id, 0, "myset")
       assert "member1" in members
       assert "member2" in members
       assert "member3" in members
 
       # rem_set should have m1 and m3 (m2 was removed)
-      assert Veidrodelis.scard(@id, 0, "rem_set") == 2
+      assert 2 == Veidrodelis.scard(@id, 0, "rem_set")
       rem_members = Veidrodelis.smembers(@id, 0, "rem_set")
       assert "m1" in rem_members
       assert "m3" in rem_members
@@ -488,35 +488,35 @@ defmodule Veidrodelis.IntegrationTest do
       inter_members = Veidrodelis.smembers(@id, 0, "set_inter")
       assert "2" in inter_members
       assert "3" in inter_members
-      assert Veidrodelis.scard(@id, 0, "set_union") == 4
-      assert Veidrodelis.scard(@id, 0, "set_diff") == 1
+      assert 4 == Veidrodelis.scard(@id, 0, "set_union")
+      assert 1 == Veidrodelis.scard(@id, 0, "set_diff")
 
       # Hash values
-      assert Veidrodelis.hlen(@id, 0, "myhash") == 3
-      assert Veidrodelis.hget(@id, 0, "myhash", "field1") == "value1"
-      assert Veidrodelis.hget(@id, 0, "myhash", "field2") == "value2"
-      assert Veidrodelis.hget(@id, 0, "myhash", "field3") == "value3"
+      assert 3 == Veidrodelis.hlen(@id, 0, "myhash")
+      assert "value1" == Veidrodelis.hget(@id, 0, "myhash", "field1")
+      assert "value2" == Veidrodelis.hget(@id, 0, "myhash", "field2")
+      assert "value3" == Veidrodelis.hget(@id, 0, "myhash", "field3")
 
       # hash_for_del should have only f1 (f2 was deleted)
-      assert Veidrodelis.hlen(@id, 0, "hash_for_del") == 1
-      assert Veidrodelis.hget(@id, 0, "hash_for_del", "f1") == "v1"
-      assert Veidrodelis.hget(@id, 0, "hash_for_del", "f2") == nil
+      assert 1 == Veidrodelis.hlen(@id, 0, "hash_for_del")
+      assert "v1" == Veidrodelis.hget(@id, 0, "hash_for_del", "f1")
+      assert nil == Veidrodelis.hget(@id, 0, "hash_for_del", "f2")
 
       # Sorted set values
-      assert Veidrodelis.zcard(@id, 0, "myzset") == 3
-      assert Veidrodelis.zscore(@id, 0, "myzset", "member1") == 1.0
-      assert Veidrodelis.zscore(@id, 0, "myzset", "member2") == 2.5
-      assert Veidrodelis.zscore(@id, 0, "myzset", "member3") == 3.7
+      assert 3 == Veidrodelis.zcard(@id, 0, "myzset")
+      assert 1.0 == Veidrodelis.zscore(@id, 0, "myzset", "member1")
+      assert 2.5 == Veidrodelis.zscore(@id, 0, "myzset", "member2")
+      assert 3.7 == Veidrodelis.zscore(@id, 0, "myzset", "member3")
 
       # zset_for_rem should have x and z (y was removed)
-      assert Veidrodelis.zcard(@id, 0, "zset_for_rem") == 2
-      assert Veidrodelis.zscore(@id, 0, "zset_for_rem", "x") == 1.0
-      assert Veidrodelis.zscore(@id, 0, "zset_for_rem", "z") == 3.0
-      assert Veidrodelis.zscore(@id, 0, "zset_for_rem", "y") == nil
+      assert 2 == Veidrodelis.zcard(@id, 0, "zset_for_rem")
+      assert 1.0 == Veidrodelis.zscore(@id, 0, "zset_for_rem", "x")
+      assert 3.0 == Veidrodelis.zscore(@id, 0, "zset_for_rem", "z")
+      assert nil == Veidrodelis.zscore(@id, 0, "zset_for_rem", "y")
 
       # pop_zset should have only "b" after ZPOPMAX and ZPOPMIN
-      assert Veidrodelis.zcard(@id, 0, "pop_zset") == 1
-      assert Veidrodelis.zscore(@id, 0, "pop_zset", "b") == 2.0
+      assert 1 == Veidrodelis.zcard(@id, 0, "pop_zset")
+      assert 2.0 == Veidrodelis.zscore(@id, 0, "pop_zset", "b")
 
       # Verify set/zset operations created correct results
       assert Veidrodelis.zcard(@id, 0, "zset_union") > 0
@@ -524,19 +524,19 @@ defmodule Veidrodelis.IntegrationTest do
 
       # Verify ZINCRBY results (replicated as ZADD with final scores)
       # Test 1: existing key, existing member (10.0 + 5.5 = 15.5)
-      assert Veidrodelis.zscore(@id, 0, "zincrby_test", "counter") == 15.5
+      assert 15.5 == Veidrodelis.zscore(@id, 0, "zincrby_test", "counter")
 
       # Test 2: existing key, non-existing member (0 + 7.5 = 7.5)
-      assert Veidrodelis.zcard(@id, 0, "zincrby_test2") == 2
-      assert Veidrodelis.zscore(@id, 0, "zincrby_test2", "existing") == 1.0
-      assert Veidrodelis.zscore(@id, 0, "zincrby_test2", "new_member") == 7.5
+      assert 2 == Veidrodelis.zcard(@id, 0, "zincrby_test2")
+      assert 1.0 == Veidrodelis.zscore(@id, 0, "zincrby_test2", "existing")
+      assert 7.5 == Veidrodelis.zscore(@id, 0, "zincrby_test2", "new_member")
 
       # Test 3: non-existing key (creates key with member at score 42.0)
-      assert Veidrodelis.zcard(@id, 0, "zincrby_new_key") == 1
-      assert Veidrodelis.zscore(@id, 0, "zincrby_new_key", "member1") == 42.0
+      assert 1 == Veidrodelis.zcard(@id, 0, "zincrby_new_key")
+      assert 42.0 == Veidrodelis.zscore(@id, 0, "zincrby_new_key", "member1")
 
       # Test 4: negative delta (100.0 - 25.5 = 74.5)
-      assert Veidrodelis.zscore(@id, 0, "zincrby_decr", "score") == 74.5
+      assert 74.5 == Veidrodelis.zscore(@id, 0, "zincrby_decr", "score")
 
       Logger.info("=== [Veidrodelis] Phase 4: Issuing commands to DB 1 while streaming ===")
 
@@ -544,44 +544,44 @@ defmodule Veidrodelis.IntegrationTest do
 
       # Wait for streaming replication
       assert_within 3000 do
-        Veidrodelis.get(@id, 1, "simple_key") == "simple_value" &&
-          Veidrodelis.llen(@id, 1, "mylist") == 4 &&
-          Veidrodelis.scard(@id, 1, "myset") == 3 &&
-          Veidrodelis.hlen(@id, 1, "myhash") == 3 &&
-          Veidrodelis.zcard(@id, 1, "myzset") == 3
+        assert "simple_value" == Veidrodelis.get(@id, 1, "simple_key")
+        assert 4 == Veidrodelis.llen(@id, 1, "mylist")
+        assert 3 == Veidrodelis.scard(@id, 1, "myset")
+        assert 3 == Veidrodelis.hlen(@id, 1, "myhash")
+        assert 3 == Veidrodelis.zcard(@id, 1, "myzset")
       end
 
       Logger.info("=== [Veidrodelis] Phase 5: Verifying streaming data via query API ===")
 
       # String values
-      assert Veidrodelis.get(@id, 1, "simple_key") == "simple_value"
-      assert Veidrodelis.get(@id, 1, "mkey1") == "mval1"
-      assert Veidrodelis.get(@id, 1, "append_key") == "initial_appended"
+      assert "simple_value" == Veidrodelis.get(@id, 1, "simple_key")
+      assert "mval1" == Veidrodelis.get(@id, 1, "mkey1")
+      assert "initial_appended" == Veidrodelis.get(@id, 1, "append_key")
 
       # List values
-      assert Veidrodelis.llen(@id, 1, "mylist") == 4
-      assert Veidrodelis.lrange(@id, 1, "mylist", 0, -1) == ["elem0", "elem1", "elem2", "elem3"]
+      assert 4 == Veidrodelis.llen(@id, 1, "mylist")
+      assert ["elem0", "elem1", "elem2", "elem3"] == Veidrodelis.lrange(@id, 1, "mylist", 0, -1)
 
       # Set values
-      assert Veidrodelis.scard(@id, 1, "myset") == 3
+      assert 3 == Veidrodelis.scard(@id, 1, "myset")
       members_db1 = Veidrodelis.smembers(@id, 1, "myset")
       assert "member1" in members_db1
       assert "member2" in members_db1
       assert "member3" in members_db1
 
       # Hash values
-      assert Veidrodelis.hlen(@id, 1, "myhash") == 3
-      assert Veidrodelis.hget(@id, 1, "myhash", "field1") == "value1"
+      assert 3 == Veidrodelis.hlen(@id, 1, "myhash")
+      assert "value1" == Veidrodelis.hget(@id, 1, "myhash", "field1")
 
       # Sorted set values
-      assert Veidrodelis.zcard(@id, 1, "myzset") == 3
-      assert Veidrodelis.zscore(@id, 1, "myzset", "member1") == 1.0
+      assert 3 == Veidrodelis.zcard(@id, 1, "myzset")
+      assert 1.0 == Veidrodelis.zscore(@id, 1, "myzset", "member1")
 
       # Verify ZINCRBY results in DB 1 (streaming replication)
-      assert Veidrodelis.zscore(@id, 1, "zincrby_test", "counter") == 15.5
-      assert Veidrodelis.zscore(@id, 1, "zincrby_test2", "new_member") == 7.5
-      assert Veidrodelis.zscore(@id, 1, "zincrby_new_key", "member1") == 42.0
-      assert Veidrodelis.zscore(@id, 1, "zincrby_decr", "score") == 74.5
+      assert 15.5 == Veidrodelis.zscore(@id, 1, "zincrby_test", "counter")
+      assert 7.5 == Veidrodelis.zscore(@id, 1, "zincrby_test2", "new_member")
+      assert 42.0 == Veidrodelis.zscore(@id, 1, "zincrby_new_key", "member1")
+      assert 74.5 == Veidrodelis.zscore(@id, 1, "zincrby_decr", "score")
 
       Logger.info("=== [Veidrodelis] Test completed successfully ===")
 
@@ -601,7 +601,7 @@ defmodule Veidrodelis.IntegrationTest do
         )
 
       assert_within 5000 do
-        Veidrodelis.get_replication_state(vdr) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(vdr)
       end
 
       {:ok, redis: redis, vdr: vdr}
@@ -618,8 +618,10 @@ defmodule Veidrodelis.IntegrationTest do
         ts_k1 = Veidrodelis.get(@id, 0, "k1")
         ts_k2 = Veidrodelis.get(@id, 0, "k2")
 
-        redis_k1 == expected_k1 and ts_k1 == expected_k1 and
-          redis_k2 == expected_k2 and ts_k2 == expected_k2
+        assert expected_k1 == redis_k1
+        assert expected_k1 == ts_k1
+        assert expected_k2 == redis_k2
+        assert expected_k2 == ts_k2
       end
     end
 
@@ -632,7 +634,9 @@ defmodule Veidrodelis.IntegrationTest do
         redis_val = Redix.command!(redis, ["GET", "append_test"])
         ts_val = Veidrodelis.get(@id, 0, "append_test")
 
-        redis_val == expected and ts_val == expected and redis_val == ts_val
+        assert expected == redis_val
+        assert expected == ts_val
+        assert ts_val == redis_val
       end
     end
 
@@ -647,8 +651,10 @@ defmodule Veidrodelis.IntegrationTest do
         ts_new = Veidrodelis.get(@id, 0, "new_key")
         ts_old = Veidrodelis.get(@id, 0, "old_key")
 
-        redis_new == expected and ts_new == expected and
-          redis_old == nil and ts_old == nil
+        assert expected == redis_new
+        assert expected == ts_new
+        assert nil == redis_old
+        assert nil == ts_old
       end
     end
 
@@ -661,7 +667,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_dst = Redix.command!(redis, ["GET", "renamenx_dst"])
         ts_dst = Veidrodelis.get(@id, 0, "renamenx_dst")
 
-        redis_dst == expected and ts_dst == expected
+        assert expected == redis_dst
+        assert expected == ts_dst
       end
     end
   end
@@ -677,7 +684,7 @@ defmodule Veidrodelis.IntegrationTest do
         )
 
       assert_within 5000 do
-        Veidrodelis.get_replication_state(vdr) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(vdr)
       end
 
       {:ok, redis: redis, vdr: vdr}
@@ -692,7 +699,9 @@ defmodule Veidrodelis.IntegrationTest do
         redis_list = Redix.command!(redis, ["LRANGE", "test_list", "0", "-1"])
         ts_list = Veidrodelis.lrange(@id, 0, "test_list", 0, -1)
 
-        redis_list == expected and ts_list == expected and redis_list == ts_list
+        assert expected == redis_list
+        assert expected == ts_list
+        assert ts_list == redis_list
       end
     end
 
@@ -705,7 +714,9 @@ defmodule Veidrodelis.IntegrationTest do
         redis_list = Redix.command!(redis, ["LRANGE", "test_list", "0", "-1"])
         ts_list = Veidrodelis.lrange(@id, 0, "test_list", 0, -1)
 
-        redis_list == expected and ts_list == expected and redis_list == ts_list
+        assert expected == redis_list
+        assert expected == ts_list
+        assert ts_list == redis_list
       end
     end
 
@@ -718,7 +729,9 @@ defmodule Veidrodelis.IntegrationTest do
         redis_list = Redix.command!(redis, ["LRANGE", "rem_list", "0", "-1"])
         ts_list = Veidrodelis.lrange(@id, 0, "rem_list", 0, -1)
 
-        redis_list == expected and ts_list == expected and redis_list == ts_list
+        assert expected == redis_list
+        assert expected == ts_list
+        assert ts_list == redis_list
       end
     end
 
@@ -731,7 +744,9 @@ defmodule Veidrodelis.IntegrationTest do
         redis_list = Redix.command!(redis, ["LRANGE", "trim_list", "0", "-1"])
         ts_list = Veidrodelis.lrange(@id, 0, "trim_list", 0, -1)
 
-        redis_list == expected and ts_list == expected and redis_list == ts_list
+        assert expected == redis_list
+        assert expected == ts_list
+        assert ts_list == redis_list
       end
     end
 
@@ -744,7 +759,9 @@ defmodule Veidrodelis.IntegrationTest do
         redis_list = Redix.command!(redis, ["LRANGE", "insert_list", "0", "-1"])
         ts_list = Veidrodelis.lrange(@id, 0, "insert_list", 0, -1)
 
-        redis_list == expected and ts_list == expected and redis_list == ts_list
+        assert expected == redis_list
+        assert expected == ts_list
+        assert ts_list == redis_list
       end
     end
   end
@@ -760,7 +777,7 @@ defmodule Veidrodelis.IntegrationTest do
         )
 
       assert_within 5000 do
-        Veidrodelis.get_replication_state(vdr) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(vdr)
       end
 
       {:ok, redis: redis, vdr: vdr}
@@ -775,7 +792,9 @@ defmodule Veidrodelis.IntegrationTest do
         redis_card = Redix.command!(redis, ["ZCARD", "pop_test"])
         ts_card = Veidrodelis.zcard(@id, 0, "pop_test")
 
-        redis_card == expected_card and ts_card == expected_card and redis_card == ts_card
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert ts_card == redis_card
       end
     end
 
@@ -788,7 +807,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_card = Redix.command!(redis, ["ZCARD", "pop_test"])
         ts_card = Veidrodelis.zcard(@id, 0, "pop_test")
 
-        redis_card == expected_card and ts_card == expected_card
+        assert expected_card == redis_card
+        assert expected_card == ts_card
       end
     end
 
@@ -801,7 +821,9 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "rank_test", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "rank_test", 0, -1, false)
 
-        redis_members == expected and ts_members == expected and redis_members == ts_members
+        assert expected == redis_members
+        assert expected == ts_members
+        assert ts_members == redis_members
       end
     end
 
@@ -814,7 +836,9 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "score_test", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "score_test", 0, -1, false)
 
-        redis_members == expected and ts_members == expected and redis_members == ts_members
+        assert expected == redis_members
+        assert expected == ts_members
+        assert ts_members == redis_members
       end
     end
 
@@ -838,8 +862,10 @@ defmodule Veidrodelis.IntegrationTest do
             :error -> String.to_integer(redis_score) * 1.0
           end
 
-        redis_card == expected_card and ts_card == expected_card and
-          redis_score_float == expected_score_b and ts_score == expected_score_b
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_score_b == redis_score_float
+        assert expected_score_b == ts_score
       end
     end
 
@@ -856,8 +882,10 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "zset_inter", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "zset_inter", 0, -1, false)
 
-        redis_card == expected_card and ts_card == expected_card and
-          redis_members == expected_members and ts_members == expected_members
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_members == redis_members
+        assert expected_members == ts_members
       end
     end
 
@@ -886,8 +914,9 @@ defmodule Veidrodelis.IntegrationTest do
         ts_score_existing = Veidrodelis.zscore(@id, 0, "xx_test", "existing")
         ts_score_new = Veidrodelis.zscore(@id, 0, "xx_test", "new")
 
-        Float.parse(redis_score_existing) == {5.0, ""} and ts_score_existing == 5.0 and
-          ts_score_new == nil
+        assert {5.0, ""} == Float.parse(redis_score_existing)
+        assert 5.0 == ts_score_existing
+        assert nil == ts_score_new
       end
     end
 
@@ -900,7 +929,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_score = Redix.command!(redis, ["ZSCORE", "gt_test", "member"])
         ts_score = Veidrodelis.zscore(@id, 0, "gt_test", "member")
 
-        Float.parse(redis_score) == {5.0, ""} and ts_score == 5.0
+        assert {5.0, ""} == Float.parse(redis_score)
+        assert 5.0 == ts_score
       end
     end
 
@@ -926,7 +956,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_score = Redix.command!(redis, ["ZSCORE", "incr_test", "member"])
         ts_score = Veidrodelis.zscore(@id, 0, "incr_test", "member")
 
-        Float.parse(redis_score) == {8.0, ""} and ts_score == 8.0
+        assert {8.0, ""} == Float.parse(redis_score)
+        assert 8.0 == ts_score
       end
     end
 
@@ -939,7 +970,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_score = Redix.command!(redis, ["ZSCORE", "zincrby_existing", "counter"])
         ts_score = Veidrodelis.zscore(@id, 0, "zincrby_existing", "counter")
 
-        Float.parse(redis_score) == {15.5, ""} and ts_score == 15.5
+        assert {15.5, ""} == Float.parse(redis_score)
+        assert 15.5 == ts_score
       end
     end
 
@@ -954,8 +986,10 @@ defmodule Veidrodelis.IntegrationTest do
         redis_score = Redix.command!(redis, ["ZSCORE", "zincrby_new_member", "new_member"])
         ts_score = Veidrodelis.zscore(@id, 0, "zincrby_new_member", "new_member")
 
-        redis_count == 2 and ts_count == 2 and
-          Float.parse(redis_score) == {7.5, ""} and ts_score == 7.5
+        assert 2 == redis_count
+        assert 2 == ts_count
+        assert {7.5, ""} == Float.parse(redis_score)
+        assert 7.5 == ts_score
       end
     end
 
@@ -969,8 +1003,10 @@ defmodule Veidrodelis.IntegrationTest do
         redis_score = Redix.command!(redis, ["ZSCORE", "zincrby_new_key", "member1"])
         ts_score = Veidrodelis.zscore(@id, 0, "zincrby_new_key", "member1")
 
-        redis_count == 1 and ts_count == 1 and
-          Float.parse(redis_score) == {42.0, ""} and ts_score == 42.0
+        assert 1 == redis_count
+        assert 1 == ts_count
+        assert {42.0, ""} == Float.parse(redis_score)
+        assert 42.0 == ts_score
       end
     end
 
@@ -983,7 +1019,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_score = Redix.command!(redis, ["ZSCORE", "zincrby_decr", "score"])
         ts_score = Veidrodelis.zscore(@id, 0, "zincrby_decr", "score")
 
-        Float.parse(redis_score) == {74.5, ""} and ts_score == 74.5
+        assert {74.5, ""} == Float.parse(redis_score)
+        assert 74.5 == ts_score
       end
     end
 
@@ -997,7 +1034,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "excl_min", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "excl_min", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
 
@@ -1011,7 +1049,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "excl_max", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "excl_max", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
 
@@ -1025,7 +1064,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "excl_both", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "excl_both", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
 
@@ -1039,7 +1079,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "inf_min", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "inf_min", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
 
@@ -1053,7 +1094,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "inf_max", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "inf_max", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
 
@@ -1065,7 +1107,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_card = Redix.command!(redis, ["ZCARD", "inf_all"])
         ts_card = Veidrodelis.zcard(@id, 0, "inf_all")
 
-        redis_card == 0 and ts_card == 0
+        assert 0 == redis_card
+        assert 0 == ts_card
       end
     end
 
@@ -1080,7 +1123,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "lex_incl", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "lex_incl", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
 
@@ -1094,7 +1138,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "lex_excl", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "lex_excl", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
 
@@ -1108,7 +1153,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "lex_min", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "lex_min", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
 
@@ -1122,7 +1168,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "lex_max", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "lex_max", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
 
@@ -1134,7 +1181,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_card = Redix.command!(redis, ["ZCARD", "lex_all"])
         ts_card = Veidrodelis.zcard(@id, 0, "lex_all")
 
-        redis_card == 0 and ts_card == 0
+        assert 0 == redis_card
+        assert 0 == ts_card
       end
     end
 
@@ -1147,7 +1195,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "inf_scores", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "inf_scores", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
 
@@ -1174,7 +1223,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "inf_members", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "inf_members", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
 
@@ -1308,7 +1358,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "rank_neg", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "rank_neg", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
 
@@ -1322,7 +1373,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "popmax_count", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "popmax_count", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
 
@@ -1336,7 +1388,8 @@ defmodule Veidrodelis.IntegrationTest do
         redis_members = Redix.command!(redis, ["ZRANGE", "popmin_count", "0", "-1"])
         ts_members = Veidrodelis.zrange(@id, 0, "popmin_count", 0, -1, false)
 
-        redis_members == expected and ts_members == expected
+        assert expected == redis_members
+        assert expected == ts_members
       end
     end
   end

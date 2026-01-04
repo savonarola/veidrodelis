@@ -47,15 +47,15 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify data in store
       assert_within 100 do
-        Veidrodelis.get(@id, 0, "key1") == "value1" &&
-          Veidrodelis.get(@id, 0, "key2") == "value2" &&
-          Redix.command!(redis, ["GET", "key1"]) == "value1" &&
-          Redix.command!(redis, ["GET", "key2"]) == "value2"
+        assert "value1" == Veidrodelis.get(@id, 0, "key1")
+        assert "value2" == Veidrodelis.get(@id, 0, "key2")
+        assert "value1" == Redix.command!(redis, ["GET", "key1"])
+        assert "value2" == Redix.command!(redis, ["GET", "key2"])
       end
 
       Veidrodelis.stop(pid)
@@ -67,7 +67,7 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication to start
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # NOW write data to Redis (these will come via streaming, not RDB)
@@ -75,11 +75,11 @@ defmodule VeidrodelisTSTest do
 
       # Wait for commands to replicate
       assert_within 1000 do
-        Veidrodelis.get(@id, 0, "stream_key") != nil
+        assert nil != Veidrodelis.get(@id, 0, "stream_key")
       end
 
       # Verify the data
-      assert Veidrodelis.get(@id, 0, "stream_key") == "stream_value"
+      assert "stream_value" == Veidrodelis.get(@id, 0, "stream_key")
 
       Veidrodelis.stop(pid)
     end
@@ -94,13 +94,13 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify initial data
       assert_within 100 do
-        Veidrodelis.get(@id, 0, "key1") == "value1" &&
-          Veidrodelis.get(@id, 0, "key2") == "value2"
+        assert "value1" == Veidrodelis.get(@id, 0, "key1")
+        assert "value2" == Veidrodelis.get(@id, 0, "key2")
       end
 
       # Delete one key
@@ -108,8 +108,8 @@ defmodule VeidrodelisTSTest do
 
       # Wait for deletion to replicate
       assert_within 500 do
-        Veidrodelis.get(@id, 0, "key1") == nil &&
-          Veidrodelis.get(@id, 0, "key2") == "value2"
+        assert nil == Veidrodelis.get(@id, 0, "key1")
+        assert "value2" == Veidrodelis.get(@id, 0, "key2")
       end
 
       Veidrodelis.stop(pid)
@@ -130,21 +130,21 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify data in both databases
       assert_within 100 do
-        Veidrodelis.get(@id, 0, "db0_key") == "db0_value" &&
-          Veidrodelis.get(@id, 1, "db1_key") == "db1_value"
+        assert "db0_value" == Veidrodelis.get(@id, 0, "db0_key")
+        assert "db1_value" == Veidrodelis.get(@id, 1, "db1_key")
       end
 
       # Verify Redis data
       Redix.command!(redis, ["SELECT", "0"])
-      assert Redix.command!(redis, ["GET", "db0_key"]) == "db0_value"
+      assert "db0_value" == Redix.command!(redis, ["GET", "db0_key"])
 
       Redix.command!(redis, ["SELECT", "1"])
-      assert Redix.command!(redis, ["GET", "db1_key"]) == "db1_value"
+      assert "db1_value" == Redix.command!(redis, ["GET", "db1_key"])
 
       Veidrodelis.stop(pid)
     end
@@ -158,7 +158,7 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait a bit for any potential data
@@ -179,7 +179,7 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify data in store
@@ -187,14 +187,14 @@ defmodule VeidrodelisTSTest do
         members = Veidrodelis.smembers(@id, 0, "myset")
         redis_members = Redix.command!(redis, ["SMEMBERS", "myset"])
 
-        length(members) == 3 &&
-          "member1" in members &&
-          "member2" in members &&
-          "member3" in members &&
-          length(redis_members) == 3 &&
-          "member1" in redis_members &&
-          "member2" in redis_members &&
-          "member3" in redis_members
+        assert 3 == length(members)
+        assert "member1" in members
+        assert "member2" in members
+        assert "member3" in members
+        assert 3 == length(redis_members)
+        assert "member1" in redis_members
+        assert "member2" in redis_members
+        assert "member3" in redis_members
       end
 
       Veidrodelis.stop(pid)
@@ -214,7 +214,7 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify intersection result (only 'c' is in all three sets)
@@ -222,9 +222,9 @@ defmodule VeidrodelisTSTest do
         result_members = Veidrodelis.smembers(@id, 0, "result_inter")
         set1_members = Veidrodelis.smembers(@id, 0, "set1")
 
-        length(result_members) == 1 &&
-          "c" in result_members &&
-          length(set1_members) == 4
+        assert 1 == length(result_members)
+        assert "c" in result_members
+        assert 4 == length(set1_members)
       end
 
       Veidrodelis.stop(pid)
@@ -244,19 +244,19 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify union result (should have all unique elements: 1,2,3,4,5)
       assert_within 100 do
         result_members = Veidrodelis.smembers(@id, 0, "result_union")
 
-        length(result_members) == 5 &&
-          "1" in result_members &&
-          "2" in result_members &&
-          "3" in result_members &&
-          "4" in result_members &&
-          "5" in result_members
+        assert 5 == length(result_members)
+        assert "1" in result_members
+        assert "2" in result_members
+        assert "3" in result_members
+        assert "4" in result_members
+        assert "5" in result_members
       end
 
       Veidrodelis.stop(pid)
@@ -276,16 +276,16 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify difference result (should have: a, e)
       assert_within 100 do
         result_members = Veidrodelis.smembers(@id, 0, "result_diff")
 
-        length(result_members) == 2 &&
-          "a" in result_members &&
-          "e" in result_members
+        assert 2 == length(result_members)
+        assert "a" in result_members
+        assert "e" in result_members
       end
 
       Veidrodelis.stop(pid)
@@ -300,13 +300,13 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify list data
       assert_within 100 do
-        Veidrodelis.llen(@id, 0, "mylist") == 3 &&
-          Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["a", "b", "c"]
+        assert 3 == Veidrodelis.llen(@id, 0, "mylist")
+        assert ["a", "b", "c"] == Veidrodelis.lrange(@id, 0, "mylist", 0, -1)
       end
 
       Veidrodelis.stop(pid)
@@ -318,7 +318,7 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication to start
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # NOW write list data (streaming)
@@ -326,11 +326,11 @@ defmodule VeidrodelisTSTest do
 
       # Wait for commands to replicate
       assert_within 1000 do
-        Veidrodelis.llen(@id, 0, "stream_list") == 3
+        assert 3 == Veidrodelis.llen(@id, 0, "stream_list")
       end
 
       # Verify the list (LPUSH pushes in reverse order)
-      assert Veidrodelis.lrange(@id, 0, "stream_list", 0, -1) == ["z", "y", "x"]
+      assert ["z", "y", "x"] == Veidrodelis.lrange(@id, 0, "stream_list", 0, -1)
 
       Veidrodelis.stop(pid)
     end
@@ -346,12 +346,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify list order
       assert_within 100 do
-        Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["a", "b", "c", "d"]
+        assert ["a", "b", "c", "d"] == Veidrodelis.lrange(@id, 0, "mylist", 0, -1)
       end
 
       Veidrodelis.stop(pid)
@@ -367,12 +367,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify modified list
       assert_within 100 do
-        Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["a", "x", "c"]
+        assert ["a", "x", "c"] == Veidrodelis.lrange(@id, 0, "mylist", 0, -1)
       end
 
       Veidrodelis.stop(pid)
@@ -387,12 +387,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify initial list
       assert_within 100 do
-        Veidrodelis.llen(@id, 0, "mylist") == 4
+        assert 4 == Veidrodelis.llen(@id, 0, "mylist")
       end
 
       # Pop from both ends
@@ -401,8 +401,8 @@ defmodule VeidrodelisTSTest do
 
       # Wait for pops to replicate
       assert_within 500 do
-        Veidrodelis.llen(@id, 0, "mylist") == 2 &&
-          Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["b", "c"]
+        assert 2 == Veidrodelis.llen(@id, 0, "mylist")
+        assert ["b", "c"] == Veidrodelis.lrange(@id, 0, "mylist", 0, -1)
       end
 
       Veidrodelis.stop(pid)
@@ -421,16 +421,13 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify both lists
       assert_within 100 do
-        list1 = Veidrodelis.lrange(@id, 0, "list1", 0, -1)
-        list2 = Veidrodelis.lrange(@id, 0, "list2", 0, -1)
-
-        list1 == ["a", "b"] &&
-          list2 == ["c", "x", "y"]
+        assert ["a", "b"] == Veidrodelis.lrange(@id, 0, "list1", 0, -1)
+        assert ["c", "x", "y"] == Veidrodelis.lrange(@id, 0, "list2", 0, -1)
       end
 
       Veidrodelis.stop(pid)
@@ -448,12 +445,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify rotated list (c moved to front)
       assert_within 100 do
-        Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["c", "a", "b"]
+        assert ["c", "a", "b"] == Veidrodelis.lrange(@id, 0, "mylist", 0, -1)
       end
 
       Veidrodelis.stop(pid)
@@ -468,22 +465,22 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for list to replicate
       assert_within 100 do
-        Veidrodelis.llen(@id, 0, "mylist") == 5
+        assert 5 == Veidrodelis.llen(@id, 0, "mylist")
       end
 
       # Test various range queries
-      assert Veidrodelis.lrange(@id, 0, "mylist", 0, 2) == ["a", "b", "c"]
-      assert Veidrodelis.lrange(@id, 0, "mylist", -2, -1) == ["d", "e"]
-      assert Veidrodelis.lrange(@id, 0, "mylist", 1, 3) == ["b", "c", "d"]
-      assert Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == ["a", "b", "c", "d", "e"]
+      assert ["a", "b", "c"] == Veidrodelis.lrange(@id, 0, "mylist", 0, 2)
+      assert ["d", "e"] == Veidrodelis.lrange(@id, 0, "mylist", -2, -1)
+      assert ["b", "c", "d"] == Veidrodelis.lrange(@id, 0, "mylist", 1, 3)
+      assert ["a", "b", "c", "d", "e"] == Veidrodelis.lrange(@id, 0, "mylist", 0, -1)
 
       # Non-existent list returns empty
-      assert Veidrodelis.lrange(@id, 0, "nonexistent", 0, -1) == []
+      assert [] == Veidrodelis.lrange(@id, 0, "nonexistent", 0, -1)
 
       Veidrodelis.stop(pid)
     end
@@ -498,13 +495,13 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify empty list (key should be deleted)
       assert_within 100 do
-        Veidrodelis.llen(@id, 0, "mylist") == 0 &&
-          Veidrodelis.lrange(@id, 0, "mylist", 0, -1) == []
+        assert 0 == Veidrodelis.llen(@id, 0, "mylist")
+        assert [] == Veidrodelis.lrange(@id, 0, "mylist", 0, -1)
       end
 
       Veidrodelis.stop(pid)
@@ -519,21 +516,21 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify initial data
       assert_within 100 do
-        Veidrodelis.get(@id, 0, "mystring") == "value"
+        assert "value" == Veidrodelis.get(@id, 0, "mystring")
       end
 
       # Trying to access string as set should return error
-      assert Veidrodelis.smembers(@id, 0, "mystring") == {:error, :wrong_type}
-      assert Veidrodelis.scard(@id, 0, "mystring") == {:error, :wrong_type}
+      assert {:error, :wrong_type} == Veidrodelis.smembers(@id, 0, "mystring")
+      assert {:error, :wrong_type} == Veidrodelis.scard(@id, 0, "mystring")
 
       # Trying to access string as list should also return error
-      assert Veidrodelis.llen(@id, 0, "mystring") == {:error, :wrong_type}
-      assert Veidrodelis.lrange(@id, 0, "mystring", 0, -1) == {:error, :wrong_type}
+      assert {:error, :wrong_type} == Veidrodelis.llen(@id, 0, "mystring")
+      assert {:error, :wrong_type} == Veidrodelis.lrange(@id, 0, "mystring", 0, -1)
 
       Veidrodelis.stop(pid)
     end
@@ -547,14 +544,14 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify hash data
       assert_within 100 do
-        Veidrodelis.hlen(@id, 0, "myhash") == 2 &&
-          Veidrodelis.hget(@id, 0, "myhash", "field1") == "value1" &&
-          Veidrodelis.hget(@id, 0, "myhash", "field2") == "value2"
+        assert 2 == Veidrodelis.hlen(@id, 0, "myhash")
+        assert "value1" == Veidrodelis.hget(@id, 0, "myhash", "field1")
+        assert "value2" == Veidrodelis.hget(@id, 0, "myhash", "field2")
       end
 
       Veidrodelis.stop(pid)
@@ -566,7 +563,7 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication to start
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # NOW write hash data (streaming)
@@ -574,12 +571,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for commands to replicate
       assert_within 1000 do
-        Veidrodelis.hlen(@id, 0, "stream_hash") == 2
+        assert 2 == Veidrodelis.hlen(@id, 0, "stream_hash")
       end
 
       # Verify the hash
-      assert Veidrodelis.hget(@id, 0, "stream_hash", "f1") == "v1"
-      assert Veidrodelis.hget(@id, 0, "stream_hash", "f2") == "v2"
+      assert "v1" == Veidrodelis.hget(@id, 0, "stream_hash", "f1")
+      assert "v2" == Veidrodelis.hget(@id, 0, "stream_hash", "f2")
 
       Veidrodelis.stop(pid)
     end
@@ -593,19 +590,19 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for hash to replicate
       assert_within 100 do
-        Veidrodelis.hget(@id, 0, "myhash", "field1") == "value1"
+        assert "value1" == Veidrodelis.hget(@id, 0, "myhash", "field1")
       end
 
       # Non-existent field returns nil
-      assert Veidrodelis.hget(@id, 0, "myhash", "nonexistent") == nil
+      assert nil == Veidrodelis.hget(@id, 0, "myhash", "nonexistent")
 
       # Non-existent key returns nil
-      assert Veidrodelis.hget(@id, 0, "nonexistent", "field") == nil
+      assert nil == Veidrodelis.hget(@id, 0, "nonexistent", "field")
 
       Veidrodelis.stop(pid)
     end
@@ -619,16 +616,16 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for hash to replicate
       assert_within 100 do
-        Veidrodelis.hlen(@id, 0, "myhash") == 3
+        assert 3 == Veidrodelis.hlen(@id, 0, "myhash")
       end
 
       # Get multiple fields (including non-existent)
-      assert Veidrodelis.hmget(@id, 0, "myhash", ["f1", "f3", "nonexistent"]) == ["v1", "v3", nil]
+      assert ["v1", "v3", nil] == Veidrodelis.hmget(@id, 0, "myhash", ["f1", "f3", "nonexistent"])
 
       Veidrodelis.stop(pid)
     end
@@ -642,12 +639,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for hash to replicate
       assert_within 100 do
-        Veidrodelis.hlen(@id, 0, "myhash") == 2
+        assert 2 == Veidrodelis.hlen(@id, 0, "myhash")
       end
 
       # Get all fields
@@ -657,7 +654,7 @@ defmodule VeidrodelisTSTest do
       assert {"field2", "value2"} in pairs
 
       # Non-existent key returns empty list
-      assert Veidrodelis.hgetall(@id, 0, "nonexistent") == []
+      assert [] == Veidrodelis.hgetall(@id, 0, "nonexistent")
 
       Veidrodelis.stop(pid)
     end
@@ -671,12 +668,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for hash to replicate
       assert_within 100 do
-        Veidrodelis.hlen(@id, 0, "myhash") == 2
+        assert 2 == Veidrodelis.hlen(@id, 0, "myhash")
       end
 
       # Get all keys
@@ -703,12 +700,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for hash to replicate
       assert_within 100 do
-        Veidrodelis.hlen(@id, 0, "myhash") == 3
+        assert 3 == Veidrodelis.hlen(@id, 0, "myhash")
       end
 
       # Delete a field
@@ -716,13 +713,13 @@ defmodule VeidrodelisTSTest do
 
       # Wait for deletion to replicate
       assert_within 500 do
-        Veidrodelis.hlen(@id, 0, "myhash") == 2 &&
-          Veidrodelis.hget(@id, 0, "myhash", "f2") == nil
+        assert 2 == Veidrodelis.hlen(@id, 0, "myhash")
+        assert nil == Veidrodelis.hget(@id, 0, "myhash", "f2")
       end
 
       # f1 and f3 should still exist
-      assert Veidrodelis.hget(@id, 0, "myhash", "f1") == "v1"
-      assert Veidrodelis.hget(@id, 0, "myhash", "f3") == "v3"
+      assert "v1" == Veidrodelis.hget(@id, 0, "myhash", "f1")
+      assert "v3" == Veidrodelis.hget(@id, 0, "myhash", "f3")
 
       Veidrodelis.stop(pid)
     end
@@ -736,12 +733,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for hash to replicate
       assert_within 100 do
-        Veidrodelis.hlen(@id, 0, "myhash") == 1
+        assert 1 == Veidrodelis.hlen(@id, 0, "myhash")
       end
 
       # Delete the only field
@@ -749,7 +746,7 @@ defmodule VeidrodelisTSTest do
 
       # Wait for deletion to replicate (key should be deleted)
       assert_within 500 do
-        Veidrodelis.hlen(@id, 0, "myhash") == 0
+        assert 0 == Veidrodelis.hlen(@id, 0, "myhash")
       end
 
       Veidrodelis.stop(pid)
@@ -764,12 +761,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for hash to replicate
       assert_within 100 do
-        Veidrodelis.hget(@id, 0, "myhash", "field1") == "original"
+        assert "original" == Veidrodelis.hget(@id, 0, "myhash", "field1")
       end
 
       # Update the field
@@ -777,7 +774,7 @@ defmodule VeidrodelisTSTest do
 
       # Wait for update to replicate
       assert_within 1000 do
-        Veidrodelis.hget(@id, 0, "myhash", "field1") == "updated"
+        assert "updated" == Veidrodelis.hget(@id, 0, "myhash", "field1")
       end
 
       Veidrodelis.stop(pid)
@@ -792,18 +789,18 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for string to replicate
       assert_within 100 do
-        Veidrodelis.get(@id, 0, "mystring") == "value"
+        assert "value" == Veidrodelis.get(@id, 0, "mystring")
       end
 
       # Trying to access string as hash should return error
-      assert Veidrodelis.hget(@id, 0, "mystring", "field") == {:error, :wrong_type}
-      assert Veidrodelis.hlen(@id, 0, "mystring") == {:error, :wrong_type}
-      assert Veidrodelis.hgetall(@id, 0, "mystring") == {:error, :wrong_type}
+      assert {:error, :wrong_type} == Veidrodelis.hget(@id, 0, "mystring", "field")
+      assert {:error, :wrong_type} == Veidrodelis.hlen(@id, 0, "mystring")
+      assert {:error, :wrong_type} == Veidrodelis.hgetall(@id, 0, "mystring")
 
       Veidrodelis.stop(pid)
     end
@@ -817,14 +814,14 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Verify zset data
       assert_within 100 do
-        Veidrodelis.zcard(@id, 0, "myzset") == 3 &&
-          Veidrodelis.zscore(@id, 0, "myzset", "one") == 1.0 &&
-          Veidrodelis.zscore(@id, 0, "myzset", "two") == 2.0
+        assert 3 == Veidrodelis.zcard(@id, 0, "myzset")
+        assert 1.0 == Veidrodelis.zscore(@id, 0, "myzset", "one")
+        assert 2.0 == Veidrodelis.zscore(@id, 0, "myzset", "two")
       end
 
       Veidrodelis.stop(pid)
@@ -836,7 +833,7 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication to start
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # NOW write zset data (streaming)
@@ -844,12 +841,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for commands to replicate
       assert_within 1000 do
-        Veidrodelis.zcard(@id, 0, "stream_zset") == 2
+        assert 2 == Veidrodelis.zcard(@id, 0, "stream_zset")
       end
 
       # Verify the zset
-      assert Veidrodelis.zscore(@id, 0, "stream_zset", "a") == 1.5
-      assert Veidrodelis.zscore(@id, 0, "stream_zset", "b") == 2.5
+      assert 1.5 == Veidrodelis.zscore(@id, 0, "stream_zset", "a")
+      assert 2.5 == Veidrodelis.zscore(@id, 0, "stream_zset", "b")
 
       Veidrodelis.stop(pid)
     end
@@ -863,19 +860,19 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for zset to replicate
       assert_within 100 do
-        Veidrodelis.zscore(@id, 0, "myzset", "member1") == 1.0
+        assert 1.0 == Veidrodelis.zscore(@id, 0, "myzset", "member1")
       end
 
       # Non-existent member returns nil
-      assert Veidrodelis.zscore(@id, 0, "myzset", "nonexistent") == nil
+      assert nil == Veidrodelis.zscore(@id, 0, "myzset", "nonexistent")
 
       # Non-existent key returns nil
-      assert Veidrodelis.zscore(@id, 0, "nonexistent", "member") == nil
+      assert nil == Veidrodelis.zscore(@id, 0, "nonexistent", "member")
 
       Veidrodelis.stop(pid)
     end
@@ -900,12 +897,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for zset to replicate
       assert_within 100 do
-        Veidrodelis.zcard(@id, 0, "myzset") == 4
+        assert 4 == Veidrodelis.zcard(@id, 0, "myzset")
       end
 
       # Get range with scores
@@ -922,7 +919,7 @@ defmodule VeidrodelisTSTest do
       assert {"four", 4.0} in result
 
       # Non-existent key returns empty list
-      assert Veidrodelis.zrange(@id, 0, "nonexistent", 0, -1) == []
+      assert [] == Veidrodelis.zrange(@id, 0, "nonexistent", 0, -1)
 
       Veidrodelis.stop(pid)
     end
@@ -936,12 +933,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for zset to replicate
       assert_within 100 do
-        Veidrodelis.zcard(@id, 0, "myzset") == 3
+        assert 3 == Veidrodelis.zcard(@id, 0, "myzset")
       end
 
       # Remove a member
@@ -949,13 +946,13 @@ defmodule VeidrodelisTSTest do
 
       # Wait for removal to replicate
       assert_within 500 do
-        Veidrodelis.zcard(@id, 0, "myzset") == 2 &&
-          Veidrodelis.zscore(@id, 0, "myzset", "two") == nil
+        assert 2 == Veidrodelis.zcard(@id, 0, "myzset")
+        assert nil == Veidrodelis.zscore(@id, 0, "myzset", "two")
       end
 
       # one and three should still exist
-      assert Veidrodelis.zscore(@id, 0, "myzset", "one") == 1.0
-      assert Veidrodelis.zscore(@id, 0, "myzset", "three") == 3.0
+      assert 1.0 == Veidrodelis.zscore(@id, 0, "myzset", "one")
+      assert 3.0 == Veidrodelis.zscore(@id, 0, "myzset", "three")
 
       Veidrodelis.stop(pid)
     end
@@ -969,12 +966,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for zset to replicate
       assert_within 100 do
-        Veidrodelis.zcard(@id, 0, "myzset") == 1
+        assert 1 == Veidrodelis.zcard(@id, 0, "myzset")
       end
 
       # Remove the only member
@@ -982,7 +979,7 @@ defmodule VeidrodelisTSTest do
 
       # Wait for removal to replicate (key should be deleted)
       assert_within 500 do
-        Veidrodelis.zcard(@id, 0, "myzset") == 0
+        assert 0 == Veidrodelis.zcard(@id, 0, "myzset")
       end
 
       Veidrodelis.stop(pid)
@@ -997,12 +994,12 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for zset to replicate
       assert_within 100 do
-        Veidrodelis.zscore(@id, 0, "myzset", "member") == 1.0
+        assert 1.0 == Veidrodelis.zscore(@id, 0, "myzset", "member")
       end
 
       # Update the score
@@ -1010,11 +1007,11 @@ defmodule VeidrodelisTSTest do
 
       # Wait for update to replicate
       assert_within 500 do
-        Veidrodelis.zscore(@id, 0, "myzset", "member") == 2.5
+        assert 2.5 == Veidrodelis.zscore(@id, 0, "myzset", "member")
       end
 
       # Cardinality should still be 1
-      assert Veidrodelis.zcard(@id, 0, "myzset") == 1
+      assert 1 == Veidrodelis.zcard(@id, 0, "myzset")
 
       Veidrodelis.stop(pid)
     end
@@ -1028,18 +1025,18 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for zset to replicate
       assert_within 100 do
-        Veidrodelis.zcard(@id, 0, "myzset") == 3
+        assert 3 == Veidrodelis.zcard(@id, 0, "myzset")
       end
 
       # All members should exist with correct scores
-      assert Veidrodelis.zscore(@id, 0, "myzset", "a") == 1.0
-      assert Veidrodelis.zscore(@id, 0, "myzset", "b") == 1.0
-      assert Veidrodelis.zscore(@id, 0, "myzset", "c") == 2.0
+      assert 1.0 == Veidrodelis.zscore(@id, 0, "myzset", "a")
+      assert 1.0 == Veidrodelis.zscore(@id, 0, "myzset", "b")
+      assert 2.0 == Veidrodelis.zscore(@id, 0, "myzset", "c")
 
       # Range should return all members
       result = Veidrodelis.zrange(@id, 0, "myzset", 0, -1)
@@ -1057,18 +1054,18 @@ defmodule VeidrodelisTSTest do
 
       # Wait for replication
       assert_within 2000 do
-        Veidrodelis.get_replication_state(pid) == :streaming
+        assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
       # Wait for string to replicate
       assert_within 100 do
-        Veidrodelis.get(@id, 0, "mystring") == "value"
+        assert "value" == Veidrodelis.get(@id, 0, "mystring")
       end
 
       # Trying to access string as zset should return error
-      assert Veidrodelis.zscore(@id, 0, "mystring", "member") == {:error, :wrong_type}
-      assert Veidrodelis.zcard(@id, 0, "mystring") == {:error, :wrong_type}
-      assert Veidrodelis.zrange(@id, 0, "mystring", 0, -1) == {:error, :wrong_type}
+      assert {:error, :wrong_type} == Veidrodelis.zscore(@id, 0, "mystring", "member")
+      assert {:error, :wrong_type} == Veidrodelis.zcard(@id, 0, "mystring")
+      assert {:error, :wrong_type} == Veidrodelis.zrange(@id, 0, "mystring", 0, -1)
 
       Veidrodelis.stop(pid)
     end

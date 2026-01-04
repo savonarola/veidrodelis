@@ -66,7 +66,7 @@ defmodule Veidrodelis.ReplicaPeriodicAckTest do
 
       # Wait for replica to reach streaming state
       assert_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       initial_offset = Replica.get_offset(replica)
@@ -83,7 +83,7 @@ defmodule Veidrodelis.ReplicaPeriodicAckTest do
       assert final_offset > initial_offset
 
       # The replica should still be in streaming state
-      assert Replica.get_replication_state(replica) == :streaming
+      assert :streaming == Replica.get_replication_state(replica)
 
       Replica.stop(replica)
     end
@@ -104,7 +104,7 @@ defmodule Veidrodelis.ReplicaPeriodicAckTest do
 
       # Wait for replica to reach streaming state
       assert_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Write more data
@@ -114,7 +114,7 @@ defmodule Veidrodelis.ReplicaPeriodicAckTest do
       Process.sleep(1200)
 
       # Verify replica is still connected
-      assert Replica.get_replication_state(replica) == :streaming
+      assert :streaming == Replica.get_replication_state(replica)
 
       Replica.stop(replica)
     end

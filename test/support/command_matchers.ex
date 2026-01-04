@@ -32,10 +32,6 @@ defmodule CommandMatchers do
     end
   end
 
-  defmodule PollFailure do
-    defexception [:message]
-  end
-
   defmodule AssertWithinFail do
     defexception [:message, :cause]
 
@@ -48,10 +44,7 @@ defmodule CommandMatchers do
   def poll_until(check_fn, deadline, exc \\ nil) do
     if System.monotonic_time(:millisecond) < deadline do
       try do
-        if not check_fn.() do
-          raise %PollFailure{message: "Condition failed"}
-        end
-
+        check_fn.()
         :ok
       rescue
         e ->

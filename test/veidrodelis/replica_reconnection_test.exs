@@ -99,7 +99,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
 
       # Wait for initial sync
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Verify initial command was received
@@ -122,7 +122,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
 
       # Wait longer for both replica and redix to reconnect and stabilize
       assert_within 5000 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Write new data after reconnection - use fresh connection
@@ -159,7 +159,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
 
       # Wait for initial sync
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Check that on_replication_start was called once on initial full sync
@@ -186,7 +186,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
 
       # Wait for initial sync
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Check that on_replication_start was called once
@@ -200,7 +200,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
 
       # Wait for reconnection
       assert_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # on_replication_start should NOT be called again for partial resync
@@ -241,7 +241,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
 
       # Wait for successful connection
       assert_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Replica should still be alive
@@ -267,7 +267,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
 
       # Wait for initial sync
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Simulate 2-second network outage
@@ -275,7 +275,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
 
       # Wait for reconnection
       assert_within 5000 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Write new data - use fresh connection
@@ -320,7 +320,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
 
       # Wait for initial sync
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Get initial offset
@@ -334,7 +334,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
 
       # Wait for reconnection
       assert_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Offset should be preserved or increased

@@ -84,7 +84,7 @@ defmodule Veidrodelis.ReplicaTest do
 
       # Wait for RDB transfer to complete
       assert_within 2000 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Step 3: Issue more commands AFTER replica is connected
@@ -101,16 +101,16 @@ defmodule Veidrodelis.ReplicaTest do
         Logger.debug("Commands: #{inspect(commands)}")
 
         # Verify we received commands from RDB
-        command_in_list(%RedisCommand.Set{key: "key1", value: "value1"}, commands) &&
-          command_in_list(%RedisCommand.Set{key: "key2", value: "value2"}, commands) &&
-          command_in_list(%RedisCommand.RPush{key: "mylist"}, commands) &&
-          command_in_list(%RedisCommand.SAdd{key: "myset"}, commands) &&
-          command_in_list(%RedisCommand.ZAdd{key: "myzset"}, commands) &&
-          command_in_list(%RedisCommand.HSet{key: "myhash"}, commands) &&
-          command_in_list(%RedisCommand.Set{key: "key3", value: "value3"}, commands) &&
-          command_in_list(%RedisCommand.RPush{key: "mylist"}, commands) &&
-          command_in_list(%RedisCommand.SAdd{key: "myset"}, commands) &&
-          command_in_list(%RedisCommand.Del{keys: ["key3"]}, commands)
+        assert command_in_list(%RedisCommand.Set{key: "key1", value: "value1"}, commands)
+        assert command_in_list(%RedisCommand.Set{key: "key2", value: "value2"}, commands)
+        assert command_in_list(%RedisCommand.RPush{key: "mylist"}, commands)
+        assert command_in_list(%RedisCommand.SAdd{key: "myset"}, commands)
+        assert command_in_list(%RedisCommand.ZAdd{key: "myzset"}, commands)
+        assert command_in_list(%RedisCommand.HSet{key: "myhash"}, commands)
+        assert command_in_list(%RedisCommand.Set{key: "key3", value: "value3"}, commands)
+        assert command_in_list(%RedisCommand.RPush{key: "mylist"}, commands)
+        assert command_in_list(%RedisCommand.SAdd{key: "myset"}, commands)
+        assert command_in_list(%RedisCommand.Del{keys: ["key3"]}, commands)
       end
 
       Replica.stop(replica)
@@ -132,7 +132,7 @@ defmodule Veidrodelis.ReplicaTest do
 
       # Wait for sync
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Get initial offset
@@ -163,7 +163,7 @@ defmodule Veidrodelis.ReplicaTest do
 
       # Wait for sync
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Get replication ID
@@ -189,7 +189,7 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       callback_state = Replica.get_callback_state(replica)
@@ -214,7 +214,7 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       callback_state = Replica.get_callback_state(replica)
@@ -246,7 +246,7 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       assert_within 1500 do
@@ -275,7 +275,7 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       assert_within 1500 do
@@ -312,7 +312,7 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       callback_state = Replica.get_callback_state(replica)
@@ -351,7 +351,7 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       callback_state = Replica.get_callback_state(replica)
@@ -387,7 +387,7 @@ defmodule Veidrodelis.ReplicaTest do
       {:ok, replica} = Replica.start_link(opts)
 
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       callback_state = Replica.get_callback_state(replica)
@@ -424,7 +424,7 @@ defmodule Veidrodelis.ReplicaTest do
 
       # Wait for initial sync
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Now issue commands
@@ -437,9 +437,17 @@ defmodule Veidrodelis.ReplicaTest do
         callback_state = Replica.get_callback_state(replica)
         commands = CollectorCallback.commands(callback_state)
 
-        command_in_list(%RedisCommand.Set{key: "streamkey1", value: "streamvalue1"}, commands) &&
-          command_in_list(%RedisCommand.Set{key: "streamkey2", value: "streamvalue2"}, commands) &&
-          command_in_list(%RedisCommand.RPush{key: "streamlist"}, commands)
+        assert command_in_list(
+                 %RedisCommand.Set{key: "streamkey1", value: "streamvalue1"},
+                 commands
+               )
+
+        assert command_in_list(
+                 %RedisCommand.Set{key: "streamkey2", value: "streamvalue2"},
+                 commands
+               )
+
+        assert command_in_list(%RedisCommand.RPush{key: "streamlist"}, commands)
       end
 
       Replica.stop(replica)
@@ -471,7 +479,7 @@ defmodule Veidrodelis.ReplicaTest do
 
       # Wait for sync
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Get callback state
@@ -518,7 +526,7 @@ defmodule Veidrodelis.ReplicaTest do
 
       # Wait for sync
       assert_within 1500 do
-        Replica.get_replication_state(replica) == :streaming
+        assert :streaming == Replica.get_replication_state(replica)
       end
 
       # Get callback state

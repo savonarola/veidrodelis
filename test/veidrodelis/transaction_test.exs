@@ -40,11 +40,11 @@ defmodule Veidrodelis.TransactionTest do
 
       # Verify
       assert_within 2000 do
-        Veidrodelis.get(@id, 0, "key1") == "value1" &&
-          Veidrodelis.get(@id, 0, "key2") == "value2"
+        assert "value1" == Veidrodelis.get(@id, 0, "key1")
+        assert "value2" == Veidrodelis.get(@id, 0, "key2")
       end
 
-      assert Veidrodelis.get(@id, 0, "__vdr_tx") == nil
+      assert nil == Veidrodelis.get(@id, 0, "__vdr_tx")
 
       Veidrodelis.stop(vdr)
     end
@@ -69,16 +69,16 @@ defmodule Veidrodelis.TransactionTest do
 
       # Verify all data types
       assert_within 3000 do
-        Veidrodelis.get(@id, 0, "str_key") == "str_value" &&
-          Veidrodelis.llen(@id, 0, "list_key") == 2 &&
-          Veidrodelis.scard(@id, 0, "set_key") == 2 &&
-          Veidrodelis.hlen(@id, 0, "hash_key") == 2 &&
-          Veidrodelis.zcard(@id, 0, "zset_key") == 2
+        assert "str_value" == Veidrodelis.get(@id, 0, "str_key")
+        assert 2 == Veidrodelis.llen(@id, 0, "list_key")
+        assert 2 == Veidrodelis.scard(@id, 0, "set_key")
+        assert 2 == Veidrodelis.hlen(@id, 0, "hash_key")
+        assert 2 == Veidrodelis.zcard(@id, 0, "zset_key")
       end
 
-      assert Veidrodelis.lrange(@id, 0, "list_key", 0, -1) == ["elem1", "elem2"]
-      assert Veidrodelis.hget(@id, 0, "hash_key", "field1") == "value1"
-      assert Veidrodelis.zscore(@id, 0, "zset_key", "member1") == 1.0
+      assert ["elem1", "elem2"] == Veidrodelis.lrange(@id, 0, "list_key", 0, -1)
+      assert "value1" == Veidrodelis.hget(@id, 0, "hash_key", "field1")
+      assert 1.0 == Veidrodelis.zscore(@id, 0, "zset_key", "member1")
 
       Veidrodelis.stop(vdr)
     end
@@ -106,9 +106,9 @@ defmodule Veidrodelis.TransactionTest do
 
       # Verify
       assert_within 2000 do
-        Veidrodelis.get(@id, 0, "tx_key") == "tx_value" &&
-          Veidrodelis.get(@id, 0, "pre_key1") == nil &&
-          Veidrodelis.get(@id, 0, "pre_key2") == nil
+        assert "tx_value" == Veidrodelis.get(@id, 0, "tx_key")
+        assert nil == Veidrodelis.get(@id, 0, "pre_key1")
+        assert nil == Veidrodelis.get(@id, 0, "pre_key2")
       end
 
       Veidrodelis.stop(vdr)
@@ -130,7 +130,7 @@ defmodule Veidrodelis.TransactionTest do
       Process.sleep(200)
 
       # Should not crash
-      assert Veidrodelis.get(@id, 0, "__vdr_tx") == nil
+      assert nil == Veidrodelis.get(@id, 0, "__vdr_tx")
 
       Veidrodelis.stop(vdr)
     end
@@ -150,7 +150,7 @@ defmodule Veidrodelis.TransactionTest do
       Redix.command!(redis, ["DEL", "__vdr_tx"])
 
       assert_within 2000 do
-        Veidrodelis.get(@id, 0, "tx1_key") == "tx1_value"
+        assert "tx1_value" == Veidrodelis.get(@id, 0, "tx1_key")
       end
 
       # Second transaction
@@ -159,11 +159,11 @@ defmodule Veidrodelis.TransactionTest do
       Redix.command!(redis, ["DEL", "__vdr_tx"])
 
       assert_within 2000 do
-        Veidrodelis.get(@id, 0, "tx2_key") == "tx2_value"
+        assert "tx2_value" == Veidrodelis.get(@id, 0, "tx2_key")
       end
 
-      assert Veidrodelis.get(@id, 0, "tx1_key") == "tx1_value"
-      assert Veidrodelis.get(@id, 0, "tx2_key") == "tx2_value"
+      assert "tx1_value" == Veidrodelis.get(@id, 0, "tx1_key")
+      assert "tx2_value" == Veidrodelis.get(@id, 0, "tx2_key")
 
       Veidrodelis.stop(vdr)
     end
@@ -187,11 +187,11 @@ defmodule Veidrodelis.TransactionTest do
 
       # Verify
       assert_within 2000 do
-        Veidrodelis.get(@id, 0, "ts_key1") == "ts_value1" &&
-          Veidrodelis.get(@id, 0, "ts_key2") == "ts_value2"
+        assert "ts_value1" == Veidrodelis.get(@id, 0, "ts_key1")
+        assert "ts_value2" == Veidrodelis.get(@id, 0, "ts_key2")
       end
 
-      assert Veidrodelis.get(@id, 0, "__vdr_tx") == nil
+      assert nil == Veidrodelis.get(@id, 0, "__vdr_tx")
 
       Veidrodelis.stop(vdr)
     end
@@ -216,15 +216,15 @@ defmodule Veidrodelis.TransactionTest do
 
       # Verify
       assert_within 3000 do
-        Veidrodelis.get(@id, 0, "ts_str") == "ts_value" &&
-          Veidrodelis.llen(@id, 0, "ts_list") == 2 &&
-          Veidrodelis.scard(@id, 0, "ts_set") == 2 &&
-          Veidrodelis.hlen(@id, 0, "ts_hash") == 1 &&
-          Veidrodelis.zcard(@id, 0, "ts_zset") == 1
+        assert "ts_value" == Veidrodelis.get(@id, 0, "ts_str")
+        assert 2 == Veidrodelis.llen(@id, 0, "ts_list")
+        assert 2 == Veidrodelis.scard(@id, 0, "ts_set")
+        assert 1 == Veidrodelis.hlen(@id, 0, "ts_hash")
+        assert 1 == Veidrodelis.zcard(@id, 0, "ts_zset")
       end
 
-      assert Veidrodelis.lrange(@id, 0, "ts_list", 0, -1) == ["elem1", "elem2"]
-      assert Veidrodelis.hget(@id, 0, "ts_hash", "field1") == "value1"
+      assert ["elem1", "elem2"] == Veidrodelis.lrange(@id, 0, "ts_list", 0, -1)
+      assert "value1" == Veidrodelis.hget(@id, 0, "ts_hash", "field1")
 
       Veidrodelis.stop(vdr)
     end
