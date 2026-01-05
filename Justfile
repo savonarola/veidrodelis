@@ -13,14 +13,21 @@ test-all:
 
 # Run tests with coverage report (HTML)
 cov:
+    mix coveralls.html # --include slow
+    cd native/vdr_ts_nif && ./cover.sh
+    cd native/vdr_redis_nif && ./cover.sh
+    @echo "Coverage report: http://{{HOST}}:8000"
+    @cd cover && python3 -m http.server 8000 > /dev/null
+
+cov-ex:
     mix coveralls.html --include slow
     @echo "Coverage report: http://{{HOST}}:8000"
     @cd cover && python3 -m http.server 8000 > /dev/null
 
-
 clean:
     rm -rf native/vdr_redis_nif/target/*
     rm -rf priv/native/*
+    rm *.profraw
     mix clean
 
 clean-all: clean
