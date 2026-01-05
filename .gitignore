@@ -4,6 +4,9 @@ deps/
 *.beam
 *.ez
 
+# Coverage reports
+cover/
+
 # C NIF artifacts
 *.o
 *.so

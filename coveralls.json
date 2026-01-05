@@ -1,0 +1,8 @@
+{
+  "skip_files": [
+    "test",
+    "benchmark",
+    "lib/mix/tasks/",
+    "lib/veidrodelis/benchmark/"
+  ]
+}
