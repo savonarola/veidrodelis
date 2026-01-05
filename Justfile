@@ -12,14 +12,11 @@ test-all:
     mix test --trace --include slow
 
 # Run tests with coverage report (HTML)
-cov-html:
+cov:
     mix coveralls.html --include slow
     @echo "Coverage report: http://{{HOST}}:8000"
     @cd cover && python3 -m http.server 8000 > /dev/null
 
-# Run tests with detailed coverage in terminal
-cov:
-    mix coveralls.detail --include slow
 
 clean:
     rm -rf native/vdr_redis_nif/target/*
