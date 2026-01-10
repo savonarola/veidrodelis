@@ -548,7 +548,7 @@ defmodule Vdr.TS do
   @doc """
   Gets members from the sorted set with scores between min and max (inclusive).
 
-  If with_scores is true, returns flat list: [member1, score1, member2, score2, ...].
+  If with_scores is true, returns list of tuples: [{member1, score1}, {member2, score2}, ...].
   If with_scores is false, returns list of members: [member1, member2, ...].
 
   Returns `{:ok, elements}` where elements is a list.
@@ -557,29 +557,15 @@ defmodule Vdr.TS do
   ## Examples
 
       storage = Vdr.TS.create()
-      Vdr.TS.zadd(storage, 0, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}])
+      Vdr.TS.tx(storage, [{0, {:zadd, "myzset", [{1.0, "one"}, {2.0, "two"}, {3.0, "three"}]}}])
       {:ok, ["one", "two"]} = Vdr.TS.zrangebyscore(storage, 0, "myzset", 1.0, 2.0, false)
-      {:ok, ["one", 1.0, "two", 2.0]} = Vdr.TS.zrangebyscore(storage, 0, "myzset", 1.0, 2.0, true)
+      {:ok, [{"one", 1.0}, {"two", 2.0}]} = Vdr.TS.zrangebyscore(storage, 0, "myzset", 1.0, 2.0, true)
   """
   @spec zrangebyscore(reference(), non_neg_integer(), binary(), float(), float(), boolean()) ::
-          {:ok, [binary() | float()]} | {:error, :wrong_type}
+          {:ok, [binary()] | [{binary(), float()}]} | {:error, :wrong_type}
   def zrangebyscore(storage, db, key, min, max, with_scores) do
     [result] = tx(storage, [{db, {:zrangebyscore, key, min, max, with_scores}}])
-
-    case result do
-      {:ok, tuples} when with_scores ->
-        # Convert list of tuples to flat list: [{m1, s1}, {m2, s2}] -> [m1, s1, m2, s2]
-        flat_list =
-          Enum.flat_map(tuples, fn
-            {member, score} -> [member, score]
-            member -> [member]
-          end)
-
-        {:ok, flat_list}
-
-      other ->
-        other
-    end
+    result
   end
 
   @doc """

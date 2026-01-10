@@ -328,6 +328,14 @@ defmodule Vdr.TSProj do
     end
   end
 
+  def zrangebyscore(%{ts_storage: ts_storage}, db, key, min, max, with_scores)
+      when is_binary(key) do
+    case Vdr.TS.zrangebyscore(ts_storage, db, key, min, max, with_scores) do
+      {:ok, result} -> result
+      {:error, _} = error -> error
+    end
+  end
+
   @doc """
   Executes a Lua script with access to ts.get and ts.hget functions.
 

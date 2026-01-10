@@ -224,6 +224,27 @@ defmodule Veidrodelis do
   end
 
   @doc """
+  Returns all members in the sorted set stored at key with scores between min and max (inclusive).
+
+  If `with_scores` is `true`, returns a list of `{member, score}` tuples.
+  If `with_scores` is `false`, returns a list of members only.
+
+  ## Examples
+
+      {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
+      members = Veidrodelis.zrangebyscore(:my_instance, 0, "myzset", 1.0, 3.0, true)
+      # Returns: [{"one", 1.0}, {"two", 2.0}, {"three", 3.0}]
+
+      members = Veidrodelis.zrangebyscore(:my_instance, 0, "myzset", 1.0, 3.0, false)
+      # Returns: ["one", "two", "three"]
+  """
+  @spec zrangebyscore(instance_id(), db(), key(), float(), float(), boolean()) ::
+          [{any(), float()}] | [any()]
+  def zrangebyscore(id, db, key, min, max, with_scores \\ true) do
+    with_handle(id, :zrangebyscore, [db, key, min, max, with_scores])
+  end
+
+  @doc """
   Executes a Lua script with access to ts.get and ts.hget functions.
 
   The script is executed atomically under the storage mutex and has access to:

@@ -346,6 +346,10 @@ defmodule Vdr.MapProj do
     end
   end
 
+  def zrangebyscore(_pid, _db, _key, _min, _max, _with_scores) do
+    {:error, :not_implemented}
+  end
+
   @doc """
   Lua transactions are not supported in MapProj.
   Use TSProj for Lua transaction support.

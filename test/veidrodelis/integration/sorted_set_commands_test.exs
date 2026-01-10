@@ -602,6 +602,127 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
       end
     end
 
+    test "ZRANGEBYSCORE with scores replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrangebyscore_test", "1", "one", "2", "two", "3", "three", "4", "four", "5", "five"])
+
+      assert_within 1000 do
+        # Query range [2, 4]
+        redis_result = Redix.command!(redis, ["ZRANGEBYSCORE", "zrangebyscore_test", "2", "4", "WITHSCORES"])
+        ts_result = Veidrodelis.zrangebyscore(vdr_id(), 0, "zrangebyscore_test", 2.0, 4.0, true)
+
+        # Redis returns flat list: ["two", "2", "three", "3", "four", "4"]
+        # Veidrodelis returns tuples: [{"two", 2.0}, {"three", 3.0}, {"four", 4.0}]
+        # Convert both to comparable format (members and numeric scores)
+        parse_score = fn s ->
+          case Float.parse(s) do
+            {f, _} -> f
+            :error -> String.to_integer(s) * 1.0
+          end
+        end
+        redis_pairs = Enum.chunk_every(redis_result, 2) |> Enum.map(fn [m, s] -> {m, parse_score.(s)} end)
+
+        assert redis_pairs == ts_result
+      end
+    end
+
+    test "ZRANGEBYSCORE without scores replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrangebyscore_noscore", "1", "one", "2", "two", "3", "three", "4", "four", "5", "five"])
+
+      assert_within 1000 do
+        expected = ["two", "three", "four"]
+        redis_members = Redix.command!(redis, ["ZRANGEBYSCORE", "zrangebyscore_noscore", "2", "4"])
+        ts_members = Veidrodelis.zrangebyscore(vdr_id(), 0, "zrangebyscore_noscore", 2.0, 4.0, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+        assert ts_members == redis_members
+      end
+    end
+
+    test "ZRANGEBYSCORE with negative scores", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrangebyscore_neg", "-3", "a", "-1", "b", "0", "c", "2", "d"])
+
+      assert_within 1000 do
+        expected = ["a", "b", "c"]
+        redis_members = Redix.command!(redis, ["ZRANGEBYSCORE", "zrangebyscore_neg", "-3", "0"])
+        ts_members = Veidrodelis.zrangebyscore(vdr_id(), 0, "zrangebyscore_neg", -3.0, 0.0, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+        assert ts_members == redis_members
+      end
+    end
+
+    test "ZRANGEBYSCORE with floating point scores", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrangebyscore_float", "1.5", "a", "2.7", "b", "3.2", "c", "4.9", "d"])
+
+      assert_within 1000 do
+        expected = ["b", "c"]
+        redis_members = Redix.command!(redis, ["ZRANGEBYSCORE", "zrangebyscore_float", "2.0", "4.0"])
+        ts_members = Veidrodelis.zrangebyscore(vdr_id(), 0, "zrangebyscore_float", 2.0, 4.0, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+        assert ts_members == redis_members
+      end
+    end
+
+    test "ZRANGEBYSCORE with min equals max", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrangebyscore_equal", "1", "one", "2", "two", "3", "three"])
+
+      assert_within 1000 do
+        expected = ["two"]
+        redis_members = Redix.command!(redis, ["ZRANGEBYSCORE", "zrangebyscore_equal", "2", "2"])
+        ts_members = Veidrodelis.zrangebyscore(vdr_id(), 0, "zrangebyscore_equal", 2.0, 2.0, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+        assert ts_members == redis_members
+      end
+    end
+
+    test "ZRANGEBYSCORE with empty range", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrangebyscore_empty", "1", "one", "5", "five", "10", "ten"])
+
+      assert_within 1000 do
+        expected = []
+        redis_members = Redix.command!(redis, ["ZRANGEBYSCORE", "zrangebyscore_empty", "2", "4"])
+        ts_members = Veidrodelis.zrangebyscore(vdr_id(), 0, "zrangebyscore_empty", 2.0, 4.0, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+        assert ts_members == redis_members
+      end
+    end
+
+    test "ZRANGEBYSCORE on non-existent key", %{redis: redis} do
+      assert_within 1000 do
+        expected = []
+        redis_members = Redix.command!(redis, ["ZRANGEBYSCORE", "nonexistent_zset", "1", "10"])
+        ts_members = Veidrodelis.zrangebyscore(vdr_id(), 0, "nonexistent_zset", 1.0, 10.0, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+        assert ts_members == redis_members
+      end
+    end
+
+    test "ZRANGEBYSCORE with large score range", %{redis: redis} do
+      # Add 100 members with scores 1-100
+      args = Enum.flat_map(1..100, fn i -> [to_string(i), "member_#{i}"] end)
+      Redix.command!(redis, ["ZADD", "zrangebyscore_large" | args])
+
+      assert_within 1000 do
+        expected_count = 51  # Scores 25-75 inclusive
+        redis_members = Redix.command!(redis, ["ZRANGEBYSCORE", "zrangebyscore_large", "25", "75"])
+        ts_members = Veidrodelis.zrangebyscore(vdr_id(), 0, "zrangebyscore_large", 25.0, 75.0, false)
+
+        assert length(redis_members) == expected_count
+        assert length(ts_members) == expected_count
+        assert ts_members == redis_members
+      end
+    end
+
     test "ZPOPMAX with count", %{redis: redis} do
       Redix.command!(redis, ["ZADD", "popmax_count", "1", "a", "2", "b", "3", "c", "4", "d"])
       Redix.command!(redis, ["ZPOPMAX", "popmax_count", "2"])
