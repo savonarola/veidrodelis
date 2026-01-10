@@ -148,6 +148,14 @@ defmodule Veidrodelis do
   end
 
   @doc """
+  Returns whether member is a member of the set stored at key.
+  """
+  @spec sismember(instance_id(), db(), key(), any()) :: boolean()
+  def sismember(id, db, key, member) do
+    with_handle(id, :sismember, [db, key, member])
+  end
+
+  @doc """
   Returns the value associated with field in the hash stored at key.
   """
   @spec hget(instance_id(), db(), key(), any()) :: any()
