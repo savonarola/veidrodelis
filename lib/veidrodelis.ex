@@ -156,6 +156,70 @@ defmodule Veidrodelis do
   end
 
   @doc """
+  Gets the first (minimum) member from a set.
+
+  Returns the member or nil if the set is empty/doesn't exist.
+
+  ## Examples
+
+      {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
+      first = Veidrodelis.sfirst(:my_instance, 0, "myset")
+      # Returns: "a" (assuming set contains ["a", "b", "c"])
+  """
+  @spec sfirst(instance_id(), db(), key()) :: binary() | nil
+  def sfirst(id, db, key) do
+    with_handle(id, :sfirst, [db, key])
+  end
+
+  @doc """
+  Gets the last (maximum) member from a set.
+
+  Returns the member or nil if the set is empty/doesn't exist.
+
+  ## Examples
+
+      {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
+      last = Veidrodelis.slast(:my_instance, 0, "myset")
+      # Returns: "c" (assuming set contains ["a", "b", "c"])
+  """
+  @spec slast(instance_id(), db(), key()) :: binary() | nil
+  def slast(id, db, key) do
+    with_handle(id, :slast, [db, key])
+  end
+
+  @doc """
+  Gets the next member after the given member in a set.
+
+  Returns the next member or nil if no next element exists.
+
+  ## Examples
+
+      {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
+      next = Veidrodelis.snext(:my_instance, 0, "myset", "a")
+      # Returns: "b" (assuming set contains ["a", "b", "c"])
+  """
+  @spec snext(instance_id(), db(), key(), any()) :: binary() | nil
+  def snext(id, db, key, member) do
+    with_handle(id, :snext, [db, key, member])
+  end
+
+  @doc """
+  Gets the previous member before the given member in a set.
+
+  Returns the previous member or nil if no previous element exists.
+
+  ## Examples
+
+      {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
+      prev = Veidrodelis.sprev(:my_instance, 0, "myset", "c")
+      # Returns: "b" (assuming set contains ["a", "b", "c"])
+  """
+  @spec sprev(instance_id(), db(), key(), any()) :: binary() | nil
+  def sprev(id, db, key, member) do
+    with_handle(id, :sprev, [db, key, member])
+  end
+
+  @doc """
   Returns the value associated with field in the hash stored at key.
   """
   @spec hget(instance_id(), db(), key(), any()) :: any()

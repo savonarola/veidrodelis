@@ -104,6 +104,42 @@ pub fn new_lua() -> Lua {
             }
         }).expect("Failed to create scard");
 
+        let sfirst_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.sfirst(db, &key.as_bytes()) {
+                Ok(Some(member)) => Ok(Some(lua_ctx.create_string(member.as_slice())?)),
+                Ok(None) => Ok(None),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create sfirst");
+
+        let slast_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.slast(db, &key.as_bytes()) {
+                Ok(Some(member)) => Ok(Some(lua_ctx.create_string(member.as_slice())?)),
+                Ok(None) => Ok(None),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create slast");
+
+        let snext_fn = lua.create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.snext(db, &key.as_bytes(), &member.as_bytes()) {
+                Ok(Some(next_member)) => Ok(Some(lua_ctx.create_string(next_member.as_slice())?)),
+                Ok(None) => Ok(None),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create snext");
+
+        let sprev_fn = lua.create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.sprev(db, &key.as_bytes(), &member.as_bytes()) {
+                Ok(Some(prev_member)) => Ok(Some(lua_ctx.create_string(prev_member.as_slice())?)),
+                Ok(None) => Ok(None),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create sprev");
+
         // Hash functions
         let hmget_fn = lua.create_function(|lua_ctx, (key, fields): (mlua::String, mlua::Table)| {
             let (storage, db) = get_tx_ctx(&lua_ctx)?;
@@ -331,6 +367,10 @@ pub fn new_lua() -> Lua {
         ts_table.set("smembers", smembers_fn).expect("Failed to set smembers");
         ts_table.set("sismember", sismember_fn).expect("Failed to set sismember");
         ts_table.set("scard", scard_fn).expect("Failed to set scard");
+        ts_table.set("sfirst", sfirst_fn).expect("Failed to set sfirst");
+        ts_table.set("slast", slast_fn).expect("Failed to set slast");
+        ts_table.set("snext", snext_fn).expect("Failed to set snext");
+        ts_table.set("sprev", sprev_fn).expect("Failed to set sprev");
 
         // Hash functions
         ts_table.set("hget", hget_fn).expect("Failed to set hget");

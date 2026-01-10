@@ -794,6 +794,72 @@ fn execute_single_command<'a>(
                         };
                     }
                 }
+            } else if cmd_atom == atoms::sfirst() {
+                // {db, {:sfirst, key}}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.sfirst(db, key.as_slice()) {
+                            Ok(Some(member)) => {
+                                let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+                                member_bin.as_mut_slice().copy_from_slice(member.as_slice());
+                                (atoms::ok(), member_bin.release(env)).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::slast() {
+                // {db, {:slast, key}}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.slast(db, key.as_slice()) {
+                            Ok(Some(member)) => {
+                                let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+                                member_bin.as_mut_slice().copy_from_slice(member.as_slice());
+                                (atoms::ok(), member_bin.release(env)).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::snext() {
+                // {db, {:snext, key, member}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(member)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.snext(db, key.as_slice(), member.as_slice()) {
+                            Ok(Some(next_member)) => {
+                                let mut member_bin = rustler::types::OwnedBinary::new(next_member.len()).unwrap();
+                                member_bin.as_mut_slice().copy_from_slice(next_member.as_slice());
+                                (atoms::ok(), member_bin.release(env)).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::sprev() {
+                // {db, {:sprev, key, member}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(member)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.sprev(db, key.as_slice(), member.as_slice()) {
+                            Ok(Some(prev_member)) => {
+                                let mut member_bin = rustler::types::OwnedBinary::new(prev_member.len()).unwrap();
+                                member_bin.as_mut_slice().copy_from_slice(prev_member.as_slice());
+                                (atoms::ok(), member_bin.release(env)).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
             } else if cmd_atom == atoms::llen() {
                 // {db, {:llen, key}}
                 if args.len() == 1 {

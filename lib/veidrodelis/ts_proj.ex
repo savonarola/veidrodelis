@@ -249,6 +249,36 @@ defmodule Vdr.TSProj do
     end
   end
 
+  def sfirst(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
+    case Vdr.TS.sfirst(ts_storage, db, key) do
+      {:ok, member} -> member
+      {:error, _} = error -> error
+    end
+  end
+
+  def slast(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
+    case Vdr.TS.slast(ts_storage, db, key) do
+      {:ok, member} -> member
+      {:error, _} = error -> error
+    end
+  end
+
+  def snext(%{ts_storage: ts_storage}, db, key, member)
+      when is_binary(key) and is_binary(member) do
+    case Vdr.TS.snext(ts_storage, db, key, member) do
+      {:ok, next_member} -> next_member
+      {:error, _} = error -> error
+    end
+  end
+
+  def sprev(%{ts_storage: ts_storage}, db, key, member)
+      when is_binary(key) and is_binary(member) do
+    case Vdr.TS.sprev(ts_storage, db, key, member) do
+      {:ok, prev_member} -> prev_member
+      {:error, _} = error -> error
+    end
+  end
+
   # Hash accessors
   def hget(%{ts_storage: ts_storage}, db, key, field)
       when is_binary(key) and is_binary(field) do

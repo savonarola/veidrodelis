@@ -282,4 +282,60 @@ impl StorageInner {
             None => Ok(0),
         }
     }
+
+    /// Get the first (minimum) member from set.
+    /// Returns Some(member) or None if set is empty/doesn't exist.
+    pub fn sfirst(&self, db: u64, key: &[u8]) -> Result<Option<Bytes>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Set(set)) => {
+                Ok(set.iter().next().cloned())
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
+
+    /// Get the last (maximum) member from set.
+    /// Returns Some(member) or None if set is empty/doesn't exist.
+    pub fn slast(&self, db: u64, key: &[u8]) -> Result<Option<Bytes>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Set(set)) => {
+                Ok(set.iter().next_back().cloned())
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
+
+    /// Get the next member after the given member in set.
+    /// Returns Some(member) or None if no next element exists.
+    pub fn snext(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<Bytes>, &'static str> {
+        use std::ops::Bound;
+
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Set(set)) => {
+                // Use range starting after the current member
+                let range = set.range::<[u8], _>((Bound::Excluded(member), Bound::Unbounded));
+                Ok(range.take(1).next().cloned())
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
+
+    /// Get the previous member before the given member in set.
+    /// Returns Some(member) or None if no previous element exists.
+    pub fn sprev(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<Bytes>, &'static str> {
+        use std::ops::Bound;
+
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Set(set)) => {
+                // Use range ending before the current member, get last element
+                let range = set.range::<[u8], _>((Bound::Unbounded, Bound::Excluded(member)));
+                Ok(range.last().cloned())
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
 }

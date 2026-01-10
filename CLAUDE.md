@@ -312,8 +312,11 @@ Veidrodelis API → Registry Lookup →
 - **CRITICAL**: When adding new read-only TS functions, ALWAYS add corresponding Lua function in `StorageInner::new()`:
   - Follow the existing pattern using `get_tx_ctx()` helper
   - Register the function in the `ts` table
-  - Add tests in `ts_test.exs` for both direct call and Lua execution via `tx`
+  - Add tests in `ts_proj/` for both direct call and Lua execution via `tx`
   - This ensures feature parity between direct access and Lua transactions
+  - Add smoke `integration/` tests 
+- **CRITICAL**: When adding mutating ts functions:
+  - Do not add `ts_proj/` tests. Instead, add `integration/` tetst.
 - Update both TSProj and MapProj if changing projection behavior
 - Add comprehensive documentation with `@doc` and examples
 - Add tests in `test/veidrodelis/*_test.exs` (ExUnit). Do not start ad-hoc elixir scripts for testing, add a proper test module instead.

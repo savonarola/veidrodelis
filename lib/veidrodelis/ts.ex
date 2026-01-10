@@ -279,6 +279,86 @@ defmodule Vdr.TS do
     result
   end
 
+  @doc """
+  Gets the first (minimum) member from a set.
+
+  Returns `{:ok, member}` if the set is non-empty, `{:ok, nil}` if the set is empty or doesn't exist.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.sadd(storage, 0, "myset", ["a", "b", "c"])
+      {:ok, "a"} = Vdr.TS.sfirst(storage, 0, "myset")
+      {:ok, nil} = Vdr.TS.sfirst(storage, 0, "nonexistent")
+  """
+  @spec sfirst(reference(), non_neg_integer(), binary()) ::
+          {:ok, binary() | nil} | {:error, :wrong_type}
+  def sfirst(storage, db, key) do
+    [result] = tx(storage, [{db, {:sfirst, key}}])
+    result
+  end
+
+  @doc """
+  Gets the last (maximum) member from a set.
+
+  Returns `{:ok, member}` if the set is non-empty, `{:ok, nil}` if the set is empty or doesn't exist.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.sadd(storage, 0, "myset", ["a", "b", "c"])
+      {:ok, "c"} = Vdr.TS.slast(storage, 0, "myset")
+      {:ok, nil} = Vdr.TS.slast(storage, 0, "nonexistent")
+  """
+  @spec slast(reference(), non_neg_integer(), binary()) ::
+          {:ok, binary() | nil} | {:error, :wrong_type}
+  def slast(storage, db, key) do
+    [result] = tx(storage, [{db, {:slast, key}}])
+    result
+  end
+
+  @doc """
+  Gets the next member after the given member in a set.
+
+  Returns `{:ok, member}` if there is a next member, `{:ok, nil}` if no next element exists.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.sadd(storage, 0, "myset", ["a", "b", "c"])
+      {:ok, "b"} = Vdr.TS.snext(storage, 0, "myset", "a")
+      {:ok, nil} = Vdr.TS.snext(storage, 0, "myset", "c")
+  """
+  @spec snext(reference(), non_neg_integer(), binary(), binary()) ::
+          {:ok, binary() | nil} | {:error, :wrong_type}
+  def snext(storage, db, key, member) do
+    [result] = tx(storage, [{db, {:snext, key, member}}])
+    result
+  end
+
+  @doc """
+  Gets the previous member before the given member in a set.
+
+  Returns `{:ok, member}` if there is a previous member, `{:ok, nil}` if no previous element exists.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.sadd(storage, 0, "myset", ["a", "b", "c"])
+      {:ok, "b"} = Vdr.TS.sprev(storage, 0, "myset", "c")
+      {:ok, nil} = Vdr.TS.sprev(storage, 0, "myset", "a")
+  """
+  @spec sprev(reference(), non_neg_integer(), binary(), binary()) ::
+          {:ok, binary() | nil} | {:error, :wrong_type}
+  def sprev(storage, db, key, member) do
+    [result] = tx(storage, [{db, {:sprev, key, member}}])
+    result
+  end
+
   # List operations (read-only)
 
   @doc """
