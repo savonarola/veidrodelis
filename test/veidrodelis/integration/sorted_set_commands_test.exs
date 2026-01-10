@@ -1,0 +1,635 @@
+defmodule Veidrodelis.Integration.SortedSetCommandsTest do
+  @moduledoc """
+  Integration tests for sorted set commands.
+
+  Triple comparison tests: verify that Redis value, TS value, and expected value are all equal.
+  Includes comprehensive edge case tests for ZADD options, ZINCRBY, ZREMRANGEBYSCORE, ZREMRANGEBYLEX, and set operations.
+  """
+
+  use ExUnit.Case, async: false
+  use CommandMatchers
+  use IntegrationHelpers
+  require Logger
+
+  setup do
+    setup_redis()
+  end
+
+  describe "sorted set commands" do
+    @describetag timeout: 30_000
+
+    setup %{redis: redis} do
+      setup_veidrodelis(redis)
+    end
+
+    test "ZPOPMAX replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "pop_test", "1", "a", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZPOPMAX", "pop_test", "1"])
+
+      assert_within 1000 do
+        expected_card = 2
+        redis_card = Redix.command!(redis, ["ZCARD", "pop_test"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "pop_test")
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert ts_card == redis_card
+      end
+    end
+
+    test "ZPOPMIN replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "pop_test", "1", "a", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZPOPMIN", "pop_test", "1"])
+
+      assert_within 1000 do
+        expected_card = 2
+        redis_card = Redix.command!(redis, ["ZCARD", "pop_test"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "pop_test")
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+      end
+    end
+
+    test "ZREMRANGEBYRANK replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "rank_test", "1", "a", "2", "b", "3", "c", "4", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYRANK", "rank_test", "1", "2"])
+
+      assert_within 1000 do
+        expected = ["a", "d"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "rank_test", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "rank_test", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+        assert ts_members == redis_members
+      end
+    end
+
+    test "ZREMRANGEBYSCORE replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "score_test", "1", "a", "2", "b", "3", "c", "4", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYSCORE", "score_test", "2", "3"])
+
+      assert_within 1000 do
+        expected = ["a", "d"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "score_test", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "score_test", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+        assert ts_members == redis_members
+      end
+    end
+
+    test "ZUNIONSTORE replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zset_a", "1", "a", "2", "b"])
+      Redix.command!(redis, ["ZADD", "zset_b", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZUNIONSTORE", "zset_union", "2", "zset_a", "zset_b"])
+
+      assert_within 1000 do
+        expected_card = 3
+        # 2.0 + 2.0
+        expected_score_b = 4.0
+        redis_card = Redix.command!(redis, ["ZCARD", "zset_union"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zset_union")
+        redis_score = Redix.command!(redis, ["ZSCORE", "zset_union", "b"])
+        ts_score = Veidrodelis.zscore(vdr_id(), 0, "zset_union", "b")
+
+        redis_score_float =
+          case Float.parse(redis_score) do
+            {f, _} -> f
+            :error -> String.to_integer(redis_score) * 1.0
+          end
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_score_b == redis_score_float
+        assert expected_score_b == ts_score
+      end
+    end
+
+    test "ZINTERSTORE replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zset_a", "1", "a", "2", "b"])
+      Redix.command!(redis, ["ZADD", "zset_b", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZINTERSTORE", "zset_inter", "2", "zset_a", "zset_b"])
+
+      assert_within 1000 do
+        expected_card = 1
+        expected_members = ["b"]
+        redis_card = Redix.command!(redis, ["ZCARD", "zset_inter"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zset_inter")
+        redis_members = Redix.command!(redis, ["ZRANGE", "zset_inter", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zset_inter", 0, -1, false)
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    # ===== Comprehensive Edge Case Tests =====
+
+    test "ZADD with options: NX only adds new members", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "nx_test", "1", "existing"])
+      Redix.command!(redis, ["ZADD", "nx_test", "NX", "2", "existing", "3", "new"])
+
+      assert_within 1000 do
+        assert {1.0, ""} == Float.parse(Redix.command!(redis, ["ZSCORE", "nx_test", "existing"]))
+        assert 1.0 == Veidrodelis.zscore(vdr_id(), 0, "nx_test", "existing")
+        assert {3.0, ""} == Float.parse(Redix.command!(redis, ["ZSCORE", "nx_test", "new"]))
+        assert 3.0 == Veidrodelis.zscore(vdr_id(), 0, "nx_test", "new")
+      end
+    end
+
+    test "ZADD with options: XX only updates existing members", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "xx_test", "1", "existing"])
+      Redix.command!(redis, ["ZADD", "xx_test", "XX", "5", "existing", "3", "new"])
+
+      assert_within 1000 do
+        # "existing" should be updated to 5
+        # "new" should NOT be added
+        redis_score_existing = Redix.command!(redis, ["ZSCORE", "xx_test", "existing"])
+        ts_score_existing = Veidrodelis.zscore(vdr_id(), 0, "xx_test", "existing")
+        ts_score_new = Veidrodelis.zscore(vdr_id(), 0, "xx_test", "new")
+
+        assert {5.0, ""} == Float.parse(redis_score_existing)
+        assert 5.0 == ts_score_existing
+        assert nil == ts_score_new
+      end
+    end
+
+    test "ZADD with options: GT only updates if new score greater", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "gt_test", "5", "member"])
+      # Should not update (3 < 5)
+      Redix.command!(redis, ["ZADD", "gt_test", "GT", "3", "member"])
+
+      assert_within 1000 do
+        redis_score = Redix.command!(redis, ["ZSCORE", "gt_test", "member"])
+        ts_score = Veidrodelis.zscore(vdr_id(), 0, "gt_test", "member")
+
+        assert {5.0, ""} == Float.parse(redis_score)
+        assert 5.0 == ts_score
+      end
+    end
+
+    test "ZADD with options: LT only updates if new score less", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "lt_test", "5", "member"])
+      # Should update (3 < 5)
+      Redix.command!(redis, ["ZADD", "lt_test", "LT", "3", "member"])
+
+      assert_within 1000 do
+        redis_score = Redix.command!(redis, ["ZSCORE", "lt_test", "member"])
+        ts_score = Veidrodelis.zscore(vdr_id(), 0, "lt_test", "member")
+
+        Float.parse(redis_score) == {3.0, ""} and ts_score == 3.0
+      end
+    end
+
+    test "ZADD with options: INCR increments score", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "incr_test", "5", "member"])
+      # Should be 5 + 3 = 8
+      Redix.command!(redis, ["ZADD", "incr_test", "INCR", "3", "member"])
+
+      assert_within 1000 do
+        redis_score = Redix.command!(redis, ["ZSCORE", "incr_test", "member"])
+        ts_score = Veidrodelis.zscore(vdr_id(), 0, "incr_test", "member")
+
+        assert {8.0, ""} == Float.parse(redis_score)
+        assert 8.0 == ts_score
+      end
+    end
+
+    test "ZINCRBY increments existing member in existing key", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zincrby_existing", "10.0", "counter"])
+      # Should be 10.0 + 5.5 = 15.5
+      Redix.command!(redis, ["ZINCRBY", "zincrby_existing", "5.5", "counter"])
+
+      assert_within 1000 do
+        redis_score = Redix.command!(redis, ["ZSCORE", "zincrby_existing", "counter"])
+        ts_score = Veidrodelis.zscore(vdr_id(), 0, "zincrby_existing", "counter")
+
+        assert {15.5, ""} == Float.parse(redis_score)
+        assert 15.5 == ts_score
+      end
+    end
+
+    test "ZINCRBY creates member in existing key", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zincrby_new_member", "1.0", "existing"])
+      # Should create "new_member" with score 7.5 (0 + 7.5)
+      Redix.command!(redis, ["ZINCRBY", "zincrby_new_member", "7.5", "new_member"])
+
+      assert_within 1000 do
+        redis_count = Redix.command!(redis, ["ZCARD", "zincrby_new_member"])
+        ts_count = Veidrodelis.zcard(vdr_id(), 0, "zincrby_new_member")
+        redis_score = Redix.command!(redis, ["ZSCORE", "zincrby_new_member", "new_member"])
+        ts_score = Veidrodelis.zscore(vdr_id(), 0, "zincrby_new_member", "new_member")
+
+        assert 2 == redis_count
+        assert 2 == ts_count
+        assert {7.5, ""} == Float.parse(redis_score)
+        assert 7.5 == ts_score
+      end
+    end
+
+    test "ZINCRBY creates key and member when key doesn't exist", %{redis: redis} do
+      # Should create key and member with score 42.0 (0 + 42.0)
+      Redix.command!(redis, ["ZINCRBY", "zincrby_new_key", "42.0", "member1"])
+
+      assert_within 1000 do
+        redis_count = Redix.command!(redis, ["ZCARD", "zincrby_new_key"])
+        ts_count = Veidrodelis.zcard(vdr_id(), 0, "zincrby_new_key")
+        redis_score = Redix.command!(redis, ["ZSCORE", "zincrby_new_key", "member1"])
+        ts_score = Veidrodelis.zscore(vdr_id(), 0, "zincrby_new_key", "member1")
+
+        assert 1 == redis_count
+        assert 1 == ts_count
+        assert {42.0, ""} == Float.parse(redis_score)
+        assert 42.0 == ts_score
+      end
+    end
+
+    test "ZINCRBY decrements with negative increment", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zincrby_decr", "100.0", "score"])
+      # Should be 100.0 + (-25.5) = 74.5
+      Redix.command!(redis, ["ZINCRBY", "zincrby_decr", "-25.5", "score"])
+
+      assert_within 1000 do
+        redis_score = Redix.command!(redis, ["ZSCORE", "zincrby_decr", "score"])
+        ts_score = Veidrodelis.zscore(vdr_id(), 0, "zincrby_decr", "score")
+
+        assert {74.5, ""} == Float.parse(redis_score)
+        assert 74.5 == ts_score
+      end
+    end
+
+    test "ZREMRANGEBYSCORE with exclusive min boundary", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "excl_min", "1", "a", "2", "b", "3", "c", "4", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYSCORE", "excl_min", "(2", "3"])
+
+      assert_within 1000 do
+        # Only "c" removed (score 3), "b" (score 2) kept
+        expected = ["a", "b", "d"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "excl_min", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "excl_min", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+
+    test "ZREMRANGEBYSCORE with exclusive max boundary", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "excl_max", "1", "a", "2", "b", "3", "c", "4", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYSCORE", "excl_max", "2", "(3"])
+
+      assert_within 1000 do
+        # Only "b" removed (score 2), "c" (score 3) kept
+        expected = ["a", "c", "d"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "excl_max", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "excl_max", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+
+    test "ZREMRANGEBYSCORE with both exclusive boundaries", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "excl_both", "1", "a", "2", "b", "3", "c", "4", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYSCORE", "excl_both", "(2", "(4"])
+
+      assert_within 1000 do
+        # Only "c" removed, "b" and "d" kept
+        expected = ["a", "b", "d"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "excl_both", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "excl_both", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+
+    test "ZREMRANGEBYSCORE from -inf to value", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "inf_min", "1", "a", "2", "b", "3", "c", "4", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYSCORE", "inf_min", "-inf", "2"])
+
+      assert_within 1000 do
+        # "a" and "b" removed
+        expected = ["c", "d"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "inf_min", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "inf_min", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+
+    test "ZREMRANGEBYSCORE from value to +inf", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "inf_max", "1", "a", "2", "b", "3", "c", "4", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYSCORE", "inf_max", "3", "+inf"])
+
+      assert_within 1000 do
+        # "c" and "d" removed
+        expected = ["a", "b"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "inf_max", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "inf_max", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+
+    test "ZREMRANGEBYSCORE from -inf to +inf removes all", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "inf_all", "1", "a", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZREMRANGEBYSCORE", "inf_all", "-inf", "+inf"])
+
+      assert_within 1000 do
+        redis_card = Redix.command!(redis, ["ZCARD", "inf_all"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "inf_all")
+
+        assert 0 == redis_card
+        assert 0 == ts_card
+      end
+    end
+
+    test "ZREMRANGEBYLEX with inclusive range", %{redis: redis} do
+      # All members must have same score for lex operations
+      Redix.command!(redis, ["ZADD", "lex_incl", "0", "a", "0", "b", "0", "c", "0", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYLEX", "lex_incl", "[b", "[c"])
+
+      assert_within 1000 do
+        # "b" and "c" removed
+        expected = ["a", "d"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "lex_incl", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "lex_incl", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+
+    test "ZREMRANGEBYLEX with exclusive range", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "lex_excl", "0", "a", "0", "b", "0", "c", "0", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYLEX", "lex_excl", "(a", "(d"])
+
+      assert_within 1000 do
+        # "b" and "c" removed, "a" and "d" kept
+        expected = ["a", "d"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "lex_excl", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "lex_excl", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+
+    test "ZREMRANGEBYLEX with - (min) boundary", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "lex_min", "0", "a", "0", "b", "0", "c", "0", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYLEX", "lex_min", "-", "[b"])
+
+      assert_within 1000 do
+        # "a" and "b" removed
+        expected = ["c", "d"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "lex_min", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "lex_min", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+
+    test "ZREMRANGEBYLEX with + (max) boundary", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "lex_max", "0", "a", "0", "b", "0", "c", "0", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYLEX", "lex_max", "[c", "+"])
+
+      assert_within 1000 do
+        # "c" and "d" removed
+        expected = ["a", "b"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "lex_max", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "lex_max", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+
+    test "ZREMRANGEBYLEX from - to + removes all", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "lex_all", "0", "a", "0", "b", "0", "c"])
+      Redix.command!(redis, ["ZREMRANGEBYLEX", "lex_all", "-", "+"])
+
+      assert_within 1000 do
+        redis_card = Redix.command!(redis, ["ZCARD", "lex_all"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "lex_all")
+
+        assert 0 == redis_card
+        assert 0 == ts_card
+      end
+    end
+
+    test "ZADD with infinity scores", %{redis: redis} do
+      # Redis supports +inf and -inf as scores
+      Redix.command!(redis, ["ZADD", "inf_scores", "-inf", "min", "0", "mid", "+inf", "max"])
+
+      assert_within 1000 do
+        expected = ["min", "mid", "max"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "inf_scores", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "inf_scores", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+
+    test "ZREMRANGEBYSCORE with infinity score members", %{redis: redis} do
+      Redix.command!(redis, [
+        "ZADD",
+        "inf_members",
+        "-inf",
+        "minval",
+        "1",
+        "a",
+        "2",
+        "b",
+        "+inf",
+        "maxval"
+      ])
+
+      # Remove from score 1 to +inf (inclusive)
+      Redix.command!(redis, ["ZREMRANGEBYSCORE", "inf_members", "1", "+inf"])
+
+      assert_within 1000 do
+        # Only -inf member remains
+        expected = ["minval"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "inf_members", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "inf_members", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+
+    test "ZUNIONSTORE with WEIGHTS", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "union_w1", "1", "a", "2", "b"])
+      Redix.command!(redis, ["ZADD", "union_w2", "1", "b", "3", "c"])
+
+      Redix.command!(redis, [
+        "ZUNIONSTORE",
+        "union_weighted",
+        "2",
+        "union_w1",
+        "union_w2",
+        "WEIGHTS",
+        "2",
+        "3"
+      ])
+
+      assert_within 1000 do
+        # a: 1*2 = 2, b: 2*2 + 1*3 = 7, c: 3*3 = 9
+        redis_score_b = Redix.command!(redis, ["ZSCORE", "union_weighted", "b"])
+        ts_score_b = Veidrodelis.zscore(vdr_id(), 0, "union_weighted", "b")
+
+        Float.parse(redis_score_b) == {7.0, ""} and ts_score_b == 7.0
+      end
+    end
+
+    test "ZUNIONSTORE with AGGREGATE MIN", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "union_min1", "1", "a", "5", "b"])
+      Redix.command!(redis, ["ZADD", "union_min2", "3", "b", "2", "c"])
+
+      Redix.command!(redis, [
+        "ZUNIONSTORE",
+        "union_min_result",
+        "2",
+        "union_min1",
+        "union_min2",
+        "AGGREGATE",
+        "MIN"
+      ])
+
+      assert_within 1000 do
+        # b should have min(5, 3) = 3
+        redis_score_b = Redix.command!(redis, ["ZSCORE", "union_min_result", "b"])
+        ts_score_b = Veidrodelis.zscore(vdr_id(), 0, "union_min_result", "b")
+
+        Float.parse(redis_score_b) == {3.0, ""} and ts_score_b == 3.0
+      end
+    end
+
+    test "ZUNIONSTORE with AGGREGATE MAX", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "union_max1", "1", "a", "5", "b"])
+      Redix.command!(redis, ["ZADD", "union_max2", "3", "b", "2", "c"])
+
+      Redix.command!(redis, [
+        "ZUNIONSTORE",
+        "union_max_result",
+        "2",
+        "union_max1",
+        "union_max2",
+        "AGGREGATE",
+        "MAX"
+      ])
+
+      assert_within 1000 do
+        # b should have max(5, 3) = 5
+        redis_score_b = Redix.command!(redis, ["ZSCORE", "union_max_result", "b"])
+        ts_score_b = Veidrodelis.zscore(vdr_id(), 0, "union_max_result", "b")
+
+        Float.parse(redis_score_b) == {5.0, ""} and ts_score_b == 5.0
+      end
+    end
+
+    test "ZINTERSTORE with WEIGHTS", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "inter_w1", "1", "a", "2", "b"])
+      Redix.command!(redis, ["ZADD", "inter_w2", "3", "b", "4", "c"])
+
+      Redix.command!(redis, [
+        "ZINTERSTORE",
+        "inter_weighted",
+        "2",
+        "inter_w1",
+        "inter_w2",
+        "WEIGHTS",
+        "2",
+        "3"
+      ])
+
+      assert_within 1000 do
+        # Only b is in both: 2*2 + 3*3 = 13
+        redis_card = Redix.command!(redis, ["ZCARD", "inter_weighted"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "inter_weighted")
+        redis_score_b = Redix.command!(redis, ["ZSCORE", "inter_weighted", "b"])
+        ts_score_b = Veidrodelis.zscore(vdr_id(), 0, "inter_weighted", "b")
+
+        redis_card == 1 and ts_card == 1 and
+          Float.parse(redis_score_b) == {13.0, ""} and ts_score_b == 13.0
+      end
+    end
+
+    test "ZINTERSTORE with AGGREGATE MAX", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "inter_max1", "5", "b", "1", "a"])
+      Redix.command!(redis, ["ZADD", "inter_max2", "3", "b", "2", "c"])
+
+      Redix.command!(redis, [
+        "ZINTERSTORE",
+        "inter_max_result",
+        "2",
+        "inter_max1",
+        "inter_max2",
+        "AGGREGATE",
+        "MAX"
+      ])
+
+      assert_within 1000 do
+        # Only b: max(5, 3) = 5
+        redis_score_b = Redix.command!(redis, ["ZSCORE", "inter_max_result", "b"])
+        ts_score_b = Veidrodelis.zscore(vdr_id(), 0, "inter_max_result", "b")
+
+        Float.parse(redis_score_b) == {5.0, ""} and ts_score_b == 5.0
+      end
+    end
+
+    test "ZREMRANGEBYRANK with negative indices", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "rank_neg", "1", "a", "2", "b", "3", "c", "4", "d"])
+      Redix.command!(redis, ["ZREMRANGEBYRANK", "rank_neg", "-2", "-1"])
+
+      assert_within 1000 do
+        # Last two removed
+        expected = ["a", "b"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "rank_neg", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "rank_neg", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+
+    test "ZPOPMAX with count", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "popmax_count", "1", "a", "2", "b", "3", "c", "4", "d"])
+      Redix.command!(redis, ["ZPOPMAX", "popmax_count", "2"])
+
+      assert_within 1000 do
+        # Top 2 (d, c) removed
+        expected = ["a", "b"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "popmax_count", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "popmax_count", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+
+    test "ZPOPMIN with count", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "popmin_count", "1", "a", "2", "b", "3", "c", "4", "d"])
+      Redix.command!(redis, ["ZPOPMIN", "popmin_count", "2"])
+
+      assert_within 1000 do
+        # Bottom 2 (a, b) removed
+        expected = ["c", "d"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "popmin_count", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "popmin_count", 0, -1, false)
+
+        assert expected == redis_members
+        assert expected == ts_members
+      end
+    end
+  end
+end
