@@ -50,7 +50,6 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
 
         assert expected == redis_val
         assert expected == ts_val
-        assert ts_val == redis_val
       end
     end
 
@@ -124,7 +123,6 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
 
         assert expected == redis_val
         assert expected == ts_val
-        assert ts_val == redis_val
       end
     end
   end

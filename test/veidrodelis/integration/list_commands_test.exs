@@ -32,7 +32,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -47,7 +46,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -62,7 +60,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -77,7 +74,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -92,7 +88,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -107,7 +102,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -122,7 +116,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -137,7 +130,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -152,7 +144,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -167,7 +158,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -182,7 +172,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -197,7 +186,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -212,7 +200,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -232,11 +219,9 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected_src == redis_src
         assert expected_src == ts_src
-        assert ts_src == redis_src
 
         assert expected_dest == redis_dest
         assert expected_dest == ts_dest
-        assert ts_dest == redis_dest
       end
     end
 
@@ -251,7 +236,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
 
@@ -267,7 +251,6 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         assert expected == redis_list
         assert expected == ts_list
-        assert ts_list == redis_list
       end
     end
   end

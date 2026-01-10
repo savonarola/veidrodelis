@@ -33,7 +33,6 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
 
         assert expected_card == redis_card
         assert expected_card == ts_card
-        assert ts_card == redis_card
       end
     end
 
@@ -62,7 +61,6 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
 
         assert expected == redis_members
         assert expected == ts_members
-        assert ts_members == redis_members
       end
     end
 
@@ -77,7 +75,6 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
 
         assert expected == redis_members
         assert expected == ts_members
-        assert ts_members == redis_members
       end
     end
 
@@ -635,7 +632,6 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
 
         assert expected == redis_members
         assert expected == ts_members
-        assert ts_members == redis_members
       end
     end
 
@@ -649,7 +645,6 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
 
         assert expected == redis_members
         assert expected == ts_members
-        assert ts_members == redis_members
       end
     end
 
@@ -663,7 +658,6 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
 
         assert expected == redis_members
         assert expected == ts_members
-        assert ts_members == redis_members
       end
     end
 
@@ -677,7 +671,6 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
 
         assert expected == redis_members
         assert expected == ts_members
-        assert ts_members == redis_members
       end
     end
 
@@ -691,7 +684,6 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
 
         assert expected == redis_members
         assert expected == ts_members
-        assert ts_members == redis_members
       end
     end
 
@@ -703,7 +695,6 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
 
         assert expected == redis_members
         assert expected == ts_members
-        assert ts_members == redis_members
       end
     end
 
@@ -719,7 +710,6 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
 
         assert length(redis_members) == expected_count
         assert length(ts_members) == expected_count
-        assert ts_members == redis_members
       end
     end
 
