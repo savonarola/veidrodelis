@@ -85,5 +85,47 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
         assert expected == ts_dst
       end
     end
+
+    test "MOVE replicates correctly", %{redis: redis} do
+      # Set a key in DB 0
+      Redix.command!(redis, ["SET", "move_key", "move_value"])
+      # Move it to DB 1
+      result = Redix.command!(redis, ["MOVE", "move_key", "1"])
+
+      assert_within 1000 do
+        expected = "move_value"
+
+        # Key should no longer exist in DB 0
+        redis_db0 = Redix.command!(redis, ["GET", "move_key"])
+        ts_db0 = Veidrodelis.get(vdr_id(), 0, "move_key")
+        assert nil == redis_db0
+        assert nil == ts_db0
+
+        # Key should now exist in DB 1
+        Redix.command!(redis, ["SELECT", "1"])
+        redis_db1 = Redix.command!(redis, ["GET", "move_key"])
+        ts_db1 = Veidrodelis.get(vdr_id(), 1, "move_key")
+        Redix.command!(redis, ["SELECT", "0"])
+
+        assert expected == redis_db1
+        assert expected == ts_db1
+        assert 1 == result
+      end
+    end
+
+    test "APPEND on empty key replicates correctly", %{redis: redis} do
+      # APPEND on a non-existing key should create it
+      Redix.command!(redis, ["APPEND", "new_key", "appended_content"])
+
+      assert_within 1000 do
+        expected = "appended_content"
+        redis_val = Redix.command!(redis, ["GET", "new_key"])
+        ts_val = Veidrodelis.get(vdr_id(), 0, "new_key")
+
+        assert expected == redis_val
+        assert expected == ts_val
+        assert ts_val == redis_val
+      end
+    end
   end
 end
