@@ -264,15 +264,9 @@ impl StorageInner {
             return Ok(());
         }
 
-        // Extract the range
-        let trimmed: Vector<Bytes> = list
-            .iter()
-            .skip(start_pos)
-            .take(stop_pos - start_pos + 1)
-            .cloned()
-            .collect();
-
-        *list = trimmed;
+        // Trim from front using skip, then trim from back to desired length
+        let desired_len = stop_pos - start_pos + 1;
+        *list = list.skip(start_pos).take(desired_len);
 
         // Remove key if list is empty
         if list.is_empty() {
