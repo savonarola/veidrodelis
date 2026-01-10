@@ -752,5 +752,186 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
         assert expected == ts_members
       end
     end
+
+    test "ZRANK returns correct rank in ascending order", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrank_test", "1", "one", "2", "two", "3", "three", "4", "four"])
+
+      assert_within 1000 do
+        # Ranks: one=0, two=1, three=2, four=3
+        redis_rank_one = Redix.command!(redis, ["ZRANK", "zrank_test", "one"])
+        ts_rank_one = Veidrodelis.zrank(vdr_id(), 0, "zrank_test", "one")
+        redis_rank_three = Redix.command!(redis, ["ZRANK", "zrank_test", "three"])
+        ts_rank_three = Veidrodelis.zrank(vdr_id(), 0, "zrank_test", "three")
+        redis_rank_four = Redix.command!(redis, ["ZRANK", "zrank_test", "four"])
+        ts_rank_four = Veidrodelis.zrank(vdr_id(), 0, "zrank_test", "four")
+
+        assert 0 == redis_rank_one
+        assert 0 == ts_rank_one
+        assert 2 == redis_rank_three
+        assert 2 == ts_rank_three
+        assert 3 == redis_rank_four
+        assert 3 == ts_rank_four
+      end
+    end
+
+    test "ZRANK returns nil for non-existent member", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrank_missing", "1", "one", "2", "two"])
+
+      assert_within 1000 do
+        redis_rank = Redix.command!(redis, ["ZRANK", "zrank_missing", "nonexistent"])
+        ts_rank = Veidrodelis.zrank(vdr_id(), 0, "zrank_missing", "nonexistent")
+
+        assert nil == redis_rank
+        assert nil == ts_rank
+      end
+    end
+
+    test "ZRANK returns nil for non-existent key", %{redis: redis} do
+      assert_within 1000 do
+        redis_rank = Redix.command!(redis, ["ZRANK", "nonexistent_key", "member"])
+        ts_rank = Veidrodelis.zrank(vdr_id(), 0, "nonexistent_key", "member")
+
+        assert nil == redis_rank
+        assert nil == ts_rank
+      end
+    end
+
+    test "ZRANK with duplicate scores returns rank based on member order", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrank_dup", "1", "a", "1", "b", "1", "c"])
+
+      assert_within 1000 do
+        # With same scores, members are ordered lexicographically
+        redis_rank_a = Redix.command!(redis, ["ZRANK", "zrank_dup", "a"])
+        ts_rank_a = Veidrodelis.zrank(vdr_id(), 0, "zrank_dup", "a")
+        redis_rank_b = Redix.command!(redis, ["ZRANK", "zrank_dup", "b"])
+        ts_rank_b = Veidrodelis.zrank(vdr_id(), 0, "zrank_dup", "b")
+        redis_rank_c = Redix.command!(redis, ["ZRANK", "zrank_dup", "c"])
+        ts_rank_c = Veidrodelis.zrank(vdr_id(), 0, "zrank_dup", "c")
+
+        assert 0 == redis_rank_a
+        assert 0 == ts_rank_a
+        assert 1 == redis_rank_b
+        assert 1 == ts_rank_b
+        assert 2 == redis_rank_c
+        assert 2 == ts_rank_c
+      end
+    end
+
+    test "ZRANK with negative scores", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrank_neg", "-3", "a", "-1", "b", "0", "c", "2", "d"])
+
+      assert_within 1000 do
+        # Ranks: a=0, b=1, c=2, d=3
+        redis_rank_a = Redix.command!(redis, ["ZRANK", "zrank_neg", "a"])
+        ts_rank_a = Veidrodelis.zrank(vdr_id(), 0, "zrank_neg", "a")
+        redis_rank_d = Redix.command!(redis, ["ZRANK", "zrank_neg", "d"])
+        ts_rank_d = Veidrodelis.zrank(vdr_id(), 0, "zrank_neg", "d")
+
+        assert 0 == redis_rank_a
+        assert 0 == ts_rank_a
+        assert 3 == redis_rank_d
+        assert 3 == ts_rank_d
+      end
+    end
+
+    test "ZREVRANK returns correct rank in descending order", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrevrank_test", "1", "one", "2", "two", "3", "three", "4", "four"])
+
+      assert_within 1000 do
+        # Reverse ranks: four=0, three=1, two=2, one=3
+        redis_rank_four = Redix.command!(redis, ["ZREVRANK", "zrevrank_test", "four"])
+        ts_rank_four = Veidrodelis.zrevrank(vdr_id(), 0, "zrevrank_test", "four")
+        redis_rank_three = Redix.command!(redis, ["ZREVRANK", "zrevrank_test", "three"])
+        ts_rank_three = Veidrodelis.zrevrank(vdr_id(), 0, "zrevrank_test", "three")
+        redis_rank_one = Redix.command!(redis, ["ZREVRANK", "zrevrank_test", "one"])
+        ts_rank_one = Veidrodelis.zrevrank(vdr_id(), 0, "zrevrank_test", "one")
+
+        assert 0 == redis_rank_four
+        assert 0 == ts_rank_four
+        assert 1 == redis_rank_three
+        assert 1 == ts_rank_three
+        assert 3 == redis_rank_one
+        assert 3 == ts_rank_one
+      end
+    end
+
+    test "ZREVRANK returns nil for non-existent member", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrevrank_missing", "1", "one", "2", "two"])
+
+      assert_within 1000 do
+        redis_rank = Redix.command!(redis, ["ZREVRANK", "zrevrank_missing", "nonexistent"])
+        ts_rank = Veidrodelis.zrevrank(vdr_id(), 0, "zrevrank_missing", "nonexistent")
+
+        assert nil == redis_rank
+        assert nil == ts_rank
+      end
+    end
+
+    test "ZREVRANK returns nil for non-existent key", %{redis: redis} do
+      assert_within 1000 do
+        redis_rank = Redix.command!(redis, ["ZREVRANK", "nonexistent_key", "member"])
+        ts_rank = Veidrodelis.zrevrank(vdr_id(), 0, "nonexistent_key", "member")
+
+        assert nil == redis_rank
+        assert nil == ts_rank
+      end
+    end
+
+    test "ZREVRANK with duplicate scores returns rank based on member order", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrevrank_dup", "1", "a", "1", "b", "1", "c"])
+
+      assert_within 1000 do
+        # With same scores, members are ordered lexicographically (c, b, a in reverse)
+        redis_rank_c = Redix.command!(redis, ["ZREVRANK", "zrevrank_dup", "c"])
+        ts_rank_c = Veidrodelis.zrevrank(vdr_id(), 0, "zrevrank_dup", "c")
+        redis_rank_b = Redix.command!(redis, ["ZREVRANK", "zrevrank_dup", "b"])
+        ts_rank_b = Veidrodelis.zrevrank(vdr_id(), 0, "zrevrank_dup", "b")
+        redis_rank_a = Redix.command!(redis, ["ZREVRANK", "zrevrank_dup", "a"])
+        ts_rank_a = Veidrodelis.zrevrank(vdr_id(), 0, "zrevrank_dup", "a")
+
+        assert 0 == redis_rank_c
+        assert 0 == ts_rank_c
+        assert 1 == redis_rank_b
+        assert 1 == ts_rank_b
+        assert 2 == redis_rank_a
+        assert 2 == ts_rank_a
+      end
+    end
+
+    test "ZREVRANK with negative scores", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrevrank_neg", "-3", "a", "-1", "b", "0", "c", "2", "d"])
+
+      assert_within 1000 do
+        # Reverse ranks: d=0, c=1, b=2, a=3
+        redis_rank_d = Redix.command!(redis, ["ZREVRANK", "zrevrank_neg", "d"])
+        ts_rank_d = Veidrodelis.zrevrank(vdr_id(), 0, "zrevrank_neg", "d")
+        redis_rank_a = Redix.command!(redis, ["ZREVRANK", "zrevrank_neg", "a"])
+        ts_rank_a = Veidrodelis.zrevrank(vdr_id(), 0, "zrevrank_neg", "a")
+
+        assert 0 == redis_rank_d
+        assert 0 == ts_rank_d
+        assert 3 == redis_rank_a
+        assert 3 == ts_rank_a
+      end
+    end
+
+    test "ZRANK and ZREVRANK are consistent inverses", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "rank_inverse", "1", "one", "2", "two", "3", "three"])
+
+      assert_within 1000 do
+        # Get the size of the set
+        redis_size = Redix.command!(redis, ["ZCARD", "rank_inverse"])
+        ts_size = Veidrodelis.zcard(vdr_id(), 0, "rank_inverse")
+
+        # ZRANK + ZREVRANK should equal size - 1
+        redis_rank = Redix.command!(redis, ["ZRANK", "rank_inverse", "two"])
+        ts_rank = Veidrodelis.zrank(vdr_id(), 0, "rank_inverse", "two")
+        redis_revrank = Redix.command!(redis, ["ZREVRANK", "rank_inverse", "two"])
+        ts_revrank = Veidrodelis.zrevrank(vdr_id(), 0, "rank_inverse", "two")
+
+        assert redis_rank + redis_revrank == redis_size - 1
+        assert ts_rank + ts_revrank == ts_size - 1
+      end
+    end
   end
 end

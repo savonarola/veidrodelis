@@ -336,6 +336,22 @@ defmodule Vdr.TSProj do
     end
   end
 
+  def zrank(%{ts_storage: ts_storage}, db, key, member)
+      when is_binary(key) and is_binary(member) do
+    case Vdr.TS.zrank(ts_storage, db, key, member) do
+      {:ok, rank} -> rank
+      {:error, _} = error -> error
+    end
+  end
+
+  def zrevrank(%{ts_storage: ts_storage}, db, key, member)
+      when is_binary(key) and is_binary(member) do
+    case Vdr.TS.zrevrank(ts_storage, db, key, member) do
+      {:ok, rank} -> rank
+      {:error, _} = error -> error
+    end
+  end
+
   @doc """
   Executes a Lua script with access to ts.get and ts.hget functions.
 

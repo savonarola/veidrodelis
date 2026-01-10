@@ -245,6 +245,28 @@ defmodule Veidrodelis do
   end
 
   @doc """
+  Returns the rank (0-based index) of member in the sorted set stored at key (ascending order).
+
+  Returns the rank (0-based index) where the member would be in the sorted set,
+  ordered from lowest to highest score. Returns `nil` if the member or key doesn't exist.
+  """
+  @spec zrank(instance_id(), db(), key(), any()) :: non_neg_integer() | nil
+  def zrank(id, db, key, member) do
+    with_handle(id, :zrank, [db, key, member])
+  end
+
+  @doc """
+  Returns the reverse rank (0-based index) of member in the sorted set stored at key (descending order).
+
+  Returns the rank (0-based index) where the member would be in the sorted set,
+  ordered from highest to lowest score. Returns `nil` if the member or key doesn't exist.
+  """
+  @spec zrevrank(instance_id(), db(), key(), any()) :: non_neg_integer() | nil
+  def zrevrank(id, db, key, member) do
+    with_handle(id, :zrevrank, [db, key, member])
+  end
+
+  @doc """
   Executes a Lua script with access to ts.get and ts.hget functions.
 
   The script is executed atomically under the storage mutex and has access to:
