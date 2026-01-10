@@ -7,20 +7,12 @@ use super::bytes::Bytes;
 pub type Score = OrderedFloat<f64>;
 
 pub enum ZSetIndexKeyRef<'a> {
-    #[allow(dead_code)]
-    MinKey,
-    #[allow(dead_code)]
-    MaxKey,
     MinScoreKey(Score),
     MaxScoreKey(Score),
     Key { score: Score, entry: &'a [u8] },
 }
 
 enum ZSetIndexKeyData {
-    #[allow(dead_code)]
-    MinKey,
-    #[allow(dead_code)]
-    MaxKey,
     MinScoreKey(Score),
     MaxScoreKey(Score),
     Key{ score: Score, entry: Bytes },
@@ -138,39 +130,18 @@ impl<'a> Ord for ZSetIndexKeyRef<'a> {
         use ZSetIndexKeyRef::*;
 
         match (self, other) {
-            // MinKey is less than everything except itself
-            (MinKey, MinKey) => Ordering::Equal,
-            (MinKey, _) => Ordering::Less,
-            (_, MinKey) => Ordering::Greater,
-
-            // MaxKey is greater than everything except itself
-            (MaxKey, MaxKey) => Ordering::Equal,
-            (MaxKey, _) => Ordering::Greater,
-            (_, MaxKey) => Ordering::Less,
-
             // MinScoreKey comparisons
-            (MinScoreKey(s1), MinScoreKey(s2)) => s1.cmp(s2),
-            (MinScoreKey(s1), MaxScoreKey(s2)) => {
-                match s1.cmp(s2) {
-                    Ordering::Equal => Ordering::Less,  // MinScore < MaxScore for same score
-                    other => other,
-                }
-            }
+            (MinScoreKey(_), MinScoreKey(_)) => unreachable!(),
+            (MinScoreKey(_), MaxScoreKey(_)) => unreachable!(),
+            (MaxScoreKey(_), MaxScoreKey(_)) => unreachable!(),
+            (MaxScoreKey(_), MinScoreKey(_)) => unreachable!(),
+
             (MinScoreKey(s1), Key { score: s2, .. }) => {
                 match s1.cmp(s2) {
                     Ordering::Equal => Ordering::Less,  // MinScore < Key for same score
                     other => other,
                 }
             }
-
-            // MaxScoreKey comparisons
-            (MaxScoreKey(s1), MinScoreKey(s2)) => {
-                match s1.cmp(s2) {
-                    Ordering::Equal => Ordering::Greater,  // MaxScore > MinScore for same score
-                    other => other,
-                }
-            }
-            (MaxScoreKey(s1), MaxScoreKey(s2)) => s1.cmp(s2),
             (MaxScoreKey(s1), Key { score: s2, .. }) => {
                 match s1.cmp(s2) {
                     Ordering::Equal => Ordering::Greater,  // MaxScore > Key for same score
