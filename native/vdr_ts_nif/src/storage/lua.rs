@@ -227,6 +227,50 @@ pub fn new_lua() -> Lua {
             }
         }).expect("Failed to create hexists");
 
+        let hfirst_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.hfirst(db, &key.as_bytes()) {
+                Ok(Some((field, value))) => {
+                    Ok((Some(lua_ctx.create_string(field.as_slice())?), Some(lua_ctx.create_string(value.as_slice())?)))
+                }
+                Ok(None) => Ok((None::<mlua::String>, None::<mlua::String>)),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create hfirst");
+
+        let hlast_fn = lua.create_function(|lua_ctx, key: mlua::String| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.hlast(db, &key.as_bytes()) {
+                Ok(Some((field, value))) => {
+                    Ok((Some(lua_ctx.create_string(field.as_slice())?), Some(lua_ctx.create_string(value.as_slice())?)))
+                }
+                Ok(None) => Ok((None::<mlua::String>, None::<mlua::String>)),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create hlast");
+
+        let hnext_fn = lua.create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.hnext(db, &key.as_bytes(), &field.as_bytes()) {
+                Ok(Some((next_field, value))) => {
+                    Ok((Some(lua_ctx.create_string(next_field.as_slice())?), Some(lua_ctx.create_string(value.as_slice())?)))
+                }
+                Ok(None) => Ok((None::<mlua::String>, None::<mlua::String>)),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create hnext");
+
+        let hprev_fn = lua.create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.hprev(db, &key.as_bytes(), &field.as_bytes()) {
+                Ok(Some((prev_field, value))) => {
+                    Ok((Some(lua_ctx.create_string(prev_field.as_slice())?), Some(lua_ctx.create_string(value.as_slice())?)))
+                }
+                Ok(None) => Ok((None::<mlua::String>, None::<mlua::String>)),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create hprev");
+
         // Sorted set functions
         let zscore_fn = lua.create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
             let (storage, db) = get_tx_ctx(&lua_ctx)?;
@@ -380,6 +424,10 @@ pub fn new_lua() -> Lua {
         ts_table.set("hvals", hvals_fn).expect("Failed to set hvals");
         ts_table.set("hlen", hlen_fn).expect("Failed to set hlen");
         ts_table.set("hexists", hexists_fn).expect("Failed to set hexists");
+        ts_table.set("hfirst", hfirst_fn).expect("Failed to set hfirst");
+        ts_table.set("hlast", hlast_fn).expect("Failed to set hlast");
+        ts_table.set("hnext", hnext_fn).expect("Failed to set hnext");
+        ts_table.set("hprev", hprev_fn).expect("Failed to set hprev");
 
         // Sorted set functions
         ts_table.set("zscore", zscore_fn).expect("Failed to set zscore");

@@ -545,6 +545,86 @@ defmodule Vdr.TS do
     result
   end
 
+  @doc """
+  Gets the first (minimum) field from a hash.
+
+  Returns `{:ok, {field, value}}` if the hash is non-empty, `{:ok, nil}` if the hash is empty or doesn't exist.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.tx(storage, [{0, {:hmset, "myhash", [{"a", "1"}, {"b", "2"}, {"c", "3"}]}}])
+      {:ok, {"a", "1"}} = Vdr.TS.hfirst(storage, 0, "myhash")
+      {:ok, nil} = Vdr.TS.hfirst(storage, 0, "nonexistent")
+  """
+  @spec hfirst(reference(), non_neg_integer(), binary()) ::
+          {:ok, {binary(), binary()} | nil} | {:error, :wrong_type}
+  def hfirst(storage, db, key) do
+    [result] = tx(storage, [{db, {:hfirst, key}}])
+    result
+  end
+
+  @doc """
+  Gets the last (maximum) field from a hash.
+
+  Returns `{:ok, {field, value}}` if the hash is non-empty, `{:ok, nil}` if the hash is empty or doesn't exist.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.tx(storage, [{0, {:hmset, "myhash", [{"a", "1"}, {"b", "2"}, {"c", "3"}]}}])
+      {:ok, {"c", "3"}} = Vdr.TS.hlast(storage, 0, "myhash")
+      {:ok, nil} = Vdr.TS.hlast(storage, 0, "nonexistent")
+  """
+  @spec hlast(reference(), non_neg_integer(), binary()) ::
+          {:ok, {binary(), binary()} | nil} | {:error, :wrong_type}
+  def hlast(storage, db, key) do
+    [result] = tx(storage, [{db, {:hlast, key}}])
+    result
+  end
+
+  @doc """
+  Gets the next field after the given field in a hash.
+
+  Returns `{:ok, {field, value}}` if there is a next field, `{:ok, nil}` if no next element exists.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.tx(storage, [{0, {:hmset, "myhash", [{"a", "1"}, {"b", "2"}, {"c", "3"}]}}])
+      {:ok, {"b", "2"}} = Vdr.TS.hnext(storage, 0, "myhash", "a")
+      {:ok, nil} = Vdr.TS.hnext(storage, 0, "myhash", "c")
+  """
+  @spec hnext(reference(), non_neg_integer(), binary(), binary()) ::
+          {:ok, {binary(), binary()} | nil} | {:error, :wrong_type}
+  def hnext(storage, db, key, field) do
+    [result] = tx(storage, [{db, {:hnext, key, field}}])
+    result
+  end
+
+  @doc """
+  Gets the previous field before the given field in a hash.
+
+  Returns `{:ok, {field, value}}` if there is a previous field, `{:ok, nil}` if no previous element exists.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.tx(storage, [{0, {:hmset, "myhash", [{"a", "1"}, {"b", "2"}, {"c", "3"}]}}])
+      {:ok, {"b", "2"}} = Vdr.TS.hprev(storage, 0, "myhash", "c")
+      {:ok, nil} = Vdr.TS.hprev(storage, 0, "myhash", "a")
+  """
+  @spec hprev(reference(), non_neg_integer(), binary(), binary()) ::
+          {:ok, {binary(), binary()} | nil} | {:error, :wrong_type}
+  def hprev(storage, db, key, field) do
+    [result] = tx(storage, [{db, {:hprev, key, field}}])
+    result
+  end
+
   # Sorted set (zset) operations (read-only)
 
   @doc """
@@ -950,6 +1030,10 @@ defmodule Vdr.TS do
                        :hvals,
                        :hlen,
                        :hexists,
+                       :hfirst,
+                       :hlast,
+                       :hnext,
+                       :hprev,
                        :zscore,
                        :zcard,
                        :zrank,

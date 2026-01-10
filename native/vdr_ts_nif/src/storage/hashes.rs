@@ -155,4 +155,64 @@ impl StorageInner {
 
         Ok(())
     }
+
+    /// Get the first (minimum) field from hash.
+    /// Returns Some((field, value)) or None if hash is empty/doesn't exist.
+    pub fn hfirst(&self, db: u64, key: &[u8]) -> Result<Option<(Bytes, Bytes)>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Hash(hash)) => {
+                let result = hash.first_key_value().map(|(field, value)| (field.clone(), value.clone()));
+                Ok(result)
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
+
+    /// Get the last (maximum) field from hash.
+    /// Returns Some((field, value)) or None if hash is empty/doesn't exist.
+    pub fn hlast(&self, db: u64, key: &[u8]) -> Result<Option<(Bytes, Bytes)>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Hash(hash)) => {
+                let result = hash.last_key_value().map(|(field, value)| (field.clone(), value.clone()));
+                Ok(result)
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
+
+    /// Get the next field after the given field in hash.
+    /// Returns Some((field, value)) or None if no next element exists.
+    pub fn hnext(&self, db: u64, key: &[u8], field: &[u8]) -> Result<Option<(Bytes, Bytes)>, &'static str> {
+        use std::ops::Bound;
+
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Hash(hash)) => {
+                // Use range starting after the current field
+                let range = hash.range::<[u8], _>((Bound::Excluded(field), Bound::Unbounded));
+                let result = range.take(1).next().map(|(f, v)| (f.clone(), v.clone()));
+                Ok(result)
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
+
+    /// Get the previous field before the given field in hash.
+    /// Returns Some((field, value)) or None if no previous element exists.
+    pub fn hprev(&self, db: u64, key: &[u8], field: &[u8]) -> Result<Option<(Bytes, Bytes)>, &'static str> {
+        use std::ops::Bound;
+
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Hash(hash)) => {
+                // Use range ending before the current field, get last element
+                let range = hash.range::<[u8], _>((Bound::Unbounded, Bound::Excluded(field)));
+                let result = range.last().map(|(f, v)| (f.clone(), v.clone()));
+                Ok(result)
+            }
+            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+            None => Ok(None),
+        }
+    }
 }

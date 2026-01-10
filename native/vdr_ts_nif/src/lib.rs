@@ -1011,6 +1011,80 @@ fn execute_single_command<'a>(
                         };
                     }
                 }
+            } else if cmd_atom == atoms::hfirst() {
+                // {db, {:hfirst, key}}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.hfirst(db, key.as_slice()) {
+                            Ok(Some((field, value))) => {
+                                let mut field_bin = rustler::types::OwnedBinary::new(field.len()).unwrap();
+                                field_bin.as_mut_slice().copy_from_slice(field.as_slice());
+                                let mut value_bin = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                                value_bin.as_mut_slice().copy_from_slice(value.as_slice());
+                                (atoms::ok(), (field_bin.release(env), value_bin.release(env))).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hlast() {
+                // {db, {:hlast, key}}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.hlast(db, key.as_slice()) {
+                            Ok(Some((field, value))) => {
+                                let mut field_bin = rustler::types::OwnedBinary::new(field.len()).unwrap();
+                                field_bin.as_mut_slice().copy_from_slice(field.as_slice());
+                                let mut value_bin = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                                value_bin.as_mut_slice().copy_from_slice(value.as_slice());
+                                (atoms::ok(), (field_bin.release(env), value_bin.release(env))).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hnext() {
+                // {db, {:hnext, key, field}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(field)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.hnext(db, key.as_slice(), field.as_slice()) {
+                            Ok(Some((next_field, value))) => {
+                                let mut field_bin = rustler::types::OwnedBinary::new(next_field.len()).unwrap();
+                                field_bin.as_mut_slice().copy_from_slice(next_field.as_slice());
+                                let mut value_bin = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                                value_bin.as_mut_slice().copy_from_slice(value.as_slice());
+                                (atoms::ok(), (field_bin.release(env), value_bin.release(env))).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hprev() {
+                // {db, {:hprev, key, field}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(field)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.hprev(db, key.as_slice(), field.as_slice()) {
+                            Ok(Some((prev_field, value))) => {
+                                let mut field_bin = rustler::types::OwnedBinary::new(prev_field.len()).unwrap();
+                                field_bin.as_mut_slice().copy_from_slice(prev_field.as_slice());
+                                let mut value_bin = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                                value_bin.as_mut_slice().copy_from_slice(value.as_slice());
+                                (atoms::ok(), (field_bin.release(env), value_bin.release(env))).encode(env)
+                            }
+                            Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
             } else if cmd_atom == atoms::zscore() {
                 // {db, {:zscore, key, member}}
                 if args.len() == 2 {
