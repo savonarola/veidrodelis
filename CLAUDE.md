@@ -250,12 +250,6 @@ Veidrodelis API → Registry Lookup →
 - Hash and sorted set entries are always paired (field/value or member/score)
 - The parser is stateful (WaitingRdb → ReadingRdb → Streaming)
 
-### Working with Sorted Set Iteration
-- Use iteration methods (`zfirst`, `zlast`, `znext`, `zprev`) instead of loading entire sets
-- Iteration returns `{score, member, cursor}` tuples
-- Cursor is opaque - pass it to `znext`/`zprev` for traversal
-- Returns `nil` when reaching the end of iteration
-
 ### Working with the Lua Interface
 - **Architecture**: Each TS storage instance contains an embedded LuaJIT VM
 - **Initialization**: Lua VM and all `ts.*` functions are created once during `StorageInner::new()` in [native/vdr_ts_nif/src/storage.rs](native/vdr_ts_nif/src/storage.rs)
@@ -303,6 +297,7 @@ Veidrodelis API → Registry Lookup →
 - Add tests in `test/veidrodelis/*_test.exs` (ExUnit). Do not start ad-hoc elixir scripts for testing, add a proper test module instead.
 - Ensure proper typespecs for better tooling support
 - In ExUnit setup method, do not stop processes started with `start_link`, with `on_exit` callback. They will be shutdown by the test framework.
+- **CRITICAL** When adding logging to the tests, do not forget to set appropriate logging level in `test/test_helper.exs`
 
 ### Working with Rust NIFs
 - Two Rust crates: `vdr_redis_nif` (parsing) and `vdr_ts_nif` (storage)

@@ -338,4 +338,193 @@ impl StorageInner {
             None => Ok(None),
         }
     }
+
+    /// Check if multiple members exist in set.
+    /// Returns a vector of booleans, one for each member.
+    pub fn smismember(&self, db: u64, key: &[u8], members: &[&[u8]]) -> Result<Vec<bool>, &'static str> {
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Set(set)) => {
+                Ok(members.iter().map(|member| set.contains(*member)).collect())
+            }
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
+            None => Ok(vec![false; members.len()]),
+        }
+    }
+
+    /// Get random member(s) from set without removing them.
+    /// If count > 0: returns up to count unique members
+    /// If count < 0: returns abs(count) members, allowing duplicates
+    /// If count == 0: returns empty vector
+    pub fn srandmember(&self, db: u64, key: &[u8], count: i64) -> Result<Vec<Bytes>, &'static str> {
+        use rand::seq::SliceRandom;
+        use rand::thread_rng;
+
+        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
+            Some(StorageValue::Set(set)) => {
+                if count == 0 || set.is_empty() {
+                    return Ok(Vec::new());
+                }
+
+                let members: Vec<Bytes> = set.iter().cloned().collect();
+                let mut rng = thread_rng();
+
+                if count > 0 {
+                    // Return up to count unique random members
+                    let take_count = std::cmp::min(count as usize, members.len());
+                    let mut result = members.clone();
+                    result.shuffle(&mut rng);
+                    result.truncate(take_count);
+                    Ok(result)
+                } else {
+                    // Return abs(count) members, allowing duplicates
+                    let count = count.abs() as usize;
+                    Ok((0..count)
+                        .map(|_| members.choose(&mut rng).unwrap().clone())
+                        .collect())
+                }
+            }
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
+            None => Ok(Vec::new()),
+        }
+    }
+
+    /// Return union of multiple sets (without storing).
+    pub fn sunion(&self, db: u64, source_keys: &[&[u8]]) -> Result<Vec<Bytes>, &'static str> {
+        let mut union_set = StdBTreeSet::new();
+
+        if let Some(db_map) = self.map.get(&db) {
+            for source_key in source_keys {
+                if let Some(value) = db_map.get(*source_key) {
+                    match value {
+                        StorageValue::Set(set) => {
+                            union_set.extend(set.iter().cloned());
+                        }
+                        StorageValue::String(_) | StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::ZSet(_) => {
+                            return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(union_set.into_iter().collect())
+    }
+
+    /// Return intersection of multiple sets (without storing).
+    pub fn sinter(&self, db: u64, source_keys: &[&[u8]]) -> Result<Vec<Bytes>, &'static str> {
+        if source_keys.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        // Start with first set - collect into a new set
+        let mut intersection_set = match db_map.get(source_keys[0]) {
+            Some(StorageValue::Set(set)) => set.iter().cloned().collect(),
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
+            None => StdBTreeSet::new(),
+        };
+
+        // Intersect with remaining sets
+        for source_key in &source_keys[1..] {
+            match db_map.get(*source_key) {
+                Some(StorageValue::Set(set)) => {
+                    intersection_set = intersection_set.intersection(set).cloned().collect();
+                }
+                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                    return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
+                None => {
+                    // Intersection with empty set is empty
+                    return Ok(Vec::new());
+                }
+            }
+        }
+
+        Ok(intersection_set.into_iter().collect())
+    }
+
+    /// Return difference of multiple sets (without storing).
+    pub fn sdiff(&self, db: u64, source_keys: &[&[u8]]) -> Result<Vec<Bytes>, &'static str> {
+        if source_keys.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        // Start with first set - collect into a new set
+        let mut diff_set = match db_map.get(source_keys[0]) {
+            Some(StorageValue::Set(set)) => set.iter().cloned().collect(),
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
+            None => StdBTreeSet::new(),
+        };
+
+        // Subtract remaining sets
+        for source_key in &source_keys[1..] {
+            match db_map.get(*source_key) {
+                Some(StorageValue::Set(set)) => {
+                    diff_set = diff_set.difference(set).cloned().collect();
+                }
+                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                    return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
+                None => {
+                    // Difference with empty set doesn't change result
+                    continue;
+                }
+            }
+        }
+
+        Ok(diff_set.into_iter().collect())
+    }
+
+    /// Return cardinality of intersection of multiple sets.
+    pub fn sintercard(&self, db: u64, source_keys: &[&[u8]]) -> Result<usize, &'static str> {
+        if source_keys.is_empty() {
+            return Ok(0);
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(0);
+        };
+
+        // Start with first set - collect into a new set
+        let mut intersection_set = match db_map.get(source_keys[0]) {
+            Some(StorageValue::Set(set)) => set.iter().cloned().collect(),
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
+            None => StdBTreeSet::new(),
+        };
+
+        // Intersect with remaining sets
+        for source_key in &source_keys[1..] {
+            match db_map.get(*source_key) {
+                Some(StorageValue::Set(set)) => {
+                    intersection_set = intersection_set.intersection(set).cloned().collect();
+                }
+                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                    return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
+                None => {
+                    // Intersection with empty set is empty
+                    return Ok(0);
+                }
+            }
+        }
+
+        Ok(intersection_set.len())
+    }
 }

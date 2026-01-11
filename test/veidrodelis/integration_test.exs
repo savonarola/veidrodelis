@@ -127,6 +127,9 @@ defmodule Veidrodelis.IntegrationTest do
     Redix.command!(redis, ["SINTERSTORE", "set_inter", "set_a", "set_b"])
     Redix.command!(redis, ["SUNIONSTORE", "set_union", "set_a", "set_b"])
     Redix.command!(redis, ["SDIFFSTORE", "set_diff", "set_a", "set_b"])
+    Redix.command!(redis, ["SADD", "spop_set", "p1", "p2", "p3"])
+    Redix.command!(redis, ["SPOP", "spop_set"])
+    Redix.command!(redis, ["SPOP", "spop_set", "2"])
 
     # ===== Sorted Set Commands =====
     Redix.command!(redis, ["ZADD", "myzset", "1.0", "member1", "2.5", "member2", "3.7", "member3"])
@@ -349,6 +352,11 @@ defmodule Veidrodelis.IntegrationTest do
     assert command_in_list(%RedisCommand.SInterStore{}, commands), "Missing SINTERSTORE"
     assert command_in_list(%RedisCommand.SUnionStore{}, commands), "Missing SUNIONSTORE"
     assert command_in_list(%RedisCommand.SDiffStore{}, commands), "Missing SDIFFSTORE"
+
+    # SPOP is replicated as SREM
+    assert command_in_list(%RedisCommand.SAdd{key: "spop_set"}, commands), "Missing SADD spop_set"
+    assert command_in_list(%RedisCommand.SRem{key: "spop_set"}, commands),
+           "Missing SREM (from SPOP)"
 
     # Sorted set commands
     assert command_in_list(%RedisCommand.ZAdd{key: "myzset"}, commands), "Missing ZADD myzset"

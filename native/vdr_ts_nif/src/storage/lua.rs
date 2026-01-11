@@ -140,6 +140,114 @@ pub fn new_lua() -> Lua {
             }
         }).expect("Failed to create sprev");
 
+        let smismember_fn = lua.create_function(|lua_ctx, (key, members): (mlua::String, mlua::Table)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let mut member_vec = Vec::new();
+            for pair in members.pairs::<i64, mlua::String>() {
+                let (_, member) = pair?;
+                member_vec.push(member.as_bytes().to_vec());
+            }
+            let member_refs: Vec<&[u8]> = member_vec.iter().map(|v| v.as_slice()).collect();
+            match storage.smismember(db, &key.as_bytes(), &member_refs) {
+                Ok(results) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, result) in results.iter().enumerate() {
+                        table.set(i + 1, *result)?;
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create smismember");
+
+        let srandmember_fn = lua.create_function(|lua_ctx, (key, count): (mlua::String, i64)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.srandmember(db, &key.as_bytes(), count) {
+                Ok(members) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, member) in members.iter().enumerate() {
+                        table.set(i + 1, lua_ctx.create_string(member.as_slice())?)?;
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create srandmember");
+
+        let sunion_fn = lua.create_function(|lua_ctx, keys: mlua::Table| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let mut key_vec = Vec::new();
+            for pair in keys.pairs::<i64, mlua::String>() {
+                let (_, key) = pair?;
+                key_vec.push(key.as_bytes().to_vec());
+            }
+            let key_refs: Vec<&[u8]> = key_vec.iter().map(|v| v.as_slice()).collect();
+            match storage.sunion(db, &key_refs) {
+                Ok(members) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, member) in members.iter().enumerate() {
+                        table.set(i + 1, lua_ctx.create_string(member.as_slice())?)?;
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create sunion");
+
+        let sinter_fn = lua.create_function(|lua_ctx, keys: mlua::Table| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let mut key_vec = Vec::new();
+            for pair in keys.pairs::<i64, mlua::String>() {
+                let (_, key) = pair?;
+                key_vec.push(key.as_bytes().to_vec());
+            }
+            let key_refs: Vec<&[u8]> = key_vec.iter().map(|v| v.as_slice()).collect();
+            match storage.sinter(db, &key_refs) {
+                Ok(members) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, member) in members.iter().enumerate() {
+                        table.set(i + 1, lua_ctx.create_string(member.as_slice())?)?;
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create sinter");
+
+        let sdiff_fn = lua.create_function(|lua_ctx, keys: mlua::Table| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let mut key_vec = Vec::new();
+            for pair in keys.pairs::<i64, mlua::String>() {
+                let (_, key) = pair?;
+                key_vec.push(key.as_bytes().to_vec());
+            }
+            let key_refs: Vec<&[u8]> = key_vec.iter().map(|v| v.as_slice()).collect();
+            match storage.sdiff(db, &key_refs) {
+                Ok(members) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, member) in members.iter().enumerate() {
+                        table.set(i + 1, lua_ctx.create_string(member.as_slice())?)?;
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create sdiff");
+
+        let sintercard_fn = lua.create_function(|lua_ctx, keys: mlua::Table| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let mut key_vec = Vec::new();
+            for pair in keys.pairs::<i64, mlua::String>() {
+                let (_, key) = pair?;
+                key_vec.push(key.as_bytes().to_vec());
+            }
+            let key_refs: Vec<&[u8]> = key_vec.iter().map(|v| v.as_slice()).collect();
+            match storage.sintercard(db, &key_refs) {
+                Ok(count) => Ok(count as i64),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create sintercard");
+
         // Hash functions
         let hmget_fn = lua.create_function(|lua_ctx, (key, fields): (mlua::String, mlua::Table)| {
             let (storage, db) = get_tx_ctx(&lua_ctx)?;
@@ -448,6 +556,12 @@ pub fn new_lua() -> Lua {
         ts_table.set("slast", slast_fn).expect("Failed to set slast");
         ts_table.set("snext", snext_fn).expect("Failed to set snext");
         ts_table.set("sprev", sprev_fn).expect("Failed to set sprev");
+        ts_table.set("smismember", smismember_fn).expect("Failed to set smismember");
+        ts_table.set("srandmember", srandmember_fn).expect("Failed to set srandmember");
+        ts_table.set("sunion", sunion_fn).expect("Failed to set sunion");
+        ts_table.set("sinter", sinter_fn).expect("Failed to set sinter");
+        ts_table.set("sdiff", sdiff_fn).expect("Failed to set sdiff");
+        ts_table.set("sintercard", sintercard_fn).expect("Failed to set sintercard");
 
         // Hash functions
         ts_table.set("hget", hget_fn).expect("Failed to set hget");

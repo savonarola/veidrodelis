@@ -935,6 +935,105 @@ fn execute_single_command<'a>(
                         };
                     }
                 }
+            } else if cmd_atom == atoms::smismember() {
+                // {db, {:smismember, key, members}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(members_list)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let members: Vec<&[u8]> = members_list.iter().map(|b| b.as_slice()).collect();
+                        return match inner.smismember(db, key.as_slice(), &members) {
+                            Ok(results) => (atoms::ok(), results).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::srandmember() {
+                // {db, {:srandmember, key, count}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(count)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<i64>()
+                    ) {
+                        return match inner.srandmember(db, key.as_slice(), count) {
+                            Ok(members) => {
+                                let binaries: Vec<Binary> = members.iter().map(|m| {
+                                    let mut binary = rustler::types::OwnedBinary::new(m.len()).unwrap();
+                                    binary.as_mut_slice().copy_from_slice(m.as_slice());
+                                    binary.release(env)
+                                }).collect();
+                                (atoms::ok(), binaries).encode(env)
+                            }
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::sunion() {
+                // {db, {:sunion, keys}}
+                if args.len() == 1 {
+                    if let Ok(keys_list) = args[0].decode::<Vec<Binary>>() {
+                        let keys: Vec<&[u8]> = keys_list.iter().map(|b| b.as_slice()).collect();
+                        return match inner.sunion(db, &keys) {
+                            Ok(members) => {
+                                let binaries: Vec<Binary> = members.iter().map(|m| {
+                                    let mut binary = rustler::types::OwnedBinary::new(m.len()).unwrap();
+                                    binary.as_mut_slice().copy_from_slice(m.as_slice());
+                                    binary.release(env)
+                                }).collect();
+                                (atoms::ok(), binaries).encode(env)
+                            }
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::sinter() {
+                // {db, {:sinter, keys}}
+                if args.len() == 1 {
+                    if let Ok(keys_list) = args[0].decode::<Vec<Binary>>() {
+                        let keys: Vec<&[u8]> = keys_list.iter().map(|b| b.as_slice()).collect();
+                        return match inner.sinter(db, &keys) {
+                            Ok(members) => {
+                                let binaries: Vec<Binary> = members.iter().map(|m| {
+                                    let mut binary = rustler::types::OwnedBinary::new(m.len()).unwrap();
+                                    binary.as_mut_slice().copy_from_slice(m.as_slice());
+                                    binary.release(env)
+                                }).collect();
+                                (atoms::ok(), binaries).encode(env)
+                            }
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::sdiff() {
+                // {db, {:sdiff, keys}}
+                if args.len() == 1 {
+                    if let Ok(keys_list) = args[0].decode::<Vec<Binary>>() {
+                        let keys: Vec<&[u8]> = keys_list.iter().map(|b| b.as_slice()).collect();
+                        return match inner.sdiff(db, &keys) {
+                            Ok(members) => {
+                                let binaries: Vec<Binary> = members.iter().map(|m| {
+                                    let mut binary = rustler::types::OwnedBinary::new(m.len()).unwrap();
+                                    binary.as_mut_slice().copy_from_slice(m.as_slice());
+                                    binary.release(env)
+                                }).collect();
+                                (atoms::ok(), binaries).encode(env)
+                            }
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::sintercard() {
+                // {db, {:sintercard, keys}}
+                if args.len() == 1 {
+                    if let Ok(keys_list) = args[0].decode::<Vec<Binary>>() {
+                        let keys: Vec<&[u8]> = keys_list.iter().map(|b| b.as_slice()).collect();
+                        return match inner.sintercard(db, &keys) {
+                            Ok(count) => (atoms::ok(), count).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
             } else if cmd_atom == atoms::llen() {
                 // {db, {:llen, key}}
                 if args.len() == 1 {

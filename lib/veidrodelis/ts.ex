@@ -348,7 +348,7 @@ defmodule Vdr.TS do
   ## Examples
 
       storage = Vdr.TS.create()
-      Vdr.TS.sadd(storage, 0, "myset", ["a", "b", "c"])
+      Vdr.TS.tx(storage, [{0, {:sadd, "myset", ["a", "b", "c"]}}])
       {:ok, "b"} = Vdr.TS.sprev(storage, 0, "myset", "c")
       {:ok, nil} = Vdr.TS.sprev(storage, 0, "myset", "a")
   """
@@ -356,6 +356,160 @@ defmodule Vdr.TS do
           {:ok, binary() | nil} | {:error, :wrong_type}
   def sprev(storage, db, key, member) do
     [result] = tx(storage, [{db, {:sprev, key, member}}])
+    result
+  end
+
+  @doc """
+  Checks if multiple members exist in the set stored at key.
+
+  Returns `{:ok, results}` where results is a list of booleans, one for each member.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.tx(storage, [{0, {:sadd, "myset", ["a", "b", "c"]}}])
+      {:ok, [true, false, true]} = Vdr.TS.smismember(storage, 0, "myset", ["a", "z", "c"])
+      {:ok, [false, false]} = Vdr.TS.smismember(storage, 0, "nonexistent", ["a", "b"])
+  """
+  @spec smismember(reference(), non_neg_integer(), binary(), [binary()]) ::
+          {:ok, [boolean()]} | {:error, :wrong_type}
+  def smismember(storage, db, key, members) do
+    [result] = tx(storage, [{db, {:smismember, key, members}}])
+    result
+  end
+
+  @doc """
+  Gets random member(s) from the set without removing them.
+
+  If count > 0: returns up to count unique members.
+  If count < 0: returns abs(count) members, allowing duplicates.
+  If count == 0: returns empty list.
+
+  Returns `{:ok, members}` where members is a list of binaries.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.tx(storage, [{0, {:sadd, "myset", ["a", "b", "c", "d", "e"]}}])
+
+      # Get 3 unique random members
+      {:ok, members} = Vdr.TS.srandmember(storage, 0, "myset", 3)
+      assert length(members) == 3
+      assert Enum.all?(members, &(&1 in ["a", "b", "c", "d", "e"]))
+
+      # Get 10 members with repetition allowed (set only has 5)
+      {:ok, members} = Vdr.TS.srandmember(storage, 0, "myset", -10)
+      assert length(members) == 10
+
+      {:ok, []} = Vdr.TS.srandmember(storage, 0, "nonexistent", 5)
+  """
+  @spec srandmember(reference(), non_neg_integer(), binary(), integer()) ::
+          {:ok, [binary()]} | {:error, :wrong_type}
+  def srandmember(storage, db, key, count) do
+    [result] = tx(storage, [{db, {:srandmember, key, count}}])
+    result
+  end
+
+  @doc """
+  Returns the union of multiple sets (without storing).
+
+  Returns `{:ok, members}` where members is a list of unique binaries from all sets combined.
+  Returns `{:error, :wrong_type}` if any key exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.tx(storage, [{0, {:sadd, "set1", ["a", "b", "c"]}}])
+      Vdr.TS.tx(storage, [{0, {:sadd, "set2", ["c", "d", "e"]}}])
+
+      {:ok, members} = Vdr.TS.sunion(storage, 0, ["set1", "set2"])
+      assert length(members) == 5  # a, b, c, d, e
+      assert Enum.sort(members) == ["a", "b", "c", "d", "e"]
+
+      {:ok, []} = Vdr.TS.sunion(storage, 0, ["nonexistent"])
+  """
+  @spec sunion(reference(), non_neg_integer(), [binary()]) ::
+          {:ok, [binary()]} | {:error, :wrong_type}
+  def sunion(storage, db, keys) do
+    [result] = tx(storage, [{db, {:sunion, keys}}])
+    result
+  end
+
+  @doc """
+  Returns the intersection of multiple sets (without storing).
+
+  Returns `{:ok, members}` where members is a list of binaries present in all sets.
+  Returns `{:error, :wrong_type}` if any key exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.tx(storage, [{0, {:sadd, "set1", ["a", "b", "c"]}}])
+      Vdr.TS.tx(storage, [{0, {:sadd, "set2", ["b", "c", "d"]}}])
+
+      {:ok, members} = Vdr.TS.sinter(storage, 0, ["set1", "set2"])
+      assert length(members) == 2  # b, c
+      assert Enum.sort(members) == ["b", "c"]
+
+      {:ok, []} = Vdr.TS.sinter(storage, 0, ["set1", "nonexistent"])
+  """
+  @spec sinter(reference(), non_neg_integer(), [binary()]) ::
+          {:ok, [binary()]} | {:error, :wrong_type}
+  def sinter(storage, db, keys) do
+    [result] = tx(storage, [{db, {:sinter, keys}}])
+    result
+  end
+
+  @doc """
+  Returns the difference of multiple sets (without storing).
+
+  Returns members in the first set that are not in any of the subsequent sets.
+  Returns `{:ok, members}` where members is a list of binaries.
+  Returns `{:error, :wrong_type}` if any key exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.tx(storage, [{0, {:sadd, "set1", ["a", "b", "c", "d"]}}])
+      Vdr.TS.tx(storage, [{0, {:sadd, "set2", ["b", "d"]}}])
+
+      {:ok, members} = Vdr.TS.sdiff(storage, 0, ["set1", "set2"])
+      assert length(members) == 2  # a, c
+      assert Enum.sort(members) == ["a", "c"]
+
+      {:ok, []} = Vdr.TS.sdiff(storage, 0, ["nonexistent", "set1"])
+  """
+  @spec sdiff(reference(), non_neg_integer(), [binary()]) ::
+          {:ok, [binary()]} | {:error, :wrong_type}
+  def sdiff(storage, db, keys) do
+    [result] = tx(storage, [{db, {:sdiff, keys}}])
+    result
+  end
+
+  @doc """
+  Returns the cardinality of the intersection of multiple sets.
+
+  More efficient than computing the full intersection when you only need the count.
+
+  Returns `{:ok, count}` where count is a non-negative integer.
+  Returns `{:error, :wrong_type}` if any key exists and holds a non-set value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.tx(storage, [{0, {:sadd, "set1", ["a", "b", "c", "d"]}}])
+      Vdr.TS.tx(storage, [{0, {:sadd, "set2", ["b", "c", "d", "e"]}}])
+
+      {:ok, 3} = Vdr.TS.sintercard(storage, 0, ["set1", "set2"])
+
+      {:ok, 0} = Vdr.TS.sintercard(storage, 0, ["set1", "nonexistent"])
+  """
+  @spec sintercard(reference(), non_neg_integer(), [binary()]) ::
+          {:ok, non_neg_integer()} | {:error, :wrong_type}
+  def sintercard(storage, db, keys) do
+    [result] = tx(storage, [{db, {:sintercard, keys}}])
     result
   end
 
@@ -1076,7 +1230,17 @@ defmodule Vdr.TS do
                        :get,
                        :smembers,
                        :sismember,
+                       :smismember,
+                       :srandmember,
+                       :sunion,
+                       :sinter,
+                       :sdiff,
+                       :sintercard,
                        :scard,
+                       :sfirst,
+                       :slast,
+                       :snext,
+                       :sprev,
                        :llen,
                        :lrange,
                        :hget,
