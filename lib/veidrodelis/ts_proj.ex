@@ -66,14 +66,6 @@ defmodule Vdr.TSProj do
     id = Keyword.fetch!(opts, :id)
     state = initialize_state(id)
 
-    # Register with both pid and TS storage in handle_state
-    :ok =
-      Vdr.Registry.register(self(), id, %Vdr.Handle{
-        callback_module: __MODULE__,
-        handle_state: %{pid: self(), ts_storage: state.ts_storage},
-        pid: self()
-      })
-
     {:ok, state}
   end
 

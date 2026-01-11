@@ -225,12 +225,14 @@ defmodule VeidrodelisTest do
 
       # Change to a list
       Redix.command!(redis, ["DEL", "typekey"])
+      assert_within 500 do
+        assert nil == Veidrodelis.get(@id, 0, "typekey")
+      end
+
       Redix.command!(redis, ["RPUSH", "typekey", "list_item1", "list_item2"])
 
       # Wait for it to replicate
       assert_within 500 do
-        assert nil == Veidrodelis.get(@id, 0, "typekey")
-
         assert [
                  "list_item1",
                  "list_item2"
@@ -239,19 +241,16 @@ defmodule VeidrodelisTest do
 
       # Change to a set
       Redix.command!(redis, ["DEL", "typekey"])
+      assert_within 500 do
+        assert 0 == Veidrodelis.llen(@id, 0, "typekey")
+      end
+
       Redix.command!(redis, ["SADD", "typekey", "set_member1", "set_member2"])
 
       # Wait for it to replicate
       assert_within 500 do
-        assert 0 == Veidrodelis.llen(@id, 0, "typekey")
         assert 2 == Veidrodelis.scard(@id, 0, "typekey")
       end
-
-      # Verify Redis has the current data
-      assert "set" == Redix.command!(redis, ["TYPE", "typekey"])
-      redis_members = Redix.command!(redis, ["SMEMBERS", "typekey"])
-      assert "set_member1" in redis_members
-      assert "set_member2" in redis_members
 
       Veidrodelis.stop(pid)
     end
@@ -544,16 +543,19 @@ defmodule VeidrodelisTest do
   end
 
   describe "tx/3" do
-    test "smoke test for TSProj Lua execution", %{redis: redis} do
+    test "smoke test for Lua execution", %{redis: redis} do
       id = :"test_tx_#{:erlang.unique_integer([:positive])}"
 
       {:ok, _pid} =
         Veidrodelis.start_link(
           id: id,
-          impl: {Vdr.TSProj, []},
           host: @redis_host,
           port: @redis_port
         )
+
+      assert_within 2000 do
+        assert :streaming == Veidrodelis.get_replication_state(id)
+      end
 
       # Test basic script execution (returns proper type now)
       assert {:ok, 42} = Veidrodelis.read_tx(id, 0, "return 42")
@@ -567,20 +569,6 @@ defmodule VeidrodelisTest do
 
       script = "return ts.get('lua_key')"
       assert {:ok, "lua_value"} = Veidrodelis.read_tx(id, 0, script)
-    end
-
-    test "MapProj returns not_supported error" do
-      id = :"test_map_tx_#{:erlang.unique_integer([:positive])}"
-
-      {:ok, _pid} =
-        Veidrodelis.start_link(
-          id: id,
-          impl: {Vdr.MapProj, []},
-          host: @redis_host,
-          port: @redis_port
-        )
-
-      assert {:error, :not_supported} = Veidrodelis.read_tx(id, 0, "return 'hello'")
     end
   end
 end

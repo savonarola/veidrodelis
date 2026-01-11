@@ -3,27 +3,29 @@ defmodule Veidrodelis do
   Veidrodelis - Redis replication stream processor.
 
   This module provides a simple interface for processing Redis replication streams
-  with automatic key type tracking and routing to specialized stores.
+  using high-performance Rust-based storage.
 
   ## Features
 
-    * Type-aware key routing
-    * Automatic key type conflict resolution
-    * Map-based stores for strings, sets, hashes, sorted sets, and lists
+    * High-performance Rust-native storage
+    * Thread-safe operations with direct NIF access
+    * Support for all Redis data types: strings, lists, sets, sorted sets, hashes
+    * Lua transaction interface for atomic read operations
     * Raw binary storage for keys and values
 
   ## Usage
 
       # Start a Veidrodelis instance
       {:ok, pid} = Veidrodelis.start_link(
+        id: :my_instance,
         host: "localhost",
         port: 6379
       )
 
       # Query data using accessor functions
-      value = Veidrodelis.get(pid, 0, "mykey")
-      len = Veidrodelis.llen(pid, 0, "mylist")
-      members = Veidrodelis.smembers(pid, 0, "myset")
+      value = Veidrodelis.get(:my_instance, 0, "mykey")
+      len = Veidrodelis.llen(:my_instance, 0, "mylist")
+      members = Veidrodelis.smembers(:my_instance, 0, "myset")
   """
 
   alias Vdr.RedisStream.Replica
@@ -41,7 +43,6 @@ defmodule Veidrodelis do
   ## Options
 
     * `:id` - Veidrodelis instance ID, required
-    * `:impl` - Veidrodelis implementation module and options, default: `{Vdr.MapProj, []}`
     * `:host` - Redis host (default: "localhost")
     * `:port` - Redis port (default: 6379)
     * `:username` - Redis username for ACL authentication (default: nil)
@@ -75,8 +76,7 @@ defmodule Veidrodelis do
   """
   @spec start_link(keyword()) :: {:ok, pid()} | {:error, term()}
   def start_link(opts) do
-    {impl_module, impl_opts} = Keyword.get(opts, :impl, {Vdr.MapProj, []})
-    impl_module.start_link(opts ++ [callback_opts: impl_opts])
+    Vdr.TSProj.start_link(opts)
   end
 
   @doc """
@@ -371,7 +371,7 @@ defmodule Veidrodelis do
 
   ## Examples
 
-      {:ok, pid} = Veidrodelis.start_link(id: :my_instance, impl: {Vdr.TSProj, []})
+      {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
       script = "return ts.get('key1')"
       {:ok, result} = Veidrodelis.read_tx(:my_instance, 0, script)
   """
@@ -386,7 +386,7 @@ defmodule Veidrodelis do
         Kernel.apply(callback_module, fun_name, [handle_state | fun_args])
 
       :not_found ->
-        raise "Veidrodelis instance with id #{id} not found"
+        {:error, :not_connected}
     end
   end
 end

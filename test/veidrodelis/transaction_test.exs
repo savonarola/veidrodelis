@@ -1,6 +1,6 @@
 defmodule Veidrodelis.TransactionTest do
   @moduledoc """
-  Smoke tests for transaction support in MapProj and TSProj.
+  Smoke tests for transaction support.
 
   Transactions are controlled via special SET and DEL commands on the key "__vdr_tx":
   - SET __vdr_tx: Start buffering commands instead of executing them
@@ -22,157 +22,10 @@ defmodule Veidrodelis.TransactionTest do
     {:ok, redis: redis}
   end
 
-  describe "MapProj transactions" do
+  describe "transactions" do
     @tag timeout: 15_000
     test "basic transaction with strings", %{redis: redis} do
       opts = [id: @id, host: @redis_host, port: @redis_port]
-      {:ok, vdr} = Veidrodelis.start_link(opts)
-
-      assert_within 5000 do
-        Veidrodelis.get_replication_state(vdr) == :streaming
-      end
-
-      # Execute transaction
-      Redix.command!(redis, ["SET", "__vdr_tx", "1"])
-      Redix.command!(redis, ["SET", "key1", "value1"])
-      Redix.command!(redis, ["SET", "key2", "value2"])
-      Redix.command!(redis, ["DEL", "__vdr_tx"])
-
-      # Verify
-      assert_within 2000 do
-        assert "value1" == Veidrodelis.get(@id, 0, "key1")
-        assert "value2" == Veidrodelis.get(@id, 0, "key2")
-      end
-
-      assert nil == Veidrodelis.get(@id, 0, "__vdr_tx")
-
-      Veidrodelis.stop(vdr)
-    end
-
-    @tag timeout: 15_000
-    test "transaction with mixed data types", %{redis: redis} do
-      opts = [id: @id, host: @redis_host, port: @redis_port]
-      {:ok, vdr} = Veidrodelis.start_link(opts)
-
-      assert_within 5000 do
-        Veidrodelis.get_replication_state(vdr) == :streaming
-      end
-
-      # Execute transaction with multiple data types
-      Redix.command!(redis, ["SET", "__vdr_tx", "1"])
-      Redix.command!(redis, ["SET", "str_key", "str_value"])
-      Redix.command!(redis, ["RPUSH", "list_key", "elem1", "elem2"])
-      Redix.command!(redis, ["SADD", "set_key", "member1", "member2"])
-      Redix.command!(redis, ["HSET", "hash_key", "field1", "value1", "field2", "value2"])
-      Redix.command!(redis, ["ZADD", "zset_key", "1.0", "member1", "2.0", "member2"])
-      Redix.command!(redis, ["DEL", "__vdr_tx"])
-
-      # Verify all data types
-      assert_within 3000 do
-        assert "str_value" == Veidrodelis.get(@id, 0, "str_key")
-        assert 2 == Veidrodelis.llen(@id, 0, "list_key")
-        assert 2 == Veidrodelis.scard(@id, 0, "set_key")
-        assert 2 == Veidrodelis.hlen(@id, 0, "hash_key")
-        assert 2 == Veidrodelis.zcard(@id, 0, "zset_key")
-      end
-
-      assert ["elem1", "elem2"] == Veidrodelis.lrange(@id, 0, "list_key", 0, -1)
-      assert "value1" == Veidrodelis.hget(@id, 0, "hash_key", "field1")
-      assert 1.0 == Veidrodelis.zscore(@id, 0, "zset_key", "member1")
-
-      Veidrodelis.stop(vdr)
-    end
-
-    @tag timeout: 15_000
-    test "DEL __vdr_tx with multiple keys", %{redis: redis} do
-      opts = [id: @id, host: @redis_host, port: @redis_port]
-      {:ok, vdr} = Veidrodelis.start_link(opts)
-
-      assert_within 5000 do
-        Veidrodelis.get_replication_state(vdr) == :streaming
-      end
-
-      # Set up some keys first
-      Redix.command!(redis, ["SET", "pre_key1", "pre_value1"])
-      Redix.command!(redis, ["SET", "pre_key2", "pre_value2"])
-
-      Process.sleep(100)
-
-      # Transaction that deletes keys
-      Redix.command!(redis, ["SET", "__vdr_tx", "1"])
-      Redix.command!(redis, ["SET", "tx_key", "tx_value"])
-      Redix.command!(redis, ["DEL", "pre_key1"])
-      Redix.command!(redis, ["DEL", "__vdr_tx", "pre_key2"])
-
-      # Verify
-      assert_within 2000 do
-        assert "tx_value" == Veidrodelis.get(@id, 0, "tx_key")
-        assert nil == Veidrodelis.get(@id, 0, "pre_key1")
-        assert nil == Veidrodelis.get(@id, 0, "pre_key2")
-      end
-
-      Veidrodelis.stop(vdr)
-    end
-
-    @tag timeout: 15_000
-    test "empty transaction", %{redis: redis} do
-      opts = [id: @id, host: @redis_host, port: @redis_port]
-      {:ok, vdr} = Veidrodelis.start_link(opts)
-
-      assert_within 5000 do
-        Veidrodelis.get_replication_state(vdr) == :streaming
-      end
-
-      # Empty transaction
-      Redix.command!(redis, ["SET", "__vdr_tx", "1"])
-      Redix.command!(redis, ["DEL", "__vdr_tx"])
-
-      Process.sleep(200)
-
-      # Should not crash
-      assert nil == Veidrodelis.get(@id, 0, "__vdr_tx")
-
-      Veidrodelis.stop(vdr)
-    end
-
-    @tag timeout: 15_000
-    test "multiple sequential transactions", %{redis: redis} do
-      opts = [id: @id, host: @redis_host, port: @redis_port]
-      {:ok, vdr} = Veidrodelis.start_link(opts)
-
-      assert_within 5000 do
-        Veidrodelis.get_replication_state(vdr) == :streaming
-      end
-
-      # First transaction
-      Redix.command!(redis, ["SET", "__vdr_tx", "1"])
-      Redix.command!(redis, ["SET", "tx1_key", "tx1_value"])
-      Redix.command!(redis, ["DEL", "__vdr_tx"])
-
-      assert_within 2000 do
-        assert "tx1_value" == Veidrodelis.get(@id, 0, "tx1_key")
-      end
-
-      # Second transaction
-      Redix.command!(redis, ["SET", "__vdr_tx", "2"])
-      Redix.command!(redis, ["SET", "tx2_key", "tx2_value"])
-      Redix.command!(redis, ["DEL", "__vdr_tx"])
-
-      assert_within 2000 do
-        assert "tx2_value" == Veidrodelis.get(@id, 0, "tx2_key")
-      end
-
-      assert "tx1_value" == Veidrodelis.get(@id, 0, "tx1_key")
-      assert "tx2_value" == Veidrodelis.get(@id, 0, "tx2_key")
-
-      Veidrodelis.stop(vdr)
-    end
-  end
-
-  describe "TSProj transactions" do
-    @tag timeout: 15_000
-    test "basic transaction with strings", %{redis: redis} do
-      opts = [id: @id, host: @redis_host, port: @redis_port, impl: {Vdr.TSProj, []}]
       {:ok, vdr} = Veidrodelis.start_link(opts)
 
       assert_within 5000 do
@@ -198,7 +51,7 @@ defmodule Veidrodelis.TransactionTest do
 
     @tag timeout: 15_000
     test "transaction with mixed data types", %{redis: redis} do
-      opts = [id: @id, host: @redis_host, port: @redis_port, impl: {Vdr.TSProj, []}]
+      opts = [id: @id, host: @redis_host, port: @redis_port]
       {:ok, vdr} = Veidrodelis.start_link(opts)
 
       assert_within 5000 do

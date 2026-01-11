@@ -12,7 +12,7 @@ The project is implemented in **Elixir** with **Rust NIFs** for critical parts:
 
 ### Key Features
 - Full Redis replication protocol support (PSYNC)
-- Two storage backends: TSProj (Rust-based) and MapProj (pure Elixir)
+- High-performance Rust-based storage backend (TSProj)
 - Replica-side transaction support via `__vdr_tx` marker protocol
 - Batch command execution for atomic multi-operation updates
 - Direct NIF access for high-performance reads (TSProj)
@@ -77,8 +77,6 @@ mix format --check-formatted
 │   │   ├── registry.ex           # ETS-based instance registry
 │   │   ├── ts.ex                 # Rust-based Term Storage (TS) NIF interface
 │   │   ├── ts_proj.ex            # TS-based projection implementation
-│   │   ├── map_proj.ex           # Map-based projection (pure Elixir)
-│   │   ├── map_proj/             # Map-based stores for each data type
 │   │   ├── redis_stream/         # Redis replication stream components
 │   │   │   ├── callback.ex       # Behavior definition for callbacks
 │   │   │   ├── replica.ex        # Main replica client (GenServer)
@@ -107,7 +105,6 @@ mix format --check-formatted
 │   │   ├── ts_test.exs           # TS tests
 │   │   ├── rdb_test.exs          # RDB parser tests
 │   │   ├── replica_test.exs      # Replica client tests
-│   │   ├── map_proj/             # Map-based store tests
 │   │   └── ts_proj/              # TS-based store tests
 │   └── support/                  # Test helpers
 └── benchmark/                    # Benchmark scenarios
@@ -115,20 +112,18 @@ mix format --check-formatted
 
 ## Architecture
 
-Veidrodelis provides two storage backend implementations:
-1. **TSProj** - Rust-based, high-performance storage using the Term Storage (TS) NIF
-2. **MapProj** - Pure Elixir implementation using maps (easier debugging)
+Veidrodelis uses a Rust-based storage backend (TSProj) for high-performance, thread-safe data access.
 
 ### Replication Flow
 
 ```
 Redis Master → TCP/SSL → Vdr.RedisStream.Replica →
   RDB/Command Stream → Vdr.RedisStream.Parser (Rust) →
-  Commands → Callback (TSProj/MapProj) →
-  Storage (TS Rust NIF / Elixir Maps)
+  Commands → Callback (TSProj) →
+  Storage (TS Rust NIF)
 ```
 
-### Read Path (TSProj)
+### Read Path
 
 ```
 Veidrodelis API → Registry Lookup →
@@ -176,13 +171,6 @@ Veidrodelis API → Registry Lookup →
 - Double-buffering during RDB transfer (new_ts_storage/ts_storage swap)
 - Direct TS storage access for reads (no GenServer calls)
 - All Redis command types supported
-
-**Vdr.MapProj - Map-based Projection ([lib/veidrodelis/map_proj.ex](lib/veidrodelis/map_proj.ex))**
-- Pure Elixir implementation using maps for storage
-- Same transaction support as TSProj
-- GenServer-based reads (easier to debug)
-- Specialized modules for each data type in [lib/veidrodelis/map_proj/](lib/veidrodelis/map_proj/) directory
-  - `strings.ex`, `lists.ex`, `sets.ex`, `hashes.ex`, `zsets.ex`
 
 **Vdr.RedisStream.Replica - Replication Client ([lib/veidrodelis/redis_stream/replica.ex](lib/veidrodelis/redis_stream/replica.ex))**
 - GenServer implementing Redis replication protocol (PSYNC)
@@ -253,7 +241,6 @@ Veidrodelis API → Registry Lookup →
   1. `SET __vdr_tx <value>` starts buffering commands
   2. All subsequent commands are buffered (not applied)
   3. `DEL __vdr_tx` triggers atomic application via `Vdr.TS.tx/2`
-- Both TSProj and MapProj support the same transaction protocol
 - Transaction state is tracked in the projection GenServer (buffer list)
 
 ### Working with the RDB parser
@@ -301,11 +288,6 @@ Veidrodelis API → Registry Lookup →
   - Example: `{1, 2, {a=10}}` → `[1, 2, %{"a" => 10}]`
 - **Dependencies**: Uses `mlua` crate with features: `["luajit", "vendored", "send"]`
 
-### Choosing Storage Backends
-- **Use TSProj** for production - high performance, thread-safe, direct NIF access
-- **Use MapProj** for debugging - pure Elixir, easier to inspect state, GenServer-based
-- Both implement the same interface and support the same features
-
 ### When adding new features
 - Implement in Elixir in `lib/veidrodelis/*.ex`
 - If adding to TS storage, also update Rust code in `native/vdr_ts_nif/src/storage.rs` and `native/vdr_ts_nif/src/lib.rs`
@@ -317,7 +299,6 @@ Veidrodelis API → Registry Lookup →
   - Add smoke `integration/` tests 
 - **CRITICAL**: When adding mutating ts functions:
   - Do not add `ts_proj/` tests. Instead, add `integration/` tetst.
-- Update both TSProj and MapProj if changing projection behavior
 - Add comprehensive documentation with `@doc` and examples
 - Add tests in `test/veidrodelis/*_test.exs` (ExUnit). Do not start ad-hoc elixir scripts for testing, add a proper test module instead.
 - Ensure proper typespecs for better tooling support
