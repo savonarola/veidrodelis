@@ -379,8 +379,20 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   def handle_info(message, state) do
-    Logger.warning("Unhandled message: #{inspect(message)}")
-    {:noreply, state}
+    # Try to forward to callback's handle_info if defined
+    if function_exported?(state.callback_module, :handle_info, 2) do
+      case state.callback_module.handle_info(state.callback_state, message) do
+        {:noreply, new_callback_state} ->
+          {:noreply, %{state | callback_state: new_callback_state}}
+
+        {:error, _reason} ->
+          Logger.warning("Callback handle_info returned error for message: #{inspect(message)}")
+          {:noreply, state}
+      end
+    else
+      Logger.warning("Unhandled message: #{inspect(message)}")
+      {:noreply, state}
+    end
   end
 
   @impl true

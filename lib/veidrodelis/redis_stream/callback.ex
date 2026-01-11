@@ -15,7 +15,10 @@ defmodule Vdr.RedisStream.Callback do
   @callback handle_call(state :: term(), message :: term()) ::
               {:reply, term(), term()} | {:noreply, term()} | {:error, term()}
 
+  @callback handle_info(state :: term(), message :: term()) ::
+              {:noreply, term()} | {:error, term()}
+
   @callback handle_destroy(state :: term()) :: :ok | {:error, term()}
 
-  @optional_callbacks handle_destroy: 1, handle_call: 2
+  @optional_callbacks handle_destroy: 1, handle_call: 2, handle_info: 2
 end

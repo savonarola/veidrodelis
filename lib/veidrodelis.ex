@@ -105,6 +105,90 @@ defmodule Veidrodelis do
     end
   end
 
+  @doc """
+  Subscribes to updates for a specific key in a database.
+
+  When the key is modified, the calling process will receive a message:
+  `{ref, %Vdr.WatchEvent.Update{command: cmd, db: db}}`
+
+  When the replica transitions to streaming mode after an RDB transfer, the calling
+  process will receive: `{ref, %Vdr.WatchEvent.Init{}}`
+
+  ## Parameters
+
+    * `id` - Veidrodelis instance ID
+    * `db` - Database number
+    * `key` - The key to watch (binary)
+    * `ref` - Reference value to identify this watch in notifications
+
+  ## Returns
+
+    * `:ok` - Successfully subscribed
+    * `{:error, :not_found}` - Instance not found
+    * `{:error, :already_registered}` - This process is already watching this key
+
+  ## Example
+
+      # Subscribe to key updates
+      :ok = Veidrodelis.watch(:my_instance, 0, "user:123", :my_watch_ref)
+
+      # Receive notifications
+      receive do
+        {:my_watch_ref, %Vdr.WatchEvent.Update{command: cmd, db: db}} ->
+          IO.inspect({:update, cmd, db})
+
+        {:my_watch_ref, %Vdr.WatchEvent.Init{}} ->
+          IO.puts("Streaming mode started")
+      end
+  """
+  @spec watch(instance_id(), db(), key(), term()) :: :ok | {:error, term()}
+  def watch(id, db, key, ref) when is_integer(db) and is_binary(key) do
+    case Vdr.Registry.lookup(id) do
+      {:ok, %Vdr.Handle{pid: pid}} ->
+        case GenServer.call(pid, {:callback_call, {:watch, self(), db, key, ref}}) do
+          {:ok, :ok} -> :ok
+          {:ok, {:error, reason}} -> {:error, reason}
+          {:error, reason} -> {:error, reason}
+        end
+
+      :not_found ->
+        {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Unsubscribes from updates for a specific key.
+
+  ## Parameters
+
+    * `id` - Veidrodelis instance ID
+    * `db` - Database number
+    * `key` - The key to unwatch (binary)
+
+  ## Returns
+
+    * `:ok` - Successfully unsubscribed
+    * `{:error, :not_found}` - Instance or watch not found
+
+  ## Example
+
+      :ok = Veidrodelis.unwatch(:my_instance, 0, "user:123")
+  """
+  @spec unwatch(instance_id(), db(), key()) :: :ok | {:error, term()}
+  def unwatch(id, db, key) when is_integer(db) and is_binary(key) do
+    case Vdr.Registry.lookup(id) do
+      {:ok, %Vdr.Handle{pid: pid}} ->
+        case GenServer.call(pid, {:callback_call, {:unwatch, self(), db, key}}) do
+          {:ok, :ok} -> :ok
+          {:ok, {:error, reason}} -> {:error, reason}
+          {:error, reason} -> {:error, reason}
+        end
+
+      :not_found ->
+        {:error, :not_found}
+    end
+  end
+
   # Redis accessor functions
 
   @doc """

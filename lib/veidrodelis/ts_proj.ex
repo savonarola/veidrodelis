@@ -16,7 +16,16 @@ defmodule Vdr.TSProj do
 
   @tx_key "__vdr_tx"
 
-  defstruct [:ts_storage, :id, :new_ts_storage, :ready, :tx_buffer, :in_transaction]
+  defstruct [
+    :ts_storage,
+    :id,
+    :new_ts_storage,
+    :ready,
+    :tx_buffer,
+    :in_transaction,
+    :watch,
+    :monitors
+  ]
 
   @type key :: binary()
   @type value :: binary()
@@ -27,7 +36,9 @@ defmodule Vdr.TSProj do
           new_ts_storage: reference() | nil,
           ready: boolean(),
           tx_buffer: list(),
-          in_transaction: boolean()
+          in_transaction: boolean(),
+          watch: Vdr.TS.Watch.t(),
+          monitors: %{pid() => reference()}
         }
 
   def start_link(opts) do
@@ -66,6 +77,15 @@ defmodule Vdr.TSProj do
     id = Keyword.fetch!(opts, :id)
     state = initialize_state(id)
 
+    # Register instance immediately so it can accept watch requests
+    # before streaming starts (ts_storage will be empty until first sync)
+    :ok =
+      Vdr.Registry.register(self(), state.id, %Vdr.Handle{
+        callback_module: __MODULE__,
+        handle_state: %{pid: self(), ts_storage: state.ts_storage, ready: false},
+        pid: self()
+      })
+
     {:ok, state}
   end
 
@@ -81,11 +101,18 @@ defmodule Vdr.TSProj do
     # Clear new_ts_storage
     new_state = %{state | ts_storage: state.new_ts_storage, new_ts_storage: nil, ready: true}
 
-    # Update registry with new ts_storage
+    # Send Init messages to all watchers
+    new_state.watch
+    |> Vdr.TS.Watch.all_watchers()
+    |> Enum.each(fn {pid, ref} ->
+      send(pid, {ref, %Vdr.WatchEvent.Init{}})
+    end)
+
+    # Update registry with new ts_storage and set ready flag
     :ok =
       Vdr.Registry.register(self(), state.id, %Vdr.Handle{
         callback_module: __MODULE__,
-        handle_state: %{pid: self(), ts_storage: new_state.ts_storage},
+        handle_state: %{pid: self(), ts_storage: new_state.ts_storage, ready: true},
         pid: self()
       })
 
@@ -111,6 +138,14 @@ defmodule Vdr.TSProj do
       # Buffer the DEL command, then apply all buffered commands
       state_with_del = %{state | tx_buffer: [{db, cmd} | state.tx_buffer]}
       new_state = apply_transaction(state_with_del)
+
+      # Notify for all commands in the transaction (in order)
+      state_with_del.tx_buffer
+      |> Enum.reverse()
+      |> Enum.each(fn {tx_db, tx_cmd} ->
+        notify_watchers(new_state, tx_db, tx_cmd)
+      end)
+
       {:ok, %{new_state | in_transaction: false, tx_buffer: []}}
     else
       # Normal DEL command, buffer if in transaction
@@ -118,6 +153,7 @@ defmodule Vdr.TSProj do
         {:ok, %{state | tx_buffer: [{db, cmd} | state.tx_buffer]}}
       else
         execute_command(state, db, cmd)
+        notify_watchers(state, db, cmd)
         {:ok, state}
       end
     end
@@ -137,25 +173,82 @@ defmodule Vdr.TSProj do
         command: command
       }) do
     execute_command(state, db, command)
+    notify_watchers(state, db, command)
     {:ok, state}
   end
 
   @impl Vdr.RedisStream.Callback
   def handle_call(%__MODULE__{} = state, message) do
-    # Check if ready to serve reads
-    if not state.ready do
-      {:reply, {:error, :not_ready}, state}
-    else
-      # Serve reads from current ts_storage (not new_ts_storage)
-      case message do
-        {:get, db, key} ->
+    case message do
+      # Watch subscription
+      {:watch, pid, db, key, ref} ->
+        case Vdr.TS.Watch.add(state.watch, pid, db, key, ref) do
+          {:ok, new_watch} ->
+            # Monitor the process if not already monitored
+            new_monitors =
+              if Map.has_key?(state.monitors, pid) do
+                state.monitors
+              else
+                monitor_ref = Process.monitor(pid)
+                Map.put(state.monitors, pid, monitor_ref)
+              end
+
+            new_state = %{state | watch: new_watch, monitors: new_monitors}
+            {:reply, :ok, new_state}
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
+
+      # Watch unsubscription
+      {:unwatch, pid, db, key} ->
+        case Vdr.TS.Watch.delete(state.watch, pid, db, key) do
+          {:ok, new_watch, 0} ->
+            # Last watch for this pid - demonitor
+            case Map.get(state.monitors, pid) do
+              nil -> :ok
+              monitor_ref -> Process.demonitor(monitor_ref, [:flush])
+            end
+
+            new_monitors = Map.delete(state.monitors, pid)
+            new_state = %{state | watch: new_watch, monitors: new_monitors}
+            {:reply, :ok, new_state}
+
+          {:ok, new_watch, _remaining} ->
+            # Pid still has other watches - keep monitoring
+            new_state = %{state | watch: new_watch}
+            {:reply, :ok, new_state}
+
+          {:error, reason} ->
+            {:reply, {:error, reason}, state}
+        end
+
+      # Read operations - check if ready
+      {:get, db, key} ->
+        if not state.ready do
+          {:reply, {:error, :not_ready}, state}
+        else
           result = Vdr.TS.get(state.ts_storage, db, key)
           {:reply, {:ok, result}, state}
+        end
 
-        _ ->
-          {:reply, {:error, :not_implemented}, state}
-      end
+      _ ->
+        {:reply, {:error, :not_implemented}, state}
     end
+  end
+
+  @impl Vdr.RedisStream.Callback
+  def handle_info(%__MODULE__{} = state, {:DOWN, _ref, :process, pid, _reason}) do
+    # Remove all watches for the crashed process
+    new_watch = Vdr.TS.Watch.delete_all(state.watch, pid)
+    new_monitors = Map.delete(state.monitors, pid)
+    new_state = %{state | watch: new_watch, monitors: new_monitors}
+    {:noreply, new_state}
+  end
+
+  def handle_info(%__MODULE__{} = state, _message) do
+    # Ignore other messages
+    {:noreply, state}
   end
 
   @impl Vdr.RedisStream.Callback
@@ -179,7 +272,9 @@ defmodule Vdr.TSProj do
       new_ts_storage: nil,
       ready: false,
       tx_buffer: [],
-      in_transaction: false
+      in_transaction: false,
+      watch: Vdr.TS.Watch.create(),
+      monitors: %{}
     }
   end
 
@@ -199,178 +294,267 @@ defmodule Vdr.TSProj do
   # Only get/3 is implemented, all others return {:error, :not_implemented}
 
   def get(handle_state, db, key) when is_map(handle_state) and is_binary(key) do
-    # Extract TS storage from handle_state and use it directly
-    ts_storage = handle_state.ts_storage
-    Vdr.TS.get(ts_storage, db, key)
+    # Check if instance is ready (has completed initial sync)
+    if Map.get(handle_state, :ready, false) do
+      # Extract TS storage from handle_state and use it directly
+      ts_storage = handle_state.ts_storage
+      Vdr.TS.get(ts_storage, db, key)
+    else
+      {:error, :not_ready}
+    end
   end
 
   # List accessors
-  def llen(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
-    case Vdr.TS.llen(ts_storage, db, key) do
-      {:ok, len} -> len
-      {:error, _} = error -> error
+  def llen(%{ready: ready, ts_storage: ts_storage}, db, key) when is_binary(key) do
+    if ready do
+      case Vdr.TS.llen(ts_storage, db, key) do
+        {:ok, len} -> len
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def lrange(%{ts_storage: ts_storage}, db, key, start, stop) when is_binary(key) do
-    case Vdr.TS.lrange(ts_storage, db, key, start, stop) do
-      {:ok, elements} -> elements
-      {:error, _} = error -> error
+  def lrange(%{ready: ready, ts_storage: ts_storage}, db, key, start, stop) when is_binary(key) do
+    if ready do
+      case Vdr.TS.lrange(ts_storage, db, key, start, stop) do
+        {:ok, elements} -> elements
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def smembers(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
-    case Vdr.TS.smembers(ts_storage, db, key) do
-      {:ok, members} -> members
-      {:error, _} = error -> error
+  def smembers(%{ready: ready, ts_storage: ts_storage}, db, key) when is_binary(key) do
+    if ready do
+      case Vdr.TS.smembers(ts_storage, db, key) do
+        {:ok, members} -> members
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def scard(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
-    case Vdr.TS.scard(ts_storage, db, key) do
-      {:ok, count} -> count
-      {:error, _} = error -> error
+  def scard(%{ready: ready, ts_storage: ts_storage}, db, key) when is_binary(key) do
+    if ready do
+      case Vdr.TS.scard(ts_storage, db, key) do
+        {:ok, count} -> count
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def sismember(%{ts_storage: ts_storage}, db, key, member)
+  def sismember(%{ready: ready, ts_storage: ts_storage}, db, key, member)
       when is_binary(key) and is_binary(member) do
-    case Vdr.TS.sismember(ts_storage, db, key, member) do
-      {:ok, is_member} -> is_member
-      {:error, _} = error -> error
+    if ready do
+      case Vdr.TS.sismember(ts_storage, db, key, member) do
+        {:ok, is_member} -> is_member
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def sfirst(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
-    case Vdr.TS.sfirst(ts_storage, db, key) do
-      {:ok, member} -> member
-      {:error, _} = error -> error
+  def sfirst(%{ready: ready, ts_storage: ts_storage}, db, key) when is_binary(key) do
+    if ready do
+      case Vdr.TS.sfirst(ts_storage, db, key) do
+        {:ok, member} -> member
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def slast(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
-    case Vdr.TS.slast(ts_storage, db, key) do
-      {:ok, member} -> member
-      {:error, _} = error -> error
+  def slast(%{ready: ready, ts_storage: ts_storage}, db, key) when is_binary(key) do
+    if ready do
+      case Vdr.TS.slast(ts_storage, db, key) do
+        {:ok, member} -> member
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def snext(%{ts_storage: ts_storage}, db, key, member)
+  def snext(%{ready: ready, ts_storage: ts_storage}, db, key, member)
       when is_binary(key) and is_binary(member) do
-    case Vdr.TS.snext(ts_storage, db, key, member) do
-      {:ok, next_member} -> next_member
-      {:error, _} = error -> error
+    if ready do
+      case Vdr.TS.snext(ts_storage, db, key, member) do
+        {:ok, next_member} -> next_member
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def sprev(%{ts_storage: ts_storage}, db, key, member)
+  def sprev(%{ready: ready, ts_storage: ts_storage}, db, key, member)
       when is_binary(key) and is_binary(member) do
-    case Vdr.TS.sprev(ts_storage, db, key, member) do
-      {:ok, prev_member} -> prev_member
-      {:error, _} = error -> error
+    if ready do
+      case Vdr.TS.sprev(ts_storage, db, key, member) do
+        {:ok, prev_member} -> prev_member
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
   # Hash accessors
-  def hget(%{ts_storage: ts_storage}, db, key, field)
+  def hget(%{ready: ready, ts_storage: ts_storage}, db, key, field)
       when is_binary(key) and is_binary(field) do
-    case Vdr.TS.hget(ts_storage, db, key, field) do
-      {:ok, value} -> value
-      {:error, _} = error -> error
+    if ready do
+      case Vdr.TS.hget(ts_storage, db, key, field) do
+        {:ok, value} -> value
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def hmget(%{ts_storage: ts_storage}, db, key, fields)
+  def hmget(%{ready: ready, ts_storage: ts_storage}, db, key, fields)
       when is_binary(key) and is_list(fields) do
-    case Vdr.TS.hmget(ts_storage, db, key, fields) do
-      {:ok, values} -> values
-      {:error, _} = error -> error
+    if ready do
+      case Vdr.TS.hmget(ts_storage, db, key, fields) do
+        {:ok, values} -> values
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def hgetall(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
-    case Vdr.TS.hgetall(ts_storage, db, key) do
-      {:ok, pairs} -> pairs
-      {:error, _} = error -> error
+  def hgetall(%{ready: ready, ts_storage: ts_storage}, db, key) when is_binary(key) do
+    if ready do
+      case Vdr.TS.hgetall(ts_storage, db, key) do
+        {:ok, pairs} -> pairs
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def hkeys(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
-    case Vdr.TS.hkeys(ts_storage, db, key) do
-      {:ok, keys} -> keys
-      {:error, _} = error -> error
+  def hkeys(%{ready: ready, ts_storage: ts_storage}, db, key) when is_binary(key) do
+    if ready do
+      case Vdr.TS.hkeys(ts_storage, db, key) do
+        {:ok, keys} -> keys
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def hvals(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
-    case Vdr.TS.hvals(ts_storage, db, key) do
-      {:ok, values} -> values
-      {:error, _} = error -> error
+  def hvals(%{ready: ready, ts_storage: ts_storage}, db, key) when is_binary(key) do
+    if ready do
+      case Vdr.TS.hvals(ts_storage, db, key) do
+        {:ok, values} -> values
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def hlen(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
-    case Vdr.TS.hlen(ts_storage, db, key) do
-      {:ok, len} -> len
-      {:error, _} = error -> error
+  def hlen(%{ready: ready, ts_storage: ts_storage}, db, key) when is_binary(key) do
+    if ready do
+      case Vdr.TS.hlen(ts_storage, db, key) do
+        {:ok, len} -> len
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
   # Sorted set accessors
-  def zrange(%{ts_storage: ts_storage}, db, key, start, stop, with_scores)
+  def zrange(%{ready: ready, ts_storage: ts_storage}, db, key, start, stop, with_scores)
       when is_binary(key) do
-    case Vdr.TS.zrange(ts_storage, db, key, start, stop, with_scores) do
-      {:ok, flat_list} when with_scores ->
-        # Convert flat list [member1, score1, member2, score2, ...] to [{member1, score1}, {member2, score2}, ...]
-        flat_list
-        |> Enum.chunk_every(2)
-        |> Enum.map(fn [member, score] -> {member, score} end)
+    if ready do
+      case Vdr.TS.zrange(ts_storage, db, key, start, stop, with_scores) do
+        {:ok, flat_list} when with_scores ->
+          # Convert flat list [member1, score1, member2, score2, ...] to [{member1, score1}, {member2, score2}, ...]
+          flat_list
+          |> Enum.chunk_every(2)
+          |> Enum.map(fn [member, score] -> {member, score} end)
 
-      {:ok, members} ->
-        # Return members only (without scores)
-        members
+        {:ok, members} ->
+          # Return members only (without scores)
+          members
 
-      {:error, _} = error ->
-        error
+        {:error, _} = error ->
+          error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def zcard(%{ts_storage: ts_storage}, db, key) when is_binary(key) do
-    case Vdr.TS.zcard(ts_storage, db, key) do
-      {:ok, count} -> count
-      {:error, _} = error -> error
+  def zcard(%{ready: ready, ts_storage: ts_storage}, db, key) when is_binary(key) do
+    if ready do
+      case Vdr.TS.zcard(ts_storage, db, key) do
+        {:ok, count} -> count
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def zscore(%{ts_storage: ts_storage}, db, key, member)
+  def zscore(%{ready: ready, ts_storage: ts_storage}, db, key, member)
       when is_binary(key) and is_binary(member) do
-    case Vdr.TS.zscore(ts_storage, db, key, member) do
-      {:ok, score} -> score
-      {:error, _} = error -> error
+    if ready do
+      case Vdr.TS.zscore(ts_storage, db, key, member) do
+        {:ok, score} -> score
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def zrangebyscore(%{ts_storage: ts_storage}, db, key, min, max, with_scores)
+  def zrangebyscore(%{ready: ready, ts_storage: ts_storage}, db, key, min, max, with_scores)
       when is_binary(key) do
-    case Vdr.TS.zrangebyscore(ts_storage, db, key, min, max, with_scores) do
-      {:ok, result} -> result
-      {:error, _} = error -> error
+    if ready do
+      case Vdr.TS.zrangebyscore(ts_storage, db, key, min, max, with_scores) do
+        {:ok, result} -> result
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def zrank(%{ts_storage: ts_storage}, db, key, member)
+  def zrank(%{ready: ready, ts_storage: ts_storage}, db, key, member)
       when is_binary(key) and is_binary(member) do
-    case Vdr.TS.zrank(ts_storage, db, key, member) do
-      {:ok, rank} -> rank
-      {:error, _} = error -> error
+    if ready do
+      case Vdr.TS.zrank(ts_storage, db, key, member) do
+        {:ok, rank} -> rank
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
-  def zrevrank(%{ts_storage: ts_storage}, db, key, member)
+  def zrevrank(%{ready: ready, ts_storage: ts_storage}, db, key, member)
       when is_binary(key) and is_binary(member) do
-    case Vdr.TS.zrevrank(ts_storage, db, key, member) do
-      {:ok, rank} -> rank
-      {:error, _} = error -> error
+    if ready do
+      case Vdr.TS.zrevrank(ts_storage, db, key, member) do
+        {:ok, rank} -> rank
+        {:error, _} = error -> error
+      end
+    else
+      {:error, :not_ready}
     end
   end
 
@@ -390,10 +574,14 @@ defmodule Vdr.TSProj do
       script = "return ts.get('key1')"
       {:ok, result} = Vdr.TSProj.tx(handle_state, 0, script)
   """
-  @spec tx(%{ts_storage: reference()}, non_neg_integer(), binary()) ::
+  @spec tx(%{ts_storage: reference(), ready: boolean()}, non_neg_integer(), binary()) ::
           {:ok, binary()} | {:error, term()}
-  def tx(%{ts_storage: ts_storage}, db, script) when is_binary(script) do
-    Vdr.TS.read_tx(ts_storage, db, script)
+  def tx(%{ready: ready, ts_storage: ts_storage}, db, script) when is_binary(script) do
+    if ready do
+      Vdr.TS.read_tx(ts_storage, db, script)
+    else
+      {:error, :not_ready}
+    end
   end
 
   # Convert RedisCommand to tuple format for NIF
@@ -703,5 +891,72 @@ defmodule Vdr.TSProj do
       # Writing to ts_storage during streaming
       do_handle_command(state.ts_storage, db, command)
     end
+  end
+
+  # Extract all keys affected by a command for watch notifications
+  defp extract_affected_keys(command) do
+    case command do
+      # Multiple keys
+      %RedisCommand.Del{keys: keys} ->
+        keys
+
+      %RedisCommand.MSet{pairs: pairs} ->
+        Enum.map(pairs, fn {k, _v} -> k end)
+
+      # Source/destination commands (must come before single key pattern)
+      %RedisCommand.RPopLPush{source: src, destination: dest} ->
+        [src, dest]
+
+      %RedisCommand.Rename{key: old_key, newkey: new_key} ->
+        [old_key, new_key]
+
+      %RedisCommand.RenameNX{key: old_key, newkey: new_key} ->
+        [old_key, new_key]
+
+      %RedisCommand.SMove{source: src, destination: dest} ->
+        [src, dest]
+
+      # Store commands (affect destination + sources)
+      %RedisCommand.SUnionStore{destination: dest, keys: keys} ->
+        [dest | keys]
+
+      %RedisCommand.SInterStore{destination: dest, keys: keys} ->
+        [dest | keys]
+
+      %RedisCommand.SDiffStore{destination: dest, keys: keys} ->
+        [dest | keys]
+
+      %RedisCommand.ZUnionStore{destination: dest, keys: keys} ->
+        [dest | keys]
+
+      %RedisCommand.ZInterStore{destination: dest, keys: keys} ->
+        [dest | keys]
+
+      # Single key commands (must come after multi-key patterns)
+      %{key: key} when is_binary(key) ->
+        [key]
+
+      # Catch-all for commands we don't track
+      _ ->
+        []
+    end
+  end
+
+  # Notify all watchers of a command
+  defp notify_watchers(state, db, command) do
+    # Only notify in streaming mode (not during RDB transfer)
+    if state.ready do
+      keys = extract_affected_keys(command)
+
+      Enum.each(keys, fn key ->
+        state.watch
+        |> Vdr.TS.Watch.lookup(db, key)
+        |> Enum.each(fn {ref, pid} ->
+          send(pid, {ref, %Vdr.WatchEvent.Update{command: command, db: db}})
+        end)
+      end)
+    end
+
+    :ok
   end
 end
