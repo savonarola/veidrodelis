@@ -540,6 +540,81 @@ fn execute_single_command<'a>(
                         };
                     }
                 }
+            } else if cmd_atom == atoms::hsetnx() {
+                // {db, {:hsetnx, key, field, value}}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(field), Ok(value)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>(),
+                        args[2].decode::<Binary>()
+                    ) {
+                        return match inner.hsetnx(db, key.as_slice(), field.as_slice(), value.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hincrby() {
+                // {db, {:hincrby, key, field, delta}}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(field), Ok(delta)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>(),
+                        args[2].decode::<i64>()
+                    ) {
+                        return match inner.hincrby(db, key.as_slice(), field.as_slice(), delta) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hincrbyfloat() {
+                // {db, {:hincrbyfloat, key, field, delta}}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(field), Ok(delta)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>(),
+                        args[2].decode::<f64>()
+                    ) {
+                        return match inner.hincrbyfloat(db, key.as_slice(), field.as_slice(), delta) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hsetex() {
+                // {db, {:hsetex, key, mode, fields}}
+                // where mode is :nx, :xx, or :nil
+                // fields is [{field, value}, ...]
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(fields_list)) = (
+                        args[0].decode::<Binary>(),
+                        args[2].decode::<Vec<(Binary, Binary)>>()
+                    ) {
+                        // Decode mode
+                        let mode_term = args[1];
+                        let mode = if mode_term == atoms::nil().to_term(env) {
+                            None
+                        } else if mode_term == atoms::nx().to_term(env) {
+                            Some(storage::types::HSetEXMode::NX)
+                        } else if mode_term == atoms::xx().to_term(env) {
+                            Some(storage::types::HSetEXMode::XX)
+                        } else {
+                            None
+                        };
+
+                        // Convert fields to slice references
+                        let fields: Vec<(&[u8], &[u8])> = fields_list
+                            .iter()
+                            .map(|(f, v)| (f.as_slice(), v.as_slice()))
+                            .collect();
+
+                        return match inner.hsetex(db, key.as_slice(), mode, &fields) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
             } else if cmd_atom == atoms::zadd() {
                 // {db, {:zadd, key, members}} or {db, {:zadd, key, members, options}}
                 // where members is [{score, member}, ...], options is list of atoms
@@ -1081,6 +1156,51 @@ fn execute_single_command<'a>(
                                 (atoms::ok(), (field_bin.release(env), value_bin.release(env))).encode(env)
                             }
                             Ok(None) => (atoms::ok(), atoms::nil()).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hstrlen() {
+                // {db, {:hstrlen, key, field}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(field)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        return match inner.hstrlen(db, key.as_slice(), field.as_slice()) {
+                            Ok(len) => (atoms::ok(), len).encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::hrandfield() {
+                // {db, {:hrandfield, key, count, with_values}}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(count), Ok(with_values)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<i64>(),
+                        args[2].decode::<bool>()
+                    ) {
+                        return match inner.hrandfield(db, key.as_slice(), count, with_values) {
+                            Ok(results) => {
+                                let elems: Vec<Term> = results.iter().map(|(field, opt_value)| {
+                                    let mut field_bin = rustler::types::OwnedBinary::new(field.len()).unwrap();
+                                    field_bin.as_mut_slice().copy_from_slice(field.as_slice());
+
+                                    if with_values {
+                                        if let Some(value) = opt_value {
+                                            let mut value_bin = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                                            value_bin.as_mut_slice().copy_from_slice(value.as_slice());
+                                            (field_bin.release(env), value_bin.release(env)).encode(env)
+                                        } else {
+                                            field_bin.release(env).encode(env)
+                                        }
+                                    } else {
+                                        field_bin.release(env).encode(env)
+                                    }
+                                }).collect();
+                                (atoms::ok(), elems).encode(env)
+                            }
                             Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
                         };
                     }

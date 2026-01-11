@@ -323,4 +323,177 @@ defmodule Vdr.TS.HashesTest do
       assert {:ok, "c=3,b=2,a=1"} == TS.read_tx(storage, 0, script)
     end
   end
+
+  describe "hstrlen/4" do
+    test "returns length of field value" do
+      storage = TS.create()
+      TS.tx(storage, [{0, {:hset, "myhash", "field1", "hello"}}])
+
+      assert {:ok, 5} == TS.hstrlen(storage, 0, "myhash", "field1")
+    end
+
+    test "returns 0 for nonexistent field" do
+      storage = TS.create()
+      TS.tx(storage, [{0, {:hset, "myhash", "field1", "hello"}}])
+
+      assert {:ok, 0} == TS.hstrlen(storage, 0, "myhash", "nonexistent")
+    end
+
+    test "returns 0 for nonexistent key" do
+      storage = TS.create()
+
+      assert {:ok, 0} == TS.hstrlen(storage, 0, "nonexistent", "field")
+    end
+
+    test "returns error for wrong type" do
+      storage = TS.create()
+      [:ok] = TS.tx(storage, [{0, {:set, "mystring", "value"}}])
+
+      assert {:error, :wrong_type} == TS.hstrlen(storage, 0, "mystring", "field")
+    end
+
+    test "returns correct length for multi-byte strings" do
+      storage = TS.create()
+      TS.tx(storage, [{0, {:hset, "myhash", "field1", "hello world"}}])
+
+      assert {:ok, 11} == TS.hstrlen(storage, 0, "myhash", "field1")
+    end
+
+    test "returns length via Lua" do
+      storage = TS.create()
+      TS.tx(storage, [{0, {:hset, "myhash", "field1", "hello"}}])
+
+      script = """
+      return ts.hstrlen('myhash', 'field1')
+      """
+
+      assert {:ok, 5} == TS.read_tx(storage, 0, script)
+    end
+
+    test "returns 0 for nonexistent field via Lua" do
+      storage = TS.create()
+
+      script = """
+      return ts.hstrlen('nonexistent', 'field')
+      """
+
+      assert {:ok, 0} == TS.read_tx(storage, 0, script)
+    end
+  end
+
+  describe "hrandfield/5" do
+    test "returns single random field without values" do
+      storage = TS.create()
+      TS.tx(storage, [{0, {:hmset, "myhash", [{"a", "1"}, {"b", "2"}, {"c", "3"}]}}])
+
+      {:ok, [field]} = TS.hrandfield(storage, 0, "myhash", 1, false)
+      assert field in ["a", "b", "c"]
+    end
+
+    test "returns single random field with values" do
+      storage = TS.create()
+      TS.tx(storage, [{0, {:hmset, "myhash", [{"a", "1"}, {"b", "2"}, {"c", "3"}]}}])
+
+      {:ok, [{field, value}]} = TS.hrandfield(storage, 0, "myhash", 1, true)
+      assert {field, value} in [{"a", "1"}, {"b", "2"}, {"c", "3"}]
+    end
+
+    test "returns multiple unique random fields without values" do
+      storage = TS.create()
+      TS.tx(storage, [{0, {:hmset, "myhash", [{"a", "1"}, {"b", "2"}, {"c", "3"}]}}])
+
+      {:ok, fields} = TS.hrandfield(storage, 0, "myhash", 2, false)
+      assert length(fields) == 2
+      assert Enum.all?(fields, &(&1 in ["a", "b", "c"]))
+      # Should be unique
+      assert length(Enum.uniq(fields)) == 2
+    end
+
+    test "returns multiple unique random fields with values" do
+      storage = TS.create()
+      TS.tx(storage, [{0, {:hmset, "myhash", [{"a", "1"}, {"b", "2"}, {"c", "3"}]}}])
+
+      {:ok, results} = TS.hrandfield(storage, 0, "myhash", 2, true)
+      assert length(results) == 2
+      assert Enum.all?(results, fn {field, value} ->
+        {field, value} in [{"a", "1"}, {"b", "2"}, {"c", "3"}]
+      end)
+      # Should be unique
+      fields = Enum.map(results, fn {f, _v} -> f end)
+      assert length(Enum.uniq(fields)) == 2
+    end
+
+    test "returns all fields when count exceeds hash size" do
+      storage = TS.create()
+      TS.tx(storage, [{0, {:hmset, "myhash", [{"a", "1"}, {"b", "2"}]}}])
+
+      {:ok, fields} = TS.hrandfield(storage, 0, "myhash", 10, false)
+      assert length(fields) == 2
+    end
+
+    test "returns fields with repetition when count is negative" do
+      storage = TS.create()
+      TS.tx(storage, [{0, {:hmset, "myhash", [{"a", "1"}, {"b", "2"}]}}])
+
+      {:ok, fields} = TS.hrandfield(storage, 0, "myhash", -5, false)
+      assert length(fields) == 5
+      assert Enum.all?(fields, &(&1 in ["a", "b"]))
+    end
+
+    test "returns empty list for nonexistent key" do
+      storage = TS.create()
+
+      assert {:ok, []} == TS.hrandfield(storage, 0, "nonexistent", 1, false)
+    end
+
+    test "returns empty list for empty hash" do
+      storage = TS.create()
+      TS.tx(storage, [{0, {:hmset, "myhash", []}}])
+
+      assert {:ok, []} == TS.hrandfield(storage, 0, "myhash", 1, false)
+    end
+
+    test "returns error for wrong type" do
+      storage = TS.create()
+      [:ok] = TS.tx(storage, [{0, {:set, "mystring", "value"}}])
+
+      assert {:error, :wrong_type} == TS.hrandfield(storage, 0, "mystring", 1, false)
+    end
+
+    test "returns random field via Lua" do
+      storage = TS.create()
+      TS.tx(storage, [{0, {:hmset, "myhash", [{"a", "1"}, {"b", "2"}, {"c", "3"}]}}])
+
+      script = """
+      local results = ts.hrandfield('myhash', 1, false)
+      return results[1]
+      """
+
+      {:ok, field} = TS.read_tx(storage, 0, script)
+      assert field in ["a", "b", "c"]
+    end
+
+    test "returns random fields with values via Lua" do
+      storage = TS.create()
+      TS.tx(storage, [{0, {:hmset, "myhash", [{"a", "1"}, {"b", "2"}, {"c", "3"}]}}])
+
+      script = """
+      local results = ts.hrandfield('myhash', 2, true)
+      return #results
+      """
+
+      assert {:ok, 2} == TS.read_tx(storage, 0, script)
+    end
+
+    test "returns empty table for nonexistent key via Lua" do
+      storage = TS.create()
+
+      script = """
+      local results = ts.hrandfield('nonexistent', 1, false)
+      return #results
+      """
+
+      assert {:ok, 0} == TS.read_tx(storage, 0, script)
+    end
+  end
 end

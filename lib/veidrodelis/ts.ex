@@ -625,6 +625,62 @@ defmodule Vdr.TS do
     result
   end
 
+  @doc """
+  Gets the string length of the value stored at field in the hash.
+
+  Returns `{:ok, length}` where length is a non-negative integer. If the field or key
+  doesn't exist, returns `{:ok, 0}`. Returns `{:error, :wrong_type}` if the key exists
+  and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.tx(storage, [{0, {:hset, "myhash", "field1", "hello"}}])
+      {:ok, 5} = Vdr.TS.hstrlen(storage, 0, "myhash", "field1")
+      {:ok, 0} = Vdr.TS.hstrlen(storage, 0, "myhash", "nonexistent")
+  """
+  @spec hstrlen(reference(), non_neg_integer(), binary(), binary()) ::
+          {:ok, non_neg_integer()} | {:error, :wrong_type}
+  def hstrlen(storage, db, key, field) do
+    [result] = tx(storage, [{db, {:hstrlen, key, field}}])
+    result
+  end
+
+  @doc """
+  Gets random field(s) from the hash stored at key.
+
+  When `count` is 1, returns a single random field (or empty list if hash is empty).
+  When `count` > 1, returns up to `count` unique random fields.
+  When `count` < 0, returns `abs(count)` fields, allowing duplicates.
+
+  If `with_values` is true, returns tuples of `{field, value}`. Otherwise, returns just fields.
+
+  Returns `{:ok, results}` where results is a list.
+  Returns `{:error, :wrong_type}` if the key exists and holds a non-hash value.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.tx(storage, [{0, {:hmset, "myhash", [{"a", "1"}, {"b", "2"}, {"c", "3"}]}}])
+
+      # Get single random field
+      {:ok, [field]} = Vdr.TS.hrandfield(storage, 0, "myhash", 1, false)
+
+      # Get multiple unique random fields with values
+      {:ok, results} = Vdr.TS.hrandfield(storage, 0, "myhash", 2, true)
+      # results might be [{"a", "1"}, {"c", "3"}]
+
+      # Get with repetition allowed
+      {:ok, results} = Vdr.TS.hrandfield(storage, 0, "myhash", -5, false)
+      # results might be ["a", "a", "b", "c", "a"] (length 5, with duplicates)
+  """
+  @spec hrandfield(reference(), non_neg_integer(), binary(), integer(), boolean()) ::
+          {:ok, [binary()] | [{binary(), binary()}]} | {:error, :wrong_type}
+  def hrandfield(storage, db, key, count, with_values) do
+    [result] = tx(storage, [{db, {:hrandfield, key, count, with_values}}])
+    result
+  end
+
   # Sorted set (zset) operations (read-only)
 
   @doc """
@@ -1034,6 +1090,8 @@ defmodule Vdr.TS do
                        :hlast,
                        :hnext,
                        :hprev,
+                       :hstrlen,
+                       :hrandfield,
                        :zscore,
                        :zcard,
                        :zrank,

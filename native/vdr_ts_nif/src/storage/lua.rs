@@ -271,6 +271,39 @@ pub fn new_lua() -> Lua {
             }
         }).expect("Failed to create hprev");
 
+        let hstrlen_fn = lua.create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.hstrlen(db, &key.as_bytes(), &field.as_bytes()) {
+                Ok(len) => Ok(len as i64),
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create hstrlen");
+
+        let hrandfield_fn = lua.create_function(|lua_ctx, (key, count, with_values): (mlua::String, i64, bool)| {
+            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            match storage.hrandfield(db, &key.as_bytes(), count, with_values) {
+                Ok(results) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, (field, opt_value)) in results.iter().enumerate() {
+                        if with_values {
+                            if let Some(value) = opt_value {
+                                let item = lua_ctx.create_table()?;
+                                item.set(1, lua_ctx.create_string(field.as_slice())?)?;
+                                item.set(2, lua_ctx.create_string(value.as_slice())?)?;
+                                table.set(i + 1, item)?;
+                            } else {
+                                table.set(i + 1, lua_ctx.create_string(field.as_slice())?)?;
+                            }
+                        } else {
+                            table.set(i + 1, lua_ctx.create_string(field.as_slice())?)?;
+                        }
+                    }
+                    Ok(table)
+                }
+                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+            }
+        }).expect("Failed to create hrandfield");
+
         // Sorted set functions
         let zscore_fn = lua.create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
             let (storage, db) = get_tx_ctx(&lua_ctx)?;
@@ -428,6 +461,8 @@ pub fn new_lua() -> Lua {
         ts_table.set("hlast", hlast_fn).expect("Failed to set hlast");
         ts_table.set("hnext", hnext_fn).expect("Failed to set hnext");
         ts_table.set("hprev", hprev_fn).expect("Failed to set hprev");
+        ts_table.set("hstrlen", hstrlen_fn).expect("Failed to set hstrlen");
+        ts_table.set("hrandfield", hrandfield_fn).expect("Failed to set hrandfield");
 
         // Sorted set functions
         ts_table.set("zscore", zscore_fn).expect("Failed to set zscore");

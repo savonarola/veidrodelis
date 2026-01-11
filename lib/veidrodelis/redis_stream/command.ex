@@ -102,6 +102,91 @@ defmodule Vdr.RedisStream.Command do
     defstruct [:key, :fields]
   end
 
+  defmodule HMSet do
+    @moduledoc """
+    Represents a Redis HMSET command (deprecated in favor of HSET).
+
+    ## Example
+        %Vdr.RedisStream.Command.HMSet{key: "myhash", fields: [{"field1", "value1"}, {"field2", "value2"}]}
+    """
+    @type t :: %__MODULE__{
+            key: binary(),
+            fields: [{binary(), binary()}]
+          }
+
+    defstruct [:key, :fields]
+  end
+
+  defmodule HSetNX do
+    @moduledoc """
+    Represents a Redis HSETNX command.
+
+    ## Example
+        %Vdr.RedisStream.Command.HSetNX{key: "myhash", field: "field1", value: "value1"}
+    """
+    @type t :: %__MODULE__{
+            key: binary(),
+            field: binary(),
+            value: binary()
+          }
+
+    defstruct [:key, :field, :value]
+  end
+
+  defmodule HIncrBy do
+    @moduledoc """
+    Represents a Redis HINCRBY command.
+
+    ## Example
+        %Vdr.RedisStream.Command.HIncrBy{key: "myhash", field: "counter", increment: 5}
+    """
+    @type t :: %__MODULE__{
+            key: binary(),
+            field: binary(),
+            increment: integer()
+          }
+
+    defstruct [:key, :field, :increment]
+  end
+
+  defmodule HIncrByFloat do
+    @moduledoc """
+    Represents a Redis HINCRBYFLOAT command.
+
+    ## Example
+        %Vdr.RedisStream.Command.HIncrByFloat{key: "myhash", field: "score", increment: 3.5}
+    """
+    @type t :: %__MODULE__{
+            key: binary(),
+            field: binary(),
+            increment: float()
+          }
+
+    defstruct [:key, :field, :increment]
+  end
+
+  defmodule HSetEX do
+    @moduledoc """
+    Represents a Redis HSETEX command (extended HSET with options).
+    Used in replication for HINCRBYFLOAT operations.
+
+    ## Fields
+    - `key`: The hash key
+    - `nx_xx_option`: Either `:nx` (field not exists), `:xx` (field exists), or `nil`
+    - `fields`: List of {field, value} tuples
+
+    ## Example
+        %Vdr.RedisStream.Command.HSetEX{key: "myhash", nx_xx_option: nil, fields: [{"field1", "value1"}]}
+    """
+    @type t :: %__MODULE__{
+            key: binary(),
+            nx_xx_option: :nx | :xx | nil,
+            fields: [{binary(), binary()}]
+          }
+
+    defstruct [:key, :nx_xx_option, :fields]
+  end
+
   defmodule PExpireAt do
     @moduledoc """
     Represents a Redis PEXPIREAT command for setting key expiration.
@@ -646,6 +731,11 @@ defmodule Vdr.RedisStream.Command do
           | ZAdd.t()
           | ZIncrBy.t()
           | HSet.t()
+          | HMSet.t()
+          | HSetNX.t()
+          | HIncrBy.t()
+          | HIncrByFloat.t()
+          | HSetEX.t()
           | PExpireAt.t()
           | Del.t()
           | Rename.t()

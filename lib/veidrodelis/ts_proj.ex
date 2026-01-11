@@ -481,6 +481,26 @@ defmodule Vdr.TSProj do
     {db, {:hdel, key, fields}}
   end
 
+  defp convert_command(db, %RedisCommand.HMSet{key: key, fields: fields}) do
+    {db, {:hmset, key, fields}}
+  end
+
+  defp convert_command(db, %RedisCommand.HSetNX{key: key, field: field, value: value}) do
+    {db, {:hsetnx, key, field, value}}
+  end
+
+  defp convert_command(db, %RedisCommand.HIncrBy{key: key, field: field, increment: increment}) do
+    {db, {:hincrby, key, field, increment}}
+  end
+
+  defp convert_command(db, %RedisCommand.HIncrByFloat{key: key, field: field, increment: increment}) do
+    {db, {:hincrbyfloat, key, field, increment}}
+  end
+
+  defp convert_command(db, %RedisCommand.HSetEX{key: key, nx_xx_option: nx_xx_option, fields: fields}) do
+    {db, {:hsetex, key, nx_xx_option, fields}}
+  end
+
   defp convert_command(db, %RedisCommand.ZAdd{key: key, members: members, options: options}) do
     {db, {:zadd, key, members, options}}
   end

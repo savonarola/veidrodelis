@@ -164,7 +164,33 @@ defmodule Vdr.RedisStream.CommandParser do
     {:ok, %RedisCommand.HSet{key: key, fields: fields}}
   end
 
+  def parse(["HMSET", key | args]) do
+    fields = parse_pairs(args)
+    {:ok, %RedisCommand.HMSet{key: key, fields: fields}}
+  end
+
+  def parse(["HSETNX", key, field, value]) do
+    {:ok, %RedisCommand.HSetNX{key: key, field: field, value: value}}
+  end
+
+  def parse(["HINCRBY", key, field, increment]) do
+    {:ok, %RedisCommand.HIncrBy{key: key, field: field, increment: String.to_integer(increment)}}
+  end
+
+  def parse(["HINCRBYFLOAT", key, field, increment]) do
+    require Logger
+    Logger.debug("Parsing HINCRBYFLOAT: key=#{key}, field=#{field}, increment=#{increment}")
+    {:ok, %RedisCommand.HIncrByFloat{key: key, field: field, increment: parse_float(increment)}}
+  end
+
   def parse(["HDEL", key | fields]), do: {:ok, %RedisCommand.HDel{key: key, fields: fields}}
+
+  # HSETEX - extended HSET with options (used in replication for HINCRBYFLOAT)
+  # Format: HSETEX key [FNX | FXX] [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL] FIELDS numfields field value [field value ...]
+  # We ignore TTL options and treat FNX/FXX as regular HSET
+  def parse(["HSETEX", key | args]) do
+    parse_hsetex(key, args)
+  end
 
   # Generic key commands
   def parse(["DEL" | keys]), do: {:ok, %RedisCommand.Del{keys: keys}}
@@ -186,7 +212,16 @@ defmodule Vdr.RedisStream.CommandParser do
   end
 
   # Unknown command - wrap in Generic
-  def parse(args), do: {:ok, %RedisCommand.Generic{args: args}}
+  def parse(args) do
+    require Logger
+    if is_list(args) and length(args) > 0 do
+      cmd = hd(args)
+      if is_binary(cmd) and String.upcase(cmd) =~ ~r/HINCR/ do
+        Logger.warning("HINCR command fell through to Generic: #{inspect(args)}")
+      end
+    end
+    {:ok, %RedisCommand.Generic{args: args}}
+  end
 
   # Helper functions
 
@@ -287,5 +322,42 @@ defmodule Vdr.RedisStream.CommandParser do
       end
 
     {:ok, command}
+  end
+
+  defp parse_hsetex(key, args) do
+    # Extract FNX/FXX options and skip TTL options
+    {nx_or_xx, rest} = extract_hsetex_options(args)
+
+    # Should now be at ["FIELDS", numfields, field, value, ...]
+    case rest do
+      ["FIELDS", _numfields | field_value_args] ->
+        fields = parse_pairs(field_value_args)
+        {:ok, %RedisCommand.HSetEX{key: key, nx_xx_option: nx_or_xx, fields: fields}}
+
+      _ ->
+        # Malformed HSETEX, treat as generic
+        {:ok, %RedisCommand.Generic{args: ["HSETEX", key | args]}}
+    end
+  end
+
+  defp extract_hsetex_options(args) do
+    extract_hsetex_options(args, nil)
+  end
+
+  defp extract_hsetex_options([], nx_or_xx), do: {nx_or_xx, []}
+
+  defp extract_hsetex_options([arg | rest] = all_args, nx_or_xx) do
+    case String.upcase(arg) do
+      "FNX" -> extract_hsetex_options(rest, :nx)
+      "FXX" -> extract_hsetex_options(rest, :xx)
+      "KEEPTTL" -> extract_hsetex_options(rest, nx_or_xx)
+      # These options have a value after them, skip both
+      "EX" -> extract_hsetex_options(Enum.drop(rest, 1), nx_or_xx)
+      "PX" -> extract_hsetex_options(Enum.drop(rest, 1), nx_or_xx)
+      "EXAT" -> extract_hsetex_options(Enum.drop(rest, 1), nx_or_xx)
+      "PXAT" -> extract_hsetex_options(Enum.drop(rest, 1), nx_or_xx)
+      # Not an option, return remaining args
+      _ -> {nx_or_xx, all_args}
+    end
   end
 end

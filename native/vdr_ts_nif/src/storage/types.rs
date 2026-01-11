@@ -51,6 +51,15 @@ pub enum ZAddOption {
     INCR,
 }
 
+/// HSETEX command mode options
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HSetEXMode {
+    /// FNX: Only set fields that don't exist
+    NX,
+    /// FXX: Only set fields that exist
+    XX,
+}
+
 /// Storage value types
 pub enum StorageValue {
     String(Bytes),

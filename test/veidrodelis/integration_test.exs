@@ -193,6 +193,27 @@ defmodule Veidrodelis.IntegrationTest do
     Redix.command!(redis, ["HSET", "hash_for_del", "f1", "v1", "f2", "v2"])
     Redix.command!(redis, ["HDEL", "hash_for_del", "f2"])
 
+    # HMSET test
+    Redix.command!(redis, ["HMSET", "hmset_hash", "f1", "v1", "f2", "v2"])
+
+    # HSETNX tests
+    Redix.command!(redis, ["HSET", "hsetnx_hash", "existing", "value1"])
+    Redix.command!(redis, ["HSETNX", "hsetnx_hash", "existing", "should_not_change"])
+    Redix.command!(redis, ["HSETNX", "hsetnx_hash", "new_field", "new_value"])
+
+    # HINCRBY tests
+    Redix.command!(redis, ["HSET", "hincrby_hash", "counter", "10"])
+    Redix.command!(redis, ["HINCRBY", "hincrby_hash", "counter", "5"])
+    Redix.command!(redis, ["HINCRBY", "hincrby_hash", "new_counter", "100"])
+
+    # HINCRBYFLOAT tests
+    result1 = Redix.command!(redis, ["HSET", "hincrbyfloat_hash", "score", "10.5"])
+    Logger.info("HSET hincrbyfloat_hash result: #{inspect(result1)}")
+    result2 = Redix.command!(redis, ["HINCRBYFLOAT", "hincrbyfloat_hash", "score", "3.7"])
+    Logger.info("HINCRBYFLOAT score result: #{inspect(result2)}")
+    result3 = Redix.command!(redis, ["HINCRBYFLOAT", "hincrbyfloat_hash", "new_score", "42.3"])
+    Logger.info("HINCRBYFLOAT new_score result: #{inspect(result3)}")
+
     # ===== Expiration Commands =====
     future_timestamp_ms = (System.os_time(:second) + 86400) * 1000
     Redix.command!(redis, ["SET", "expire_key", "will_expire"])
@@ -349,6 +370,13 @@ defmodule Veidrodelis.IntegrationTest do
     # Hash commands
     assert command_in_list(%RedisCommand.HSet{key: "myhash"}, commands), "Missing HSET myhash"
     assert command_in_list(%RedisCommand.HDel{key: "hash_for_del"}, commands), "Missing HDEL"
+    assert command_in_list(%RedisCommand.HMSet{key: "hmset_hash"}, commands), "Missing HMSET"
+    assert command_in_list(%RedisCommand.HSetNX{key: "hsetnx_hash"}, commands), "Missing HSETNX"
+    assert command_in_list(%RedisCommand.HIncrBy{key: "hincrby_hash"}, commands), "Missing HINCRBY"
+
+    # NOTE: HINCRBYFLOAT is replicated as HSETEX (not as HIncrByFloat)
+    assert command_in_list(%RedisCommand.HSetEX{key: "hincrbyfloat_hash"}, commands),
+           "Missing HSETEX (HINCRBYFLOAT replicated as HSETEX)"
 
     # Expiration
     assert command_in_list(%RedisCommand.PExpireAt{key: "expire_key"}, commands),
@@ -409,6 +437,7 @@ defmodule Veidrodelis.IntegrationTest do
       db1_commands = CollectorCallback.commands_for_db(callback_state, 1)
 
       Logger.info("Received #{length(db1_commands)} commands from streaming")
+
       verify_streaming_commands(db1_commands)
 
       Logger.info("=== [Replica] Test completed successfully ===")
@@ -432,7 +461,8 @@ defmodule Veidrodelis.IntegrationTest do
       opts = [
         id: @id,
         host: @redis_host,
-        port: @redis_port
+        port: @redis_port,
+        impl: {Vdr.TSProj, []}
       ]
 
       {:ok, vdr} = Veidrodelis.start_link(opts)
@@ -501,6 +531,25 @@ defmodule Veidrodelis.IntegrationTest do
       assert 1 == Veidrodelis.hlen(@id, 0, "hash_for_del")
       assert "v1" == Veidrodelis.hget(@id, 0, "hash_for_del", "f1")
       assert nil == Veidrodelis.hget(@id, 0, "hash_for_del", "f2")
+
+      # HMSET verification
+      assert 2 == Veidrodelis.hlen(@id, 0, "hmset_hash")
+      assert "v1" == Veidrodelis.hget(@id, 0, "hmset_hash", "f1")
+      assert "v2" == Veidrodelis.hget(@id, 0, "hmset_hash", "f2")
+
+      # HSETNX verification
+      assert "value1" == Veidrodelis.hget(@id, 0, "hsetnx_hash", "existing")
+      assert "new_value" == Veidrodelis.hget(@id, 0, "hsetnx_hash", "new_field")
+
+      # HINCRBY verification (10 + 5 = 15)
+      assert "15" == Veidrodelis.hget(@id, 0, "hincrby_hash", "counter")
+      assert "100" == Veidrodelis.hget(@id, 0, "hincrby_hash", "new_counter")
+
+      # HINCRBYFLOAT verification (10.5 + 3.7 = 14.2)
+      score = Veidrodelis.hget(@id, 0, "hincrbyfloat_hash", "score")
+      assert_in_delta String.to_float(score), 14.2, 0.0001
+      new_score = Veidrodelis.hget(@id, 0, "hincrbyfloat_hash", "new_score")
+      assert_in_delta String.to_float(new_score), 42.3, 0.0001
 
       # Sorted set values
       assert 3 == Veidrodelis.zcard(@id, 0, "myzset")

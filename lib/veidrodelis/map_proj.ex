@@ -474,6 +474,26 @@ defmodule Vdr.MapProj do
     Hashes.hdel(store, db, key, fields)
   end
 
+  defp do_handle_command(_store, _db, %RedisCommand.HMSet{}) do
+    {:error, :not_implemented}
+  end
+
+  defp do_handle_command(_store, _db, %RedisCommand.HSetNX{}) do
+    {:error, :not_implemented}
+  end
+
+  defp do_handle_command(_store, _db, %RedisCommand.HIncrBy{}) do
+    {:error, :not_implemented}
+  end
+
+  defp do_handle_command(_store, _db, %RedisCommand.HIncrByFloat{}) do
+    {:error, :not_implemented}
+  end
+
+  defp do_handle_command(_store, _db, %RedisCommand.HSetEX{}) do
+    {:error, :not_implemented}
+  end
+
   defp do_handle_command(store, db, %RedisCommand.ZAdd{
          key: key,
          members: members,
