@@ -26,6 +26,15 @@ defmodule Vdr.RedisStream.CommandParser do
       {:ok, %RedisCommand.Generic{args: ["UNKNOWN", "arg"]}}
   """
   @spec parse([binary()]) :: {:ok, RedisCommand.t()}
+  # SET with options (Redis 8.x replicates INCRBYFLOAT, SETEX, PSETEX as SET with options)
+  # SET key value [KEEPTTL | PXAT timestamp]
+  def parse(["SET", key, value | options]) when length(options) > 0 do
+    # For now, we ignore the options and just use the key-value
+    # KEEPTTL means keep existing TTL, PXAT means expire at timestamp
+    # Since we don't implement expiration yet, we can ignore these
+    {:ok, %RedisCommand.Set{key: key, value: value}}
+  end
+
   def parse(["SET", key, value]), do: {:ok, %RedisCommand.Set{key: key, value: value}}
 
   def parse(["MSET" | args]) do
@@ -43,6 +52,24 @@ defmodule Vdr.RedisStream.CommandParser do
     bit_value = String.to_integer(value)
     {:ok, %RedisCommand.SetBit{key: key, offset: String.to_integer(offset), value: bit_value}}
   end
+
+  # Numeric string commands
+  def parse(["INCR", key]), do: {:ok, %RedisCommand.Incr{key: key}}
+  def parse(["INCRBY", key, increment]), do: {:ok, %RedisCommand.IncrBy{key: key, increment: String.to_integer(increment)}}
+  def parse(["DECR", key]), do: {:ok, %RedisCommand.Decr{key: key}}
+  def parse(["DECRBY", key, decrement]), do: {:ok, %RedisCommand.DecrBy{key: key, decrement: String.to_integer(decrement)}}
+
+  # Conditional set commands
+  def parse(["SETNX", key, value]), do: {:ok, %RedisCommand.SetNX{key: key, value: value}}
+
+  def parse(["MSETNX" | args]) do
+    pairs = parse_pairs(args)
+    {:ok, %RedisCommand.MSetNX{pairs: pairs}}
+  end
+
+  # Get-and-modify commands
+  def parse(["GETSET", key, value]), do: {:ok, %RedisCommand.GetSet{key: key, value: value}}
+  def parse(["GETDEL", key]), do: {:ok, %RedisCommand.GetDel{key: key}}
 
   # List commands
   def parse(["LPUSH", key | values]), do: {:ok, %RedisCommand.LPush{key: key, values: values}}

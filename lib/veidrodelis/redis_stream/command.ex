@@ -294,6 +294,94 @@ defmodule Vdr.RedisStream.Command do
     defstruct [:key, :value]
   end
 
+  defmodule Incr do
+    @moduledoc """
+    Represents a Redis INCR command.
+
+    ## Example
+        %Vdr.RedisStream.Command.Incr{key: "counter"}
+    """
+    @type t :: %__MODULE__{key: binary()}
+    defstruct [:key]
+  end
+
+  defmodule IncrBy do
+    @moduledoc """
+    Represents a Redis INCRBY command.
+
+    ## Example
+        %Vdr.RedisStream.Command.IncrBy{key: "counter", increment: 5}
+    """
+    @type t :: %__MODULE__{key: binary(), increment: integer()}
+    defstruct [:key, :increment]
+  end
+
+  defmodule Decr do
+    @moduledoc """
+    Represents a Redis DECR command.
+
+    ## Example
+        %Vdr.RedisStream.Command.Decr{key: "counter"}
+    """
+    @type t :: %__MODULE__{key: binary()}
+    defstruct [:key]
+  end
+
+  defmodule DecrBy do
+    @moduledoc """
+    Represents a Redis DECRBY command.
+
+    ## Example
+        %Vdr.RedisStream.Command.DecrBy{key: "counter", decrement: 3}
+    """
+    @type t :: %__MODULE__{key: binary(), decrement: integer()}
+    defstruct [:key, :decrement]
+  end
+
+  defmodule SetNX do
+    @moduledoc """
+    Represents a Redis SETNX command.
+
+    ## Example
+        %Vdr.RedisStream.Command.SetNX{key: "mykey", value: "myvalue"}
+    """
+    @type t :: %__MODULE__{key: binary(), value: binary()}
+    defstruct [:key, :value]
+  end
+
+  defmodule MSetNX do
+    @moduledoc """
+    Represents a Redis MSETNX command.
+
+    ## Example
+        %Vdr.RedisStream.Command.MSetNX{pairs: [{"key1", "value1"}, {"key2", "value2"}]}
+    """
+    @type t :: %__MODULE__{pairs: [{binary(), binary()}]}
+    defstruct [:pairs]
+  end
+
+  defmodule GetSet do
+    @moduledoc """
+    Represents a Redis GETSET command.
+
+    ## Example
+        %Vdr.RedisStream.Command.GetSet{key: "mykey", value: "newvalue"}
+    """
+    @type t :: %__MODULE__{key: binary(), value: binary()}
+    defstruct [:key, :value]
+  end
+
+  defmodule GetDel do
+    @moduledoc """
+    Represents a Redis GETDEL command.
+
+    ## Example
+        %Vdr.RedisStream.Command.GetDel{key: "mykey"}
+    """
+    @type t :: %__MODULE__{key: binary()}
+    defstruct [:key]
+  end
+
   defmodule SetRange do
     @moduledoc """
     Represents a Redis SETRANGE command.
@@ -743,6 +831,14 @@ defmodule Vdr.RedisStream.Command do
           | Move.t()
           | MSet.t()
           | Append.t()
+          | Incr.t()
+          | IncrBy.t()
+          | Decr.t()
+          | DecrBy.t()
+          | SetNX.t()
+          | MSetNX.t()
+          | GetSet.t()
+          | GetDel.t()
           | SetRange.t()
           | SetBit.t()
           | LPush.t()

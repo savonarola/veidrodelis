@@ -257,6 +257,108 @@ fn execute_single_command<'a>(
                         };
                     }
                 }
+            } else if cmd_atom == atoms::setrange() {
+                // {db, {:setrange, key, offset, value}}
+                if args.len() == 3 {
+                    if let (Ok(key), Ok(offset), Ok(value)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<usize>(),
+                        args[2].decode::<Binary>()
+                    ) {
+                        return match inner.setrange(db, key.as_slice(), offset, value.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::incr() {
+                // {db, {:incr, key}}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.incr(db, key.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::incrby() {
+                // {db, {:incrby, key, increment}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(increment)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<i64>()
+                    ) {
+                        return match inner.incrby(db, key.as_slice(), increment) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::decr() {
+                // {db, {:decr, key}}
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        return match inner.decr(db, key.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::decrby() {
+                // {db, {:decrby, key, decrement}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(decrement)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<i64>()
+                    ) {
+                        return match inner.decrby(db, key.as_slice(), decrement) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::setnx() {
+                // {db, {:setnx, key, value}} - treat as set (only replicated if successful)
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(value)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        inner.set(db, key.as_slice(), value.as_slice());
+                        return atoms::ok().encode(env);
+                    }
+                }
+            } else if cmd_atom == atoms::msetnx() {
+                // {db, {:msetnx, pairs}} - treat as mset (only replicated if successful)
+                if args.len() == 1 {
+                    if let Ok(pairs) = args[0].decode::<Vec<(Binary, Binary)>>() {
+                        let pairs_slices: Vec<(&[u8], &[u8])> = pairs
+                            .iter()
+                            .map(|(k, v)| (k.as_slice(), v.as_slice()))
+                            .collect();
+                        inner.mset(db, &pairs_slices);
+                        return atoms::ok().encode(env);
+                    }
+                }
+            } else if cmd_atom == atoms::getset() {
+                // {db, {:getset, key, value}} - treat as set (ignore the get part)
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(value)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>()
+                    ) {
+                        inner.set(db, key.as_slice(), value.as_slice());
+                        return atoms::ok().encode(env);
+                    }
+                }
+            } else if cmd_atom == atoms::getdel() {
+                // {db, {:getdel, key}} - treat as del (ignore the get part)
+                if args.len() == 1 {
+                    if let Ok(key) = args[0].decode::<Binary>() {
+                        inner.del(db, key.as_slice());
+                        return atoms::ok().encode(env);
+                    }
+                }
             } else if cmd_atom == atoms::sadd() {
                 // {db, {:sadd, key, members}}
                 if args.len() == 2 {

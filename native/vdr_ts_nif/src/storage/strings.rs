@@ -130,6 +130,165 @@ impl StorageInner {
         }
     }
 
+    /// Overwrite part of a string at the specified offset.
+    /// If the key doesn't exist, creates it with zero-byte padding.
+    /// If the offset is beyond the current string length, pads with zero bytes.
+    pub fn setrange(&mut self, db: u64, key: &[u8], offset: usize, value: &[u8]) -> Result<(), &'static str> {
+        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+
+        match db_map.entry(Bytes::new(key)) {
+            BTreeEntry::Occupied(mut e) => {
+                match e.get_mut() {
+                    StorageValue::String(existing) => {
+                        let mut bytes = existing.as_slice().to_vec();
+                        let end_pos = offset + value.len();
+
+                        // Extend with zero bytes if needed
+                        if end_pos > bytes.len() {
+                            bytes.resize(end_pos, 0);
+                        }
+
+                        // Overwrite bytes at offset
+                        bytes[offset..end_pos].copy_from_slice(value);
+                        *existing = Bytes::new(&bytes);
+                        Ok(())
+                    }
+                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
+            }
+            BTreeEntry::Vacant(e) => {
+                // Key doesn't exist, create with zero-byte padding
+                let end_pos = offset + value.len();
+                let mut bytes = vec![0u8; end_pos];
+                bytes[offset..end_pos].copy_from_slice(value);
+                e.insert(StorageValue::String(Bytes::new(&bytes)));
+                Ok(())
+            }
+        }
+    }
+
+    /// Increment the integer value of a key by 1. Creates key if it doesn't exist (starting from 0).
+    pub fn incr(&mut self, db: u64, key: &[u8]) -> Result<(), &'static str> {
+        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+
+        match db_map.entry(Bytes::new(key)) {
+            BTreeEntry::Occupied(mut e) => {
+                match e.get_mut() {
+                    StorageValue::String(existing) => {
+                        // Parse current value as integer
+                        let current_str = String::from_utf8_lossy(existing.as_slice());
+                        let current: i64 = current_str.parse()
+                            .map_err(|_| "value is not an integer or out of range")?;
+
+                        let new_value = current.checked_add(1)
+                            .ok_or("increment would overflow")?;
+
+                        *existing = Bytes::new(new_value.to_string().as_bytes());
+                        Ok(())
+                    }
+                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
+            }
+            BTreeEntry::Vacant(e) => {
+                // Key doesn't exist, start from 0 and increment to 1
+                e.insert(StorageValue::String(Bytes::new(b"1")));
+                Ok(())
+            }
+        }
+    }
+
+    /// Increment the integer value of a key by the given amount. Creates key if it doesn't exist (starting from 0).
+    pub fn incrby(&mut self, db: u64, key: &[u8], increment: i64) -> Result<(), &'static str> {
+        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+
+        match db_map.entry(Bytes::new(key)) {
+            BTreeEntry::Occupied(mut e) => {
+                match e.get_mut() {
+                    StorageValue::String(existing) => {
+                        // Parse current value as integer
+                        let current_str = String::from_utf8_lossy(existing.as_slice());
+                        let current: i64 = current_str.parse()
+                            .map_err(|_| "value is not an integer or out of range")?;
+
+                        let new_value = current.checked_add(increment)
+                            .ok_or("increment would overflow")?;
+
+                        *existing = Bytes::new(new_value.to_string().as_bytes());
+                        Ok(())
+                    }
+                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
+            }
+            BTreeEntry::Vacant(e) => {
+                // Key doesn't exist, start from 0 and add increment
+                e.insert(StorageValue::String(Bytes::new(increment.to_string().as_bytes())));
+                Ok(())
+            }
+        }
+    }
+
+    /// Decrement the integer value of a key by 1. Creates key if it doesn't exist (starting from 0).
+    pub fn decr(&mut self, db: u64, key: &[u8]) -> Result<(), &'static str> {
+        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+
+        match db_map.entry(Bytes::new(key)) {
+            BTreeEntry::Occupied(mut e) => {
+                match e.get_mut() {
+                    StorageValue::String(existing) => {
+                        // Parse current value as integer
+                        let current_str = String::from_utf8_lossy(existing.as_slice());
+                        let current: i64 = current_str.parse()
+                            .map_err(|_| "value is not an integer or out of range")?;
+
+                        let new_value = current.checked_sub(1)
+                            .ok_or("decrement would overflow")?;
+
+                        *existing = Bytes::new(new_value.to_string().as_bytes());
+                        Ok(())
+                    }
+                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
+            }
+            BTreeEntry::Vacant(e) => {
+                // Key doesn't exist, start from 0 and decrement to -1
+                e.insert(StorageValue::String(Bytes::new(b"-1")));
+                Ok(())
+            }
+        }
+    }
+
+    /// Decrement the integer value of a key by the given amount. Creates key if it doesn't exist (starting from 0).
+    pub fn decrby(&mut self, db: u64, key: &[u8], decrement: i64) -> Result<(), &'static str> {
+        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+
+        match db_map.entry(Bytes::new(key)) {
+            BTreeEntry::Occupied(mut e) => {
+                match e.get_mut() {
+                    StorageValue::String(existing) => {
+                        // Parse current value as integer
+                        let current_str = String::from_utf8_lossy(existing.as_slice());
+                        let current: i64 = current_str.parse()
+                            .map_err(|_| "value is not an integer or out of range")?;
+
+                        let new_value = current.checked_sub(decrement)
+                            .ok_or("decrement would overflow")?;
+
+                        *existing = Bytes::new(new_value.to_string().as_bytes());
+                        Ok(())
+                    }
+                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
+            }
+            BTreeEntry::Vacant(e) => {
+                // Key doesn't exist, start from 0 and subtract decrement
+                let neg_decrement = decrement.checked_neg()
+                    .ok_or("decrement would overflow")?;
+                e.insert(StorageValue::String(Bytes::new(neg_decrement.to_string().as_bytes())));
+                Ok(())
+            }
+        }
+    }
+
     /// Clear all entries from all databases
     pub fn clear(&mut self) {
         self.map.clear();

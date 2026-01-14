@@ -93,6 +93,35 @@ defmodule Veidrodelis.IntegrationTest do
     Redix.command!(redis, ["SETBIT", "bit_key", "7", "1"])
     Redix.command!(redis, ["SETBIT", "bit_key", "15", "1"])
 
+    # Commands that replicate as SET (not as their original command type)
+    Redix.command!(redis, ["INCR", "incr_key"])
+    # incr_key now has value "1"
+    Redix.command!(redis, ["SET", "incrby_key", "100"])
+    Redix.command!(redis, ["INCRBY", "incrby_key", "42"])
+    # incrby_key now has value "142"
+    Redix.command!(redis, ["INCRBYFLOAT", "incrbyfloat_key", "3.14"])
+    # incrbyfloat_key now has value "3.14"
+    Redix.command!(redis, ["SET", "decr_key", "10"])
+    Redix.command!(redis, ["DECR", "decr_key"])
+    # decr_key now has value "9"
+    Redix.command!(redis, ["SET", "decrby_key", "100"])
+    Redix.command!(redis, ["DECRBY", "decrby_key", "30"])
+    # decrby_key now has value "70"
+    Redix.command!(redis, ["SET", "getset_key", "old_value"])
+    Redix.command!(redis, ["GETSET", "getset_key", "getset_value"])
+    # getset_key now has value "getset_value"
+    Redix.command!(redis, ["SETNX", "setnx_key", "setnx_value"])
+    # setnx_key now has value "setnx_value" (successful SETNX replicates as SET)
+    Redix.command!(redis, ["MSETNX", "msetnx_key1", "val1", "msetnx_key2", "val2"])
+    # msetnx_key1/2 now have values (successful MSETNX replicates as MSET)
+    Redix.command!(redis, ["SETEX", "setex_key", "3600", "setex_value"])
+    # setex_key now has value "setex_value" with expiration (replicates as SET + PEXPIREAT)
+    Redix.command!(redis, ["PSETEX", "psetex_key", "3600000", "psetex_value"])
+    # psetex_key now has value "psetex_value" with expiration (replicates as SET + PEXPIREAT)
+    Redix.command!(redis, ["SET", "getdel_key", "will_be_deleted"])
+    Redix.command!(redis, ["GETDEL", "getdel_key"])
+    # getdel_key is now deleted (GETDEL replicates as DEL)
+
     # ===== List Commands =====
     Redix.command!(redis, ["RPUSH", "mylist", "elem1", "elem2", "elem3"])
     Redix.command!(redis, ["LPUSH", "mylist", "elem0"])
@@ -328,6 +357,46 @@ defmodule Veidrodelis.IntegrationTest do
     assert command_in_list(%RedisCommand.Append{key: "append_key"}, commands), "Missing APPEND"
     assert command_in_list(%RedisCommand.SetRange{key: "range_key"}, commands), "Missing SETRANGE"
     assert command_in_list(%RedisCommand.SetBit{key: "bit_key"}, commands), "Missing SETBIT"
+
+    # Numeric commands replicate as-is in Redis 8.4.0
+    assert command_in_list(%RedisCommand.Incr{key: "incr_key"}, commands),
+           "Missing INCR command"
+
+    assert command_in_list(%RedisCommand.IncrBy{key: "incrby_key", increment: 42}, commands),
+           "Missing INCRBY command"
+
+    assert command_in_list(%RedisCommand.Decr{key: "decr_key"}, commands),
+           "Missing DECR command"
+
+    assert command_in_list(%RedisCommand.DecrBy{key: "decrby_key", decrement: 30}, commands),
+           "Missing DECRBY command"
+
+    # Conditional set commands replicate as-is
+    assert command_in_list(%RedisCommand.SetNX{key: "setnx_key"}, commands),
+           "Missing SETNX command"
+
+    assert command_in_list(%RedisCommand.MSetNX{}, commands),
+           "Missing MSETNX command"
+
+    # Get-and-modify commands in Redis 8.4.0:
+    # GETSET is converted to SET in replication stream
+    # GETDEL is converted to DEL in replication stream
+    assert command_in_list(%RedisCommand.Set{key: "getset_key", value: "getset_value"}, commands),
+           "Missing SET from GETSET (GETSET replicates as SET in Redis 8.4)"
+
+    assert command_in_list(%RedisCommand.Del{keys: ["getdel_key"]}, commands),
+           "Missing DEL from GETDEL (GETDEL replicates as DEL in Redis 8.4)"
+
+    # INCRBYFLOAT, SETEX, and PSETEX are converted to SET with options in Redis 8.4.0
+    # They will be parsed as regular SET commands (options are ignored)
+    assert command_in_list(%RedisCommand.Set{key: "incrbyfloat_key"}, commands),
+           "Missing SET from INCRBYFLOAT"
+
+    assert command_in_list(%RedisCommand.Set{key: "setex_key"}, commands),
+           "Missing SET from SETEX"
+
+    assert command_in_list(%RedisCommand.Set{key: "psetex_key"}, commands),
+           "Missing SET from PSETEX"
 
     # List commands - all operations
     assert command_in_list(%RedisCommand.RPush{key: "mylist"}, commands), "Missing RPUSH mylist"

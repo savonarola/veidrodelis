@@ -701,6 +701,42 @@ defmodule Vdr.TSProj do
     {db, {:append, key, value}}
   end
 
+  defp convert_command(db, %RedisCommand.SetRange{key: key, offset: offset, value: value}) do
+    {db, {:setrange, key, offset, value}}
+  end
+
+  defp convert_command(db, %RedisCommand.Incr{key: key}) do
+    {db, {:incr, key}}
+  end
+
+  defp convert_command(db, %RedisCommand.IncrBy{key: key, increment: increment}) do
+    {db, {:incrby, key, increment}}
+  end
+
+  defp convert_command(db, %RedisCommand.Decr{key: key}) do
+    {db, {:decr, key}}
+  end
+
+  defp convert_command(db, %RedisCommand.DecrBy{key: key, decrement: decrement}) do
+    {db, {:decrby, key, decrement}}
+  end
+
+  defp convert_command(db, %RedisCommand.SetNX{key: key, value: value}) do
+    {db, {:setnx, key, value}}
+  end
+
+  defp convert_command(db, %RedisCommand.MSetNX{pairs: pairs}) do
+    {db, {:msetnx, pairs}}
+  end
+
+  defp convert_command(db, %RedisCommand.GetSet{key: key, value: value}) do
+    {db, {:getset, key, value}}
+  end
+
+  defp convert_command(db, %RedisCommand.GetDel{key: key}) do
+    {db, {:getdel, key}}
+  end
+
   defp convert_command(db, %RedisCommand.Rename{key: old_key, newkey: new_key}) do
     {db, {:rename, old_key, new_key}}
   end

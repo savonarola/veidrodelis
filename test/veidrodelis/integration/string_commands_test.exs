@@ -125,5 +125,200 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
         assert expected == ts_val
       end
     end
+
+    test "SETRANGE replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["SET", "range_key", "Hello World"])
+      Redix.command!(redis, ["SETRANGE", "range_key", "6", "Redis"])
+
+      assert_within 1000 do
+        expected = "Hello Redis"
+        redis_val = Redix.command!(redis, ["GET", "range_key"])
+        ts_val = Veidrodelis.get(vdr_id(), 0, "range_key")
+
+        assert expected == redis_val
+        assert expected == ts_val
+      end
+    end
+
+    test "SETRANGE on empty key replicates correctly", %{redis: redis} do
+      # SETRANGE on empty key pads with zero bytes
+      Redix.command!(redis, ["SETRANGE", "empty_range", "5", "Hi"])
+
+      assert_within 1000 do
+        expected = <<0, 0, 0, 0, 0, "Hi"::binary>>
+        redis_val = Redix.command!(redis, ["GET", "empty_range"])
+        ts_val = Veidrodelis.get(vdr_id(), 0, "empty_range")
+
+        assert expected == redis_val
+        assert expected == ts_val
+      end
+    end
+
+    # NOTE: Commands like INCR, INCRBY, INCRBYFLOAT, DECR, DECRBY, GETSET, SETNX, and MSETNX
+    # are not replicated as-is. Redis converts them to SET/MSET commands in the replication stream.
+    # Therefore, they are already tested by the SET and MSET tests above.
+    # We don't need separate tests for these commands.
+
+    test "INCR replicates as SET", %{redis: redis} do
+      Redix.command!(redis, ["SET", "counter", "10"])
+      Redix.command!(redis, ["INCR", "counter"])
+
+      assert_within 1000 do
+        expected = "11"
+        redis_val = Redix.command!(redis, ["GET", "counter"])
+        ts_val = Veidrodelis.get(vdr_id(), 0, "counter")
+
+        assert expected == redis_val
+        assert expected == ts_val
+      end
+    end
+
+    test "INCR on empty key replicates correctly", %{redis: redis} do
+      # INCR on non-existing key treats it as 0
+      Redix.command!(redis, ["INCR", "new_counter"])
+
+      assert_within 1000 do
+        expected = "1"
+        redis_val = Redix.command!(redis, ["GET", "new_counter"])
+        ts_val = Veidrodelis.get(vdr_id(), 0, "new_counter")
+
+        assert expected == redis_val
+        assert expected == ts_val
+      end
+    end
+
+    test "INCRBY replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["SET", "incrby_key", "100"])
+      Redix.command!(redis, ["INCRBY", "incrby_key", "42"])
+
+      assert_within 1000 do
+        expected = "142"
+        redis_val = Redix.command!(redis, ["GET", "incrby_key"])
+        ts_val = Veidrodelis.get(vdr_id(), 0, "incrby_key")
+
+        assert expected == redis_val
+        assert expected == ts_val
+      end
+    end
+
+    test "INCRBYFLOAT replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["SET", "float_key", "10.5"])
+      Redix.command!(redis, ["INCRBYFLOAT", "float_key", "2.3"])
+
+      assert_within 1000 do
+        expected = "12.8"
+        redis_val = Redix.command!(redis, ["GET", "float_key"])
+        ts_val = Veidrodelis.get(vdr_id(), 0, "float_key")
+
+        assert expected == redis_val
+        assert expected == ts_val
+      end
+    end
+
+    test "DECR replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["SET", "decr_key", "10"])
+      Redix.command!(redis, ["DECR", "decr_key"])
+
+      assert_within 1000 do
+        expected = "9"
+        redis_val = Redix.command!(redis, ["GET", "decr_key"])
+        ts_val = Veidrodelis.get(vdr_id(), 0, "decr_key")
+
+        assert expected == redis_val
+        assert expected == ts_val
+      end
+    end
+
+    test "DECRBY replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["SET", "decrby_key", "100"])
+      Redix.command!(redis, ["DECRBY", "decrby_key", "30"])
+
+      assert_within 1000 do
+        expected = "70"
+        redis_val = Redix.command!(redis, ["GET", "decrby_key"])
+        ts_val = Veidrodelis.get(vdr_id(), 0, "decrby_key")
+
+        assert expected == redis_val
+        assert expected == ts_val
+      end
+    end
+
+    test "GETSET replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["SET", "getset_key", "old_value"])
+      Redix.command!(redis, ["GETSET", "getset_key", "new_value"])
+
+      assert_within 1000 do
+        expected = "new_value"
+        redis_val = Redix.command!(redis, ["GET", "getset_key"])
+        ts_val = Veidrodelis.get(vdr_id(), 0, "getset_key")
+
+        assert expected == redis_val
+        assert expected == ts_val
+      end
+    end
+
+    test "SETNX when key does not exist replicates correctly", %{redis: redis} do
+      result = Redix.command!(redis, ["SETNX", "setnx_key", "setnx_value"])
+
+      assert_within 1000 do
+        expected = "setnx_value"
+        redis_val = Redix.command!(redis, ["GET", "setnx_key"])
+        ts_val = Veidrodelis.get(vdr_id(), 0, "setnx_key")
+
+        assert expected == redis_val
+        assert expected == ts_val
+        assert 1 == result
+      end
+    end
+
+    test "SETNX when key exists does not replicate", %{redis: redis} do
+      Redix.command!(redis, ["SET", "existing_key", "original"])
+      result = Redix.command!(redis, ["SETNX", "existing_key", "new_value"])
+
+      assert_within 1000 do
+        expected = "original"
+        redis_val = Redix.command!(redis, ["GET", "existing_key"])
+        ts_val = Veidrodelis.get(vdr_id(), 0, "existing_key")
+
+        assert expected == redis_val
+        assert expected == ts_val
+        assert 0 == result
+      end
+    end
+
+    test "MSETNX when no keys exist replicates correctly", %{redis: redis} do
+      result = Redix.command!(redis, ["MSETNX", "msetnx1", "val1", "msetnx2", "val2"])
+
+      assert_within 1000 do
+        redis_val1 = Redix.command!(redis, ["GET", "msetnx1"])
+        redis_val2 = Redix.command!(redis, ["GET", "msetnx2"])
+        ts_val1 = Veidrodelis.get(vdr_id(), 0, "msetnx1")
+        ts_val2 = Veidrodelis.get(vdr_id(), 0, "msetnx2")
+
+        assert "val1" == redis_val1
+        assert "val1" == ts_val1
+        assert "val2" == redis_val2
+        assert "val2" == ts_val2
+        assert 1 == result
+      end
+    end
+
+    test "MSETNX when a key exists does not replicate", %{redis: redis} do
+      Redix.command!(redis, ["SET", "existing_msetnx", "exists"])
+      result = Redix.command!(redis, ["MSETNX", "existing_msetnx", "new", "msetnx_new", "val"])
+
+      assert_within 1000 do
+        redis_val1 = Redix.command!(redis, ["GET", "existing_msetnx"])
+        redis_val2 = Redix.command!(redis, ["GET", "msetnx_new"])
+        ts_val1 = Veidrodelis.get(vdr_id(), 0, "existing_msetnx")
+        ts_val2 = Veidrodelis.get(vdr_id(), 0, "msetnx_new")
+
+        assert "exists" == redis_val1
+        assert "exists" == ts_val1
+        assert nil == redis_val2
+        assert nil == ts_val2
+        assert 0 == result
+      end
+    end
   end
 end
