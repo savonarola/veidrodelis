@@ -586,6 +586,107 @@ defmodule Vdr.RedisStream.Command do
     defstruct [:key, :fields]
   end
 
+  defmodule HGetEX do
+    @moduledoc """
+    Represents a Redis HGETEX command for getting hash field values with optional TTL.
+
+    ## Example
+        %Vdr.RedisStream.Command.HGetEX{key: "myhash", ttl_option: {:ex, 3600}, fields: ["field1"]}
+        %Vdr.RedisStream.Command.HGetEX{key: "myhash", ttl_option: :persist, fields: ["field1", "field2"]}
+    """
+    @type t :: %__MODULE__{
+            key: binary(),
+            ttl_option: {:ex, non_neg_integer()} | {:px, non_neg_integer()} | {:exat, non_neg_integer()} | {:pxat, non_neg_integer()} | :persist | nil,
+            fields: [binary()]
+          }
+
+    defstruct [:key, :ttl_option, :fields]
+  end
+
+  defmodule HExpire do
+    @moduledoc """
+    Represents a Redis HEXPIRE command for setting field expiration in seconds.
+
+    ## Example
+        %Vdr.RedisStream.Command.HExpire{key: "myhash", seconds: 3600, condition: nil, fields: ["field1"]}
+        %Vdr.RedisStream.Command.HExpire{key: "myhash", seconds: 3600, condition: :nx, fields: ["field1", "field2"]}
+    """
+    @type t :: %__MODULE__{
+            key: binary(),
+            seconds: non_neg_integer(),
+            condition: :nx | :xx | :gt | :lt | nil,
+            fields: [binary()]
+          }
+
+    defstruct [:key, :seconds, :condition, :fields]
+  end
+
+  defmodule HExpireAt do
+    @moduledoc """
+    Represents a Redis HEXPIREAT command for setting field expiration at unix timestamp (seconds).
+
+    ## Example
+        %Vdr.RedisStream.Command.HExpireAt{key: "myhash", timestamp: 1609459200, condition: nil, fields: ["field1"]}
+    """
+    @type t :: %__MODULE__{
+            key: binary(),
+            timestamp: non_neg_integer(),
+            condition: :nx | :xx | :gt | :lt | nil,
+            fields: [binary()]
+          }
+
+    defstruct [:key, :timestamp, :condition, :fields]
+  end
+
+  defmodule HPExpire do
+    @moduledoc """
+    Represents a Redis HPEXPIRE command for setting field expiration in milliseconds.
+
+    ## Example
+        %Vdr.RedisStream.Command.HPExpire{key: "myhash", milliseconds: 3600000, condition: nil, fields: ["field1"]}
+    """
+    @type t :: %__MODULE__{
+            key: binary(),
+            milliseconds: non_neg_integer(),
+            condition: :nx | :xx | :gt | :lt | nil,
+            fields: [binary()]
+          }
+
+    defstruct [:key, :milliseconds, :condition, :fields]
+  end
+
+  defmodule HPExpireAt do
+    @moduledoc """
+    Represents a Redis HPEXPIREAT command for setting field expiration at unix timestamp (milliseconds).
+
+    ## Example
+        %Vdr.RedisStream.Command.HPExpireAt{key: "myhash", timestamp_ms: 1609459200000, condition: nil, fields: ["field1"]}
+    """
+    @type t :: %__MODULE__{
+            key: binary(),
+            timestamp_ms: non_neg_integer(),
+            condition: :nx | :xx | :gt | :lt | nil,
+            fields: [binary()]
+          }
+
+    defstruct [:key, :timestamp_ms, :condition, :fields]
+  end
+
+  defmodule HPersist do
+    @moduledoc """
+    Represents a Redis HPERSIST command for removing field expiration.
+
+    ## Example
+        %Vdr.RedisStream.Command.HPersist{key: "myhash", fields: ["field1", "field2"]}
+    """
+    @type t :: %__MODULE__{
+            key: binary(),
+            fields: [binary()]
+          }
+
+    defstruct [:key, :fields]
+  end
+
   # Set Commands
 
   defmodule SRem do
@@ -852,6 +953,12 @@ defmodule Vdr.RedisStream.Command do
           | LInsert.t()
           | RPopLPush.t()
           | HDel.t()
+          | HGetEX.t()
+          | HExpire.t()
+          | HExpireAt.t()
+          | HPExpire.t()
+          | HPExpireAt.t()
+          | HPersist.t()
           | SRem.t()
           | SMove.t()
           | SInterStore.t()

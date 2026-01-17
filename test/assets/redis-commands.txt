@@ -50,6 +50,12 @@ HSET hash_listpack field1 "value1" name "redis" version "7.2"
 # Triggered by adding a large value or many fields.
 HSET hash_hashtable field1 "value1" field2 "This value is extremely long, far beyond the 'hash-max-listpack-value' limit, which guarantees that Redis will convert this hash into a standard hash table (ht) encoding."
 
+# HASH_METADATA (RDB type 200, 0xC8): A hash with per-field TTLs (Redis 7.4+)
+# This triggers the new hash metadata encoding when any field has an expiration.
+HSET hash_with_expiring_fields f1 "v1" f2 "v2" f3 "v3"
+HEXPIRE hash_with_expiring_fields 86400 FIELDS 1 f1
+HPEXPIRE hash_with_expiring_fields 86400000 FIELDS 1 f2
+
 
 # --- 4. SETS ---
 

@@ -28,6 +28,9 @@ const RDB_TYPE_HASH_LISTPACK: u8 = 16;
 const RDB_TYPE_ZSET_LISTPACK: u8 = 17;
 const RDB_TYPE_LIST_QUICKLIST_2: u8 = 18;
 const RDB_TYPE_SET_LISTPACK: u8 = 20;
+const RDB_TYPE_HASH_METADATA: u8 = 21;     // Redis/Valkey 9.0+ hash with per-field TTLs (with min_expire prefix)
+const RDB_TYPE_HASH_LISTPACK_EX: u8 = 22;  // Valkey 9.0+ hash listpack with per-field TTLs
+const RDB_TYPE_HASH_METADATA_PRE_GA: u8 = 200; // Pre-GA hash with per-field TTLs (no min_expire prefix)
 
 // Encoding types
 const RDB_ENC_INT8: u8 = 0;
@@ -165,19 +168,31 @@ impl ParserState {
 
         let magic_version = &self.buffer[0..9];
 
-        // Check magic "REDIS"
-        if &magic_version[0..5] != b"REDIS" {
+        // Check magic: "REDIS" (5 chars + 4-digit version) or "VALKEY" (6 chars + 3-digit version)
+        // Both formats are 9 bytes total
+        if &magic_version[0..5] == b"REDIS" {
+            // Redis format: REDIS0001-0012
+            let version_str = std::str::from_utf8(&magic_version[5..9])
+                .map_err(|_| "invalid_version")?;
+            let version: u32 = version_str.parse()
+                .map_err(|_| "invalid_version")?;
+
+            if !(1..=12).contains(&version) {
+                return Err("unsupported_version".to_string());
+            }
+        } else if &magic_version[0..6] == b"VALKEY" {
+            // Valkey format: VALKEY080, etc (3-digit version)
+            let version_str = std::str::from_utf8(&magic_version[6..9])
+                .map_err(|_| "invalid_version")?;
+            let version: u32 = version_str.parse()
+                .map_err(|_| "invalid_version")?;
+
+            // Valkey versions start at 080 (forked from Redis 7.2)
+            if !(80..=999).contains(&version) {
+                return Err("unsupported_version".to_string());
+            }
+        } else {
             return Err("invalid_magic".to_string());
-        }
-
-        // Check version (0001-0012)
-        let version_str = std::str::from_utf8(&magic_version[5..9])
-            .map_err(|_| "invalid_version")?;
-        let version: u32 = version_str.parse()
-            .map_err(|_| "invalid_version")?;
-
-        if !(1..=12).contains(&version) {
-            return Err("unsupported_version".to_string());
         }
 
         self.buffer.advance(9);
@@ -492,7 +507,8 @@ impl ParserState {
             }
             RDB_TYPE_HASH_ZIPLIST | RDB_TYPE_HASH_LISTPACK |
             RDB_TYPE_SET_INTSET | RDB_TYPE_SET_LISTPACK |
-            RDB_TYPE_ZSET_ZIPLIST | RDB_TYPE_ZSET_LISTPACK => {
+            RDB_TYPE_ZSET_ZIPLIST | RDB_TYPE_ZSET_LISTPACK |
+            RDB_TYPE_HASH_METADATA => {
                 // These are all stored as a single string
                 self.calculate_string_size(offset)
             }
@@ -752,6 +768,9 @@ impl ParserState {
             RDB_TYPE_LIST_QUICKLIST_2 => self.load_quicklist2_value(key),
             RDB_TYPE_HASH_ZIPLIST => self.load_hash_ziplist_value(key),
             RDB_TYPE_HASH_LISTPACK => self.load_hash_listpack_value(key),
+            RDB_TYPE_HASH_METADATA => self.load_hash_metadata_value(key),
+            RDB_TYPE_HASH_LISTPACK_EX => self.load_hash_listpack_ex_value(key),
+            RDB_TYPE_HASH_METADATA_PRE_GA => self.load_hash_metadata_pre_ga_value(key),
             RDB_TYPE_SET_INTSET => self.load_set_intset_value(key),
             RDB_TYPE_SET_LISTPACK => self.load_set_listpack_value(key),
             RDB_TYPE_ZSET_ZIPLIST => self.load_zset_ziplist_value(key),
@@ -1026,6 +1045,127 @@ impl ParserState {
 
                         let mut args = vec![key.to_vec()];
                         args.extend(entries);
+                        let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
+                        Ok(Some(vec![cmd]))
+                    }
+                    Err(e) => Err(e),
+                }
+            }
+            None => Ok(None),
+        }
+    }
+
+    // Hash with per-field TTLs (type 21, Redis/Valkey 9.0+)
+    // Format: 8-byte min_expire, count, then for each: string field, string value, 8-byte TTL
+    fn load_hash_metadata_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+        // Skip 8-byte min_expire_time
+        if self.buffer.len() < 8 {
+            return Ok(None);
+        }
+        self.buffer_advance(8);
+
+        // Load count
+        let count = match self.load_length()? {
+            Some(c) => c,
+            None => return Ok(None),
+        };
+
+        let mut args = vec![key.to_vec()];
+        for _ in 0..count {
+            // Load field
+            let field = match self.load_string()? {
+                Some(f) => f,
+                None => return Ok(None),
+            };
+            // Load value
+            let value = match self.load_string()? {
+                Some(v) => v,
+                None => return Ok(None),
+            };
+            // Skip 8-byte TTL
+            if self.buffer.len() < 8 {
+                return Ok(None);
+            }
+            self.buffer_advance(8);
+
+            args.push(field);
+            args.push(value);
+        }
+
+        if args.len() == 1 {
+            return Ok(Some(Vec::new()));
+        }
+
+        let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
+        Ok(Some(vec![cmd]))
+    }
+
+    // Hash with per-field TTLs (type 22, Valkey 9.0+) - dict format without min_expire
+    // Format: count, then for each: string field, string value, 8-byte TTL
+    fn load_hash_listpack_ex_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+        // Load count
+        let count = match self.load_length()? {
+            Some(c) => c,
+            None => return Ok(None),
+        };
+
+        let mut args = vec![key.to_vec()];
+        for _ in 0..count {
+            // Load field
+            let field = match self.load_string()? {
+                Some(f) => f,
+                None => return Ok(None),
+            };
+            // Load value
+            let value = match self.load_string()? {
+                Some(v) => v,
+                None => return Ok(None),
+            };
+            // Skip 8-byte TTL (little-endian, -1 = no expire)
+            if self.buffer.len() < 8 {
+                return Ok(None);
+            }
+            self.buffer_advance(8);
+
+            args.push(field);
+            args.push(value);
+        }
+
+        if args.len() == 1 {
+            return Ok(Some(Vec::new()));
+        }
+
+        let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
+        Ok(Some(vec![cmd]))
+    }
+
+    // Pre-GA hash with per-field TTLs (type 200)
+    // Format: listpack containing triplets: [ttl, field, value, ttl, field, value, ...]
+    fn load_hash_metadata_pre_ga_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+        match self.load_string()? {
+            Some(listpack_bin) => {
+                match parse_listpack(&listpack_bin) {
+                    Ok(entries) => {
+                        if entries.len() % 3 != 0 {
+                            return Err("hash_metadata_entries_not_multiple_of_3".to_string());
+                        }
+
+                        // Extract field-value pairs, ignoring TTL
+                        let mut args = vec![key.to_vec()];
+                        let mut i = 0;
+                        while i < entries.len() {
+                            // Skip TTL (entries[i])
+                            let field = entries[i + 1].clone();
+                            let value = entries[i + 2].clone();
+                            args.push(field);
+                            args.push(value);
+                            i += 3;
+                        }
+
+                        if args.len() == 1 {
+                            return Ok(Some(Vec::new()));
+                        }
+
                         let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
                         Ok(Some(vec![cmd]))
                     }

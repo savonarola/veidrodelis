@@ -212,6 +212,43 @@ defmodule Vdr.RedisStream.CommandParser do
 
   def parse(["HDEL", key | fields]), do: {:ok, %RedisCommand.HDel{key: key, fields: fields}}
 
+  # HGETEX key [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | PERSIST] FIELDS numfields field [field ...]
+  def parse(["HGETEX", key | rest]) do
+    {ttl_option, fields} = parse_hgetex_args(rest)
+    {:ok, %RedisCommand.HGetEX{key: key, ttl_option: ttl_option, fields: fields}}
+  end
+
+  # Hash field expiration commands (Redis 7.4.0+)
+  # HEXPIRE key seconds [NX | XX | GT | LT] FIELDS numfields field [field ...]
+  def parse(["HEXPIRE", key, seconds | rest]) do
+    {condition, fields} = parse_hexpire_args(rest)
+    {:ok, %RedisCommand.HExpire{key: key, seconds: String.to_integer(seconds), condition: condition, fields: fields}}
+  end
+
+  # HEXPIREAT key unix-time-seconds [NX | XX | GT | LT] FIELDS numfields field [field ...]
+  def parse(["HEXPIREAT", key, timestamp | rest]) do
+    {condition, fields} = parse_hexpire_args(rest)
+    {:ok, %RedisCommand.HExpireAt{key: key, timestamp: String.to_integer(timestamp), condition: condition, fields: fields}}
+  end
+
+  # HPEXPIRE key milliseconds [NX | XX | GT | LT] FIELDS numfields field [field ...]
+  def parse(["HPEXPIRE", key, milliseconds | rest]) do
+    {condition, fields} = parse_hexpire_args(rest)
+    {:ok, %RedisCommand.HPExpire{key: key, milliseconds: String.to_integer(milliseconds), condition: condition, fields: fields}}
+  end
+
+  # HPEXPIREAT key unix-time-milliseconds [NX | XX | GT | LT] FIELDS numfields field [field ...]
+  def parse(["HPEXPIREAT", key, timestamp_ms | rest]) do
+    {condition, fields} = parse_hexpire_args(rest)
+    {:ok, %RedisCommand.HPExpireAt{key: key, timestamp_ms: String.to_integer(timestamp_ms), condition: condition, fields: fields}}
+  end
+
+  # HPERSIST key FIELDS numfields field [field ...]
+  def parse(["HPERSIST", key | rest]) do
+    {_condition, fields} = parse_hexpire_args(rest)
+    {:ok, %RedisCommand.HPersist{key: key, fields: fields}}
+  end
+
   # HSETEX - extended HSET with options (used in replication for HINCRBYFLOAT)
   # Format: HSETEX key [FNX | FXX] [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL] FIELDS numfields field value [field value ...]
   # We ignore TTL options and treat FNX/FXX as regular HSET
@@ -370,6 +407,47 @@ defmodule Vdr.RedisStream.CommandParser do
   defp extract_hsetex_options(args) do
     extract_hsetex_options(args, nil)
   end
+
+  # Parse HEXPIRE/HEXPIREAT/HPEXPIRE/HPEXPIREAT/HPERSIST args:
+  # [NX | XX | GT | LT] FIELDS numfields field [field ...]
+  defp parse_hexpire_args(args) do
+    {condition, rest} = extract_hexpire_condition(args)
+    fields = extract_hexpire_fields(rest)
+    {condition, fields}
+  end
+
+  defp extract_hexpire_condition([arg | rest]) do
+    case String.upcase(arg) do
+      "NX" -> {:nx, rest}
+      "XX" -> {:xx, rest}
+      "GT" -> {:gt, rest}
+      "LT" -> {:lt, rest}
+      _ -> {nil, [arg | rest]}
+    end
+  end
+  defp extract_hexpire_condition([]), do: {nil, []}
+
+  defp extract_hexpire_fields(["FIELDS", _numfields | fields]), do: fields
+  defp extract_hexpire_fields(_), do: []
+
+  # Parse HGETEX args: [EX seconds | PX milliseconds | EXAT unix-time | PXAT unix-time-ms | PERSIST] FIELDS numfields field [field ...]
+  defp parse_hgetex_args(args) do
+    {ttl_option, rest} = extract_hgetex_ttl_option(args)
+    fields = extract_hexpire_fields(rest)
+    {ttl_option, fields}
+  end
+
+  defp extract_hgetex_ttl_option([arg | rest]) do
+    case String.upcase(arg) do
+      "EX" -> {{:ex, String.to_integer(hd(rest))}, tl(rest)}
+      "PX" -> {{:px, String.to_integer(hd(rest))}, tl(rest)}
+      "EXAT" -> {{:exat, String.to_integer(hd(rest))}, tl(rest)}
+      "PXAT" -> {{:pxat, String.to_integer(hd(rest))}, tl(rest)}
+      "PERSIST" -> {:persist, rest}
+      _ -> {nil, [arg | rest]}
+    end
+  end
+  defp extract_hgetex_ttl_option([]), do: {nil, []}
 
   defp extract_hsetex_options([], nx_or_xx), do: {nx_or_xx, []}
 

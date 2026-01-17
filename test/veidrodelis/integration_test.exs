@@ -246,6 +246,24 @@ defmodule Veidrodelis.IntegrationTest do
     result3 = Redix.command!(redis, ["HINCRBYFLOAT", "hincrbyfloat_hash", "new_score", "42.3"])
     Logger.info("HINCRBYFLOAT new_score result: #{inspect(result3)}")
 
+    # Hash field expiration commands (Redis 7.4.0+)
+    Redix.command!(redis, ["HSET", "hexpire_hash", "f1", "v1", "f2", "v2", "f3", "v3"])
+    Redix.command!(redis, ["HEXPIRE", "hexpire_hash", "3600", "FIELDS", "1", "f1"])
+    Redix.command!(redis, ["HEXPIREAT", "hexpire_hash", "#{System.os_time(:second) + 86400}", "FIELDS", "1", "f2"])
+    Redix.command!(redis, ["HPEXPIRE", "hexpire_hash", "3600000", "FIELDS", "1", "f3"])
+
+    Redix.command!(redis, ["HSET", "hpexpireat_hash", "f1", "v1"])
+    Redix.command!(redis, ["HPEXPIREAT", "hpexpireat_hash", "#{System.os_time(:millisecond) + 86400000}", "FIELDS", "1", "f1"])
+
+    Redix.command!(redis, ["HSET", "hpersist_hash", "f1", "v1"])
+    Redix.command!(redis, ["HEXPIRE", "hpersist_hash", "3600", "FIELDS", "1", "f1"])
+    Redix.command!(redis, ["HPERSIST", "hpersist_hash", "FIELDS", "1", "f1"])
+
+    # HGETEX tests (Redis 9.0.0+) - get with TTL modification
+    Redix.command!(redis, ["HSET", "hgetex_hash", "f1", "v1", "f2", "v2"])
+    Redix.command!(redis, ["HGETEX", "hgetex_hash", "EX", "3600", "FIELDS", "1", "f1"])
+    Redix.command!(redis, ["HGETEX", "hgetex_hash", "PERSIST", "FIELDS", "1", "f2"])
+
     # ===== Expiration Commands =====
     future_timestamp_ms = (System.os_time(:second) + 86400) * 1000
     Redix.command!(redis, ["SET", "expire_key", "will_expire"])
@@ -451,9 +469,37 @@ defmodule Veidrodelis.IntegrationTest do
     assert command_in_list(%RedisCommand.HSetNX{key: "hsetnx_hash"}, commands), "Missing HSETNX"
     assert command_in_list(%RedisCommand.HIncrBy{key: "hincrby_hash"}, commands), "Missing HINCRBY"
 
-    # NOTE: HINCRBYFLOAT is replicated as HSETEX (not as HIncrByFloat)
-    assert command_in_list(%RedisCommand.HSetEX{key: "hincrbyfloat_hash"}, commands),
-           "Missing HSETEX (HINCRBYFLOAT replicated as HSETEX)"
+    # NOTE: HINCRBYFLOAT is replicated as HSETEX (Redis) or HSET (Valkey 9.0+)
+    assert command_in_list(%RedisCommand.HSetEX{key: "hincrbyfloat_hash"}, commands) or
+             command_in_list(%RedisCommand.HSet{key: "hincrbyfloat_hash"}, commands),
+           "Missing HSETEX or HSET (HINCRBYFLOAT replicated)"
+
+    # Hash field expiration commands (Redis/Valkey 9.0+)
+    # NOTE: Valkey converts all expiration commands to HPEXPIREAT during replication.
+    # Redis may keep original commands. We accept either format.
+    assert command_in_list(%RedisCommand.HExpire{key: "hexpire_hash"}, commands) or
+             command_in_list(%RedisCommand.HPExpireAt{key: "hexpire_hash"}, commands),
+           "Missing HEXPIRE or HPEXPIREAT"
+
+    assert command_in_list(%RedisCommand.HExpireAt{key: "hexpire_hash"}, commands) or
+             command_in_list(%RedisCommand.HPExpireAt{key: "hexpire_hash"}, commands),
+           "Missing HEXPIREAT or HPEXPIREAT"
+
+    assert command_in_list(%RedisCommand.HPExpire{key: "hexpire_hash"}, commands) or
+             command_in_list(%RedisCommand.HPExpireAt{key: "hexpire_hash"}, commands),
+           "Missing HPEXPIRE or HPEXPIREAT"
+
+    assert command_in_list(%RedisCommand.HPExpireAt{key: "hpexpireat_hash"}, commands),
+           "Missing HPEXPIREAT"
+
+    assert command_in_list(%RedisCommand.HPersist{key: "hpersist_hash"}, commands),
+           "Missing HPERSIST"
+
+    # HGETEX with TTL option (Redis 9.0.0+)
+    # Valkey converts to HPEXPIREAT, Redis may use HGETEX
+    assert command_in_list(%RedisCommand.HGetEX{key: "hgetex_hash"}, commands) or
+             command_in_list(%RedisCommand.HPExpireAt{key: "hgetex_hash"}, commands),
+           "Missing HGETEX or HPEXPIREAT"
 
     # Expiration
     assert command_in_list(%RedisCommand.PExpireAt{key: "expire_key"}, commands),
