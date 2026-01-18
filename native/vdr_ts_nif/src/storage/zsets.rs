@@ -860,4 +860,293 @@ impl StorageInner {
 
         Ok(())
     }
+
+    /// Store difference of sorted sets in destination key (members in first set but not in others).
+    pub fn zdiffstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]]) -> Result<(), &'static str> {
+        // First delete destination
+        self.del(db, dest_key);
+
+        if source_keys.is_empty() {
+            return Ok(());
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(());
+        };
+
+        // Start with first zset
+        let first_zset = match db_map.get(source_keys[0]) {
+            Some(StorageValue::ZSet(zset)) => zset,
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::Set(_)) => {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
+            None => return Ok(()),
+        };
+
+        // Clone members from first set
+        let mut diff_map: HashMap<Bytes, Score> = first_zset
+            .entries
+            .iter()
+            .map(|(member, score)| (member.clone(), *score))
+            .collect();
+
+        // Remove members that exist in any of the other sets
+        for source_key in source_keys.iter().skip(1) {
+            match db_map.get(*source_key) {
+                Some(StorageValue::ZSet(zset)) => {
+                    // Remove any member that exists in this zset
+                    for member in zset.entries.keys() {
+                        diff_map.remove(member);
+                    }
+                }
+                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::Set(_)) => {
+                    return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
+                None => continue,
+            }
+        }
+
+        if !diff_map.is_empty() {
+            let mut new_zset = ZSet::new();
+            for (member, score) in diff_map {
+                new_zset.entries.insert(member.clone(), score);
+                new_zset.index.insert(ZSetIndexKey::create(score, member.as_slice()));
+            }
+
+            let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+            db_map.insert(Bytes::new(dest_key), StorageValue::ZSet(new_zset));
+        }
+
+        Ok(())
+    }
+
+    /// Store a range of members from a sorted set into destination key.
+    /// Supports BYRANK (default), BYSCORE, BYLEX, REV, and LIMIT options.
+    pub fn zrangestore(
+        &mut self,
+        db: u64,
+        dest_key: &[u8],
+        source_key: &[u8],
+        min_str: &str,
+        max_str: &str,
+        by_score: bool,
+        by_lex: bool,
+        rev: bool,
+        limit: Option<(i64, i64)>, // (offset, count)
+    ) -> Result<(), &'static str> {
+        // First delete destination
+        self.del(db, dest_key);
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(());
+        };
+
+        let source_zset = match db_map.get(source_key) {
+            Some(StorageValue::ZSet(zset)) => zset,
+            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::Set(_)) => {
+                return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+            }
+            None => return Ok(()),
+        };
+
+        if source_zset.is_empty() {
+            return Ok(());
+        }
+
+        let mut new_zset = ZSet::new();
+
+        if by_lex {
+            // BYLEX: lexicographic range using entries.range() for efficiency
+            let min_bound = self.parse_lex_bound(min_str)?;
+            let max_bound = self.parse_lex_bound(max_str)?;
+
+            // Convert Bytes bounds to &[u8] bounds for range query
+            let start_bound = match &min_bound {
+                std::ops::Bound::Unbounded => std::ops::Bound::Unbounded,
+                std::ops::Bound::Included(val) => std::ops::Bound::Included(val.as_slice()),
+                std::ops::Bound::Excluded(val) => std::ops::Bound::Excluded(val.as_slice()),
+            };
+
+            let end_bound = match &max_bound {
+                std::ops::Bound::Unbounded => std::ops::Bound::Unbounded,
+                std::ops::Bound::Included(val) => std::ops::Bound::Included(val.as_slice()),
+                std::ops::Bound::Excluded(val) => std::ops::Bound::Excluded(val.as_slice()),
+            };
+
+            let mut collected: Vec<(Bytes, Score)> = source_zset
+                .entries
+                .range::<[u8], _>((start_bound, end_bound))
+                .map(|(member, score)| (member.clone(), *score))
+                .collect();
+
+            if rev {
+                collected.reverse();
+            }
+
+            // Apply LIMIT if specified
+            let collected = self.apply_limit(collected, limit);
+
+            for (member, score) in collected {
+                new_zset.entries.insert(member.clone(), score);
+                new_zset.index.insert(ZSetIndexKey::create(score, member.as_slice()));
+            }
+        } else if by_score {
+            // BYSCORE: score range using index.range() for efficiency
+            let min_bound = self.parse_score_bound(min_str)?;
+            let max_bound = self.parse_score_bound(max_str)?;
+
+            // Create boundary keys for efficient range query
+            let min_key = match &min_bound {
+                std::ops::Bound::Unbounded => None,
+                std::ops::Bound::Included(score) | std::ops::Bound::Excluded(score) => Some(ZSetIndexKey::min_score_key(*score)),
+            };
+
+            let max_key = match &max_bound {
+                std::ops::Bound::Unbounded => None,
+                std::ops::Bound::Included(score) | std::ops::Bound::Excluded(score) => Some(ZSetIndexKey::max_score_key(*score)),
+            };
+
+            let start_key_bound: std::ops::Bound<&ZSetIndexKey> = match &min_key {
+                Some(key) => std::ops::Bound::Included(key),
+                None => std::ops::Bound::Unbounded,
+            };
+
+            let end_key_bound: std::ops::Bound<&ZSetIndexKey> = match &max_key {
+                Some(key) => std::ops::Bound::Included(key),
+                None => std::ops::Bound::Unbounded,
+            };
+
+            let mut collected: Vec<(Bytes, Score)> = source_zset
+                .index
+                .range::<_, ZSetIndexKey>((start_key_bound, end_key_bound))
+                .filter_map(|key| {
+                    key.get_entry_and_score().and_then(|(member, score)| {
+                        if self.score_in_range(score, &min_bound, &max_bound) {
+                            Some((member, score))
+                        } else {
+                            None
+                        }
+                    })
+                })
+                .collect();
+
+            if rev {
+                collected.reverse();
+            }
+
+            // Apply LIMIT if specified
+            let collected = self.apply_limit(collected, limit);
+
+            for (member, score) in collected {
+                new_zset.entries.insert(member.clone(), score);
+                new_zset.index.insert(ZSetIndexKey::create(score, member.as_slice()));
+            }
+        } else {
+            // BYRANK (default): rank-based range
+            let min_rank = min_str.parse::<i64>().map_err(|_| "invalid min rank")?;
+            let max_rank = max_str.parse::<i64>().map_err(|_| "invalid max rank")?;
+
+            let len = source_zset.len() as i64;
+
+            // Normalize negative indices
+            let start = if min_rank < 0 { ((len + min_rank).max(0)) as usize } else { min_rank.min(len) as usize };
+            let stop = if max_rank < 0 { ((len + max_rank).max(0)) as usize } else { max_rank.min(len - 1) as usize };
+
+            if start <= stop && start < source_zset.len() {
+                let range_iter: Box<dyn Iterator<Item = &ZSetIndexKey>> = if rev {
+                    Box::new(source_zset.index.range_idx(start..=stop).rev())
+                } else {
+                    Box::new(source_zset.index.range_idx(start..=stop))
+                };
+
+                let mut collected: Vec<(Bytes, Score)> = Vec::new();
+                for key in range_iter {
+                    if let Some((member, score)) = key.get_entry_and_score() {
+                        collected.push((member, score));
+                    }
+                }
+
+                // Apply LIMIT if specified
+                let collected = self.apply_limit(collected, limit);
+
+                for (member, score) in collected {
+                    new_zset.entries.insert(member.clone(), score);
+                    new_zset.index.insert(ZSetIndexKey::create(score, member.as_slice()));
+                }
+            }
+        }
+
+        if !new_zset.is_empty() {
+            let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+            db_map.insert(Bytes::new(dest_key), StorageValue::ZSet(new_zset));
+        }
+
+        Ok(())
+    }
+
+    fn apply_limit(&self, items: Vec<(Bytes, Score)>, limit: Option<(i64, i64)>) -> Vec<(Bytes, Score)> {
+        if let Some((offset, count)) = limit {
+            let offset = offset.max(0) as usize;
+            let count = count.max(0) as usize;
+
+            items.into_iter().skip(offset).take(count).collect()
+        } else {
+            items
+        }
+    }
+
+    fn parse_score_bound(&self, s: &str) -> Result<std::ops::Bound<Score>, &'static str> {
+        use std::ops::Bound;
+
+        if s == "-inf" {
+            Ok(Bound::Unbounded)
+        } else if s == "+inf" {
+            Ok(Bound::Unbounded)
+        } else if let Some(stripped) = s.strip_prefix('(') {
+            // Exclusive bound
+            let score = stripped.parse::<f64>().map_err(|_| "invalid score")?;
+            Ok(Bound::Excluded(OrderedFloat(score)))
+        } else {
+            // Inclusive bound
+            let score = s.parse::<f64>().map_err(|_| "invalid score")?;
+            Ok(Bound::Included(OrderedFloat(score)))
+        }
+    }
+
+    fn parse_lex_bound(&self, s: &str) -> Result<std::ops::Bound<Bytes>, &'static str> {
+        use std::ops::Bound;
+
+        if s == "-" {
+            Ok(Bound::Unbounded)
+        } else if s == "+" {
+            Ok(Bound::Unbounded)
+        } else if let Some(stripped) = s.strip_prefix('[') {
+            // Inclusive bound
+            Ok(Bound::Included(Bytes::new(stripped.as_bytes())))
+        } else if let Some(stripped) = s.strip_prefix('(') {
+            // Exclusive bound
+            Ok(Bound::Excluded(Bytes::new(stripped.as_bytes())))
+        } else {
+            Err("invalid lex bound")
+        }
+    }
+
+    fn score_in_range(&self, score: Score, min: &std::ops::Bound<Score>, max: &std::ops::Bound<Score>) -> bool {
+        use std::ops::Bound;
+
+        let min_ok = match min {
+            Bound::Unbounded => true,
+            Bound::Included(s) => score >= *s,
+            Bound::Excluded(s) => score > *s,
+        };
+
+        let max_ok = match max {
+            Bound::Unbounded => true,
+            Bound::Included(s) => score <= *s,
+            Bound::Excluded(s) => score < *s,
+        };
+
+        min_ok && max_ok
+    }
+
 }

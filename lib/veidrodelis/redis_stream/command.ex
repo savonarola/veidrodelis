@@ -898,6 +898,24 @@ defmodule Vdr.RedisStream.Command do
     defstruct [:key, :min, :max]
   end
 
+  defmodule ZRangeStore do
+    @moduledoc """
+    Represents a Redis ZRANGESTORE command.
+
+    ## Example
+        %Vdr.RedisStream.Command.ZRangeStore{destination: "dest", source: "src", min: "0", max: "10"}
+    """
+    @type t :: %__MODULE__{
+            destination: binary(),
+            source: binary(),
+            min: binary(),
+            max: binary(),
+            options: [binary()]
+          }
+
+    defstruct [:destination, :source, :min, :max, :options]
+  end
+
   defmodule ZUnionStore do
     @moduledoc """
     Represents a Redis ZUNIONSTORE command.
@@ -930,6 +948,21 @@ defmodule Vdr.RedisStream.Command do
           }
 
     defstruct [:destination, :keys, :weights, :aggregate]
+  end
+
+  defmodule ZDiffStore do
+    @moduledoc """
+    Represents a Redis ZDIFFSTORE command.
+
+    ## Example
+        %Vdr.RedisStream.Command.ZDiffStore{destination: "result", keys: ["zset1", "zset2"]}
+    """
+    @type t :: %__MODULE__{
+            destination: binary(),
+            keys: [binary()]
+          }
+
+    defstruct [:destination, :keys]
   end
 
   # Generic Command
@@ -1010,7 +1043,9 @@ defmodule Vdr.RedisStream.Command do
           | ZRemRangeByRank.t()
           | ZRemRangeByScore.t()
           | ZRemRangeByLex.t()
+          | ZRangeStore.t()
           | ZUnionStore.t()
           | ZInterStore.t()
+          | ZDiffStore.t()
           | Generic.t()
 end

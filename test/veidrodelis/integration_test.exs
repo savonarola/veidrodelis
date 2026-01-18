@@ -169,6 +169,30 @@ defmodule Veidrodelis.IntegrationTest do
     Redix.command!(redis, ["RPUSH", "lmpop_list2", "q1", "q2"])
     Redix.command!(redis, ["LMPOP", "2", "lmpop_list1", "lmpop_list2", "LEFT", "COUNT", "2"])
 
+    # Blocking list commands - these replicate as their non-blocking equivalents
+    # BLPOP (Redis 2.0.0+) - replicates as LPOP
+    Redix.command!(redis, ["RPUSH", "blpop_list", "bl1", "bl2"])
+    Redix.command!(redis, ["BLPOP", "blpop_list", "0"])
+
+    # BRPOP (Redis 2.0.0+) - replicates as RPOP
+    Redix.command!(redis, ["RPUSH", "brpop_list", "br1", "br2"])
+    Redix.command!(redis, ["BRPOP", "brpop_list", "0"])
+
+    # BRPOPLPUSH (Redis 2.2.0+) - replicates as RPOPLPUSH
+    Redix.command!(redis, ["RPUSH", "brpoplpush_src", "brs1", "brs2"])
+    Redix.command!(redis, ["RPUSH", "brpoplpush_dst", "brd1"])
+    Redix.command!(redis, ["BRPOPLPUSH", "brpoplpush_src", "brpoplpush_dst", "0"])
+
+    # BLMOVE (Redis 6.2.0+) - replicates as LMOVE
+    Redix.command!(redis, ["RPUSH", "blmove_src", "bm1", "bm2", "bm3"])
+    Redix.command!(redis, ["RPUSH", "blmove_dst", "bmx"])
+    Redix.command!(redis, ["BLMOVE", "blmove_src", "blmove_dst", "LEFT", "RIGHT", "0"])
+
+    # BLMPOP (Redis 7.0.0+) - replicates as LPOP with count
+    Redix.command!(redis, ["RPUSH", "blmpop_list1", "blmp1", "blmp2", "blmp3"])
+    Redix.command!(redis, ["RPUSH", "blmpop_list2", "blmq1", "blmq2"])
+    Redix.command!(redis, ["BLMPOP", "0", "2", "blmpop_list1", "blmpop_list2", "LEFT", "COUNT", "2"])
+
     # ===== Set Commands =====
     Redix.command!(redis, ["SADD", "myset", "member1", "member2", "member3"])
     Redix.command!(redis, ["SADD", "rem_set", "m1", "m2", "m3"])
@@ -234,6 +258,34 @@ defmodule Veidrodelis.IntegrationTest do
     # Test 4: ZINCRBY with negative delta (decrement)
     Redix.command!(redis, ["ZADD", "zincrby_decr", "100.0", "score"])
     Redix.command!(redis, ["ZINCRBY", "zincrby_decr", "-25.5", "score"])
+
+    # ZDIFFSTORE tests (Redis 6.2.0+)
+    Redix.command!(redis, ["ZADD", "zdiff_a", "1", "a", "2", "b", "3", "c"])
+    Redix.command!(redis, ["ZADD", "zdiff_b", "2", "b", "4", "d"])
+    Redix.command!(redis, ["ZDIFFSTORE", "zdiff_result", "2", "zdiff_a", "zdiff_b"])
+
+    # ZRANGESTORE tests (Redis 6.2.0+)
+    Redix.command!(redis, ["ZADD", "zrangestore_src", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+    Redix.command!(redis, ["ZRANGESTORE", "zrangestore_dest", "zrangestore_src", "1", "3"])
+
+    # ZMPOP tests (Redis 7.0.0+) - replicates as ZPOPMAX/ZPOPMIN on the key with members
+    Redix.command!(redis, ["ZADD", "zmpop_zset1", "1", "a", "2", "b", "3", "c"])
+    Redix.command!(redis, ["ZADD", "zmpop_zset2", "4", "d", "5", "e"])
+    Redix.command!(redis, ["ZMPOP", "2", "zmpop_zset1", "zmpop_zset2", "MAX", "COUNT", "2"])
+
+    # Blocking sorted set commands - these replicate as their non-blocking equivalents
+    # BZPOPMAX (Redis 5.0.0+) - replicates as ZPOPMAX
+    Redix.command!(redis, ["ZADD", "bzpopmax_zset", "1", "a", "2", "b", "3", "c"])
+    Redix.command!(redis, ["BZPOPMAX", "bzpopmax_zset", "0"])
+
+    # BZPOPMIN (Redis 5.0.0+) - replicates as ZPOPMIN
+    Redix.command!(redis, ["ZADD", "bzpopmin_zset", "1", "a", "2", "b", "3", "c"])
+    Redix.command!(redis, ["BZPOPMIN", "bzpopmin_zset", "0"])
+
+    # BZMPOP (Redis 7.0.0+) - replicates as ZMPOP (which in turn replicates as ZPOPMAX/ZPOPMIN)
+    Redix.command!(redis, ["ZADD", "bzmpop_zset1", "1", "x", "2", "y", "3", "z"])
+    Redix.command!(redis, ["ZADD", "bzmpop_zset2", "4", "p", "5", "q"])
+    Redix.command!(redis, ["BZMPOP", "0", "2", "bzmpop_zset1", "bzmpop_zset2", "MIN", "COUNT", "2"])
 
     # ===== Hash Commands =====
     Redix.command!(redis, [
@@ -502,6 +554,27 @@ defmodule Veidrodelis.IntegrationTest do
     assert command_in_list(%RedisCommand.LPop{key: "lmpop_list1", count: 2}, commands),
            "Missing LPOP with count (from LMPOP)"
 
+    # Blocking list commands - verify they replicate as non-blocking equivalents
+    # BLPOP replicates as LPOP
+    assert command_in_list(%RedisCommand.LPop{key: "blpop_list"}, commands),
+           "Missing LPOP (from BLPOP)"
+
+    # BRPOP replicates as RPOP
+    assert command_in_list(%RedisCommand.RPop{key: "brpop_list"}, commands),
+           "Missing RPOP (from BRPOP)"
+
+    # BRPOPLPUSH replicates as RPOPLPUSH
+    assert command_in_list(%RedisCommand.RPopLPush{source: "brpoplpush_src", destination: "brpoplpush_dst"}, commands),
+           "Missing RPOPLPUSH (from BRPOPLPUSH)"
+
+    # BLMOVE replicates as LMOVE
+    assert command_in_list(%RedisCommand.LMove{source: "blmove_src"}, commands),
+           "Missing LMOVE (from BLMOVE)"
+
+    # BLMPOP replicates as LPOP with count
+    assert command_in_list(%RedisCommand.LPop{key: "blmpop_list1", count: 2}, commands),
+           "Missing LPOP with count (from BLMPOP)"
+
     # Set commands
     assert command_in_list(%RedisCommand.SAdd{key: "myset"}, commands), "Missing SADD myset"
     assert command_in_list(%RedisCommand.SRem{key: "rem_set"}, commands), "Missing SREM"
@@ -532,6 +605,35 @@ defmodule Veidrodelis.IntegrationTest do
 
     assert command_in_list(%RedisCommand.ZRemRangeByLex{key: "remrange_lex_zset"}, commands),
            "Missing ZREMRANGEBYLEX"
+
+    # ZINCRBY replicates as ZADD (with final score) in Redis
+    assert command_in_list(%RedisCommand.ZAdd{key: "zincrby_test"}, commands),
+           "Missing ZADD (from ZINCRBY)"
+
+    # ZDIFFSTORE
+    assert command_in_list(%RedisCommand.ZDiffStore{destination: "zdiff_result"}, commands),
+           "Missing ZDIFFSTORE"
+
+    # ZRANGESTORE
+    assert command_in_list(%RedisCommand.ZRangeStore{destination: "zrangestore_dest", source: "zrangestore_src"}, commands),
+           "Missing ZRANGESTORE"
+
+    # ZMPOP replicates as ZPOPMAX or ZPOPMIN (on the first key with members)
+    assert command_in_list(%RedisCommand.ZPopMax{key: "zmpop_zset1", count: 2}, commands),
+           "Missing ZPOPMAX (from ZMPOP with MAX)"
+
+    # Blocking sorted set commands - verify they replicate as non-blocking equivalents
+    # BZPOPMAX replicates as ZPOPMAX
+    assert command_in_list(%RedisCommand.ZPopMax{key: "bzpopmax_zset"}, commands),
+           "Missing ZPOPMAX (from BZPOPMAX)"
+
+    # BZPOPMIN replicates as ZPOPMIN
+    assert command_in_list(%RedisCommand.ZPopMin{key: "bzpopmin_zset"}, commands),
+           "Missing ZPOPMIN (from BZPOPMIN)"
+
+    # BZMPOP replicates as ZPOPMAX/ZPOPMIN (on the first key with members)
+    assert command_in_list(%RedisCommand.ZPopMin{key: "bzmpop_zset1", count: 2}, commands),
+           "Missing ZPOPMIN (from BZMPOP with MIN)"
 
     # Hash commands
     assert command_in_list(%RedisCommand.HSet{key: "myhash"}, commands), "Missing HSET myhash"

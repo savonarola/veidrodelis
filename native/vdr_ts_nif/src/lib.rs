@@ -957,6 +957,74 @@ fn execute_single_command<'a>(
                         };
                     }
                 }
+            } else if cmd_atom == atoms::zdiffstore() {
+                // {db, {:zdiffstore, dest_key, source_keys}}
+                if args.len() == 2 {
+                    if let (Ok(dest_key), Ok(source_keys)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Vec<Binary>>()
+                    ) {
+                        let keys_slices: Vec<&[u8]> = source_keys.iter().map(|k| k.as_slice()).collect();
+                        return match inner.zdiffstore(db, dest_key.as_slice(), &keys_slices) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::zrangestore() {
+                // {db, {:zrangestore, dest_key, source_key, min, max, options}}
+                if args.len() == 5 {
+                    if let (Ok(dest_key), Ok(source_key), Ok(min_str), Ok(max_str), Ok(options)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>(),
+                        args[2].decode::<String>(),
+                        args[3].decode::<String>(),
+                        args[4].decode::<Vec<String>>()
+                    ) {
+                        // Parse options: BYSCORE, BYLEX, REV, LIMIT offset count
+                        let mut by_score = false;
+                        let mut by_lex = false;
+                        let mut rev = false;
+                        let mut limit: Option<(i64, i64)> = None;
+
+                        let mut i = 0;
+                        while i < options.len() {
+                            match options[i].as_str() {
+                                "BYSCORE" => by_score = true,
+                                "BYLEX" => by_lex = true,
+                                "REV" => rev = true,
+                                "LIMIT" => {
+                                    if i + 2 < options.len() {
+                                        if let (Ok(offset), Ok(count)) = (
+                                            options[i + 1].parse::<i64>(),
+                                            options[i + 2].parse::<i64>()
+                                        ) {
+                                            limit = Some((offset, count));
+                                            i += 2;
+                                        }
+                                    }
+                                }
+                                _ => {}
+                            }
+                            i += 1;
+                        }
+
+                        return match inner.zrangestore(
+                            db,
+                            dest_key.as_slice(),
+                            source_key.as_slice(),
+                            &min_str,
+                            &max_str,
+                            by_score,
+                            by_lex,
+                            rev,
+                            limit
+                        ) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
             // READ OPERATIONS
             } else if cmd_atom == atoms::get() {
                 // {db, {:get, key}}

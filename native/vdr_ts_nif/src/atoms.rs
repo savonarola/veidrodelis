@@ -56,6 +56,8 @@ rustler::atoms! {
     zremrangebylex,
     zunionstore,
     zinterstore,
+    zdiffstore,
+    zrangestore,
     // Read command atoms
     get,
     smembers,

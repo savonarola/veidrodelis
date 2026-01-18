@@ -189,6 +189,11 @@ defmodule Vdr.RedisStream.CommandParser do
     {:ok, %RedisCommand.ZRemRangeByLex{key: key, min: min, max: max}}
   end
 
+  def parse(["ZRANGESTORE", destination, source, min, max | options]) do
+    # Parse ZRANGESTORE dst src min max [BYSCORE|BYLEX] [REV] [LIMIT offset count]
+    {:ok, %RedisCommand.ZRangeStore{destination: destination, source: source, min: min, max: max, options: options}}
+  end
+
   def parse(["ZUNIONSTORE", destination, _numkeys | rest]) do
     # Parse ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]
     parse_zstore_command(destination, rest, :union)
@@ -197,6 +202,11 @@ defmodule Vdr.RedisStream.CommandParser do
   def parse(["ZINTERSTORE", destination, _numkeys | rest]) do
     # Parse ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]
     parse_zstore_command(destination, rest, :inter)
+  end
+
+  def parse(["ZDIFFSTORE", destination, _numkeys | keys]) do
+    # Parse ZDIFFSTORE destination numkeys key [key ...]
+    {:ok, %RedisCommand.ZDiffStore{destination: destination, keys: keys}}
   end
 
   # Hash commands

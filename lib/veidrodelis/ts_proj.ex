@@ -838,6 +838,27 @@ defmodule Vdr.TSProj do
     {db, {:zinterstore, dest_key, source_keys, weights_list, aggregate_atom}}
   end
 
+  defp convert_command(db, %RedisCommand.ZDiffStore{
+         destination: dest_key,
+         keys: source_keys
+       }) do
+    {db, {:zdiffstore, dest_key, source_keys}}
+  end
+
+  defp convert_command(db, %RedisCommand.ZRangeStore{
+         destination: dest_key,
+         source: source_key,
+         min: min_str,
+         max: max_str,
+         options: options
+       }) do
+    # ZRANGESTORE supports BYSCORE, BYLEX, REV, and LIMIT options
+    # Pass min/max as strings so Rust can parse them based on the mode
+    # Convert options list to uppercase strings
+    opts = (options || []) |> Enum.map(&String.upcase/1)
+    {db, {:zrangestore, dest_key, source_key, min_str, max_str, opts}}
+  end
+
   # Ignore all other commands
   defp convert_command(_db, _command) do
     nil
@@ -987,6 +1008,12 @@ defmodule Vdr.TSProj do
 
       %RedisCommand.ZInterStore{destination: dest, keys: keys} ->
         [dest | keys]
+
+      %RedisCommand.ZDiffStore{destination: dest, keys: keys} ->
+        [dest | keys]
+
+      %RedisCommand.ZRangeStore{destination: dest, source: src} ->
+        [dest, src]
 
       # Single key commands (must come after multi-key patterns)
       %{key: key} when is_binary(key) ->

@@ -125,6 +125,412 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
       end
     end
 
+    test "ZDIFFSTORE replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zdiff_a", "1", "a", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZADD", "zdiff_b", "2", "b", "4", "d"])
+      Redix.command!(redis, ["ZDIFFSTORE", "zdiff_result", "2", "zdiff_a", "zdiff_b"])
+
+      assert_within 1000 do
+        expected_card = 2
+        expected_members = ["a", "c"]
+        redis_card = Redix.command!(redis, ["ZCARD", "zdiff_result"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zdiff_result")
+        redis_members = Redix.command!(redis, ["ZRANGE", "zdiff_result", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zdiff_result", 0, -1, false)
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE by rank replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrangestore_src", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+      Redix.command!(redis, ["ZRANGESTORE", "zrangestore_dest", "zrangestore_src", "1", "3"])
+
+      assert_within 1000 do
+        expected_card = 3
+        expected_members = ["b", "c", "d"]
+        redis_card = Redix.command!(redis, ["ZCARD", "zrangestore_dest"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zrangestore_dest")
+        redis_members = Redix.command!(redis, ["ZRANGE", "zrangestore_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zrangestore_dest", 0, -1, false)
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE with REV replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrangestore_rev_src", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+      Redix.command!(redis, ["ZRANGESTORE", "zrangestore_rev_dest", "zrangestore_rev_src", "1", "3", "REV"])
+
+      assert_within 1000 do
+        expected_card = 3
+        # REV means we get rank 1-3 from the reversed order: d, c, b
+        expected_members = ["b", "c", "d"]
+        redis_card = Redix.command!(redis, ["ZCARD", "zrangestore_rev_dest"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zrangestore_rev_dest")
+        redis_members = Redix.command!(redis, ["ZRANGE", "zrangestore_rev_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zrangestore_rev_dest", 0, -1, false)
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE BYSCORE replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrangestore_score_src", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+      Redix.command!(redis, ["ZRANGESTORE", "zrangestore_score_dest", "zrangestore_score_src", "2", "4", "BYSCORE"])
+
+      assert_within 1000 do
+        expected_card = 3
+        expected_members = ["b", "c", "d"]
+        redis_card = Redix.command!(redis, ["ZCARD", "zrangestore_score_dest"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zrangestore_score_dest")
+        redis_members = Redix.command!(redis, ["ZRANGE", "zrangestore_score_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zrangestore_score_dest", 0, -1, false)
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE BYLEX replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrangestore_lex_src", "0", "a", "0", "b", "0", "c", "0", "d", "0", "e"])
+      Redix.command!(redis, ["ZRANGESTORE", "zrangestore_lex_dest", "zrangestore_lex_src", "[b", "[d", "BYLEX"])
+
+      assert_within 1000 do
+        expected_card = 3
+        expected_members = ["b", "c", "d"]
+        redis_card = Redix.command!(redis, ["ZCARD", "zrangestore_lex_dest"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zrangestore_lex_dest")
+        redis_members = Redix.command!(redis, ["ZRANGE", "zrangestore_lex_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zrangestore_lex_dest", 0, -1, false)
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE BYSCORE with LIMIT replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrangestore_limit_src", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+      # Redis requires LIMIT to be used with BYSCORE or BYLEX
+      Redix.command!(redis, ["ZRANGESTORE", "zrangestore_limit_dest", "zrangestore_limit_src", "1", "5", "BYSCORE", "LIMIT", "1", "3"])
+
+      assert_within 1000 do
+        expected_card = 3
+        # BYSCORE 1-5 gets all, LIMIT 1 3 means skip 1, take 3: b, c, d
+        expected_members = ["b", "c", "d"]
+        redis_card = Redix.command!(redis, ["ZCARD", "zrangestore_limit_dest"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zrangestore_limit_dest")
+        redis_members = Redix.command!(redis, ["ZRANGE", "zrangestore_limit_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zrangestore_limit_dest", 0, -1, false)
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE BYSCORE with REV and LIMIT replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zrangestore_complex_src", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e", "6", "f"])
+      Redix.command!(redis, ["ZRANGESTORE", "zrangestore_complex_dest", "zrangestore_complex_src", "2", "5", "BYSCORE", "REV", "LIMIT", "1", "2"])
+
+      assert_within 1000 do
+        # First verify Redis result to understand the behavior
+        redis_card = Redix.command!(redis, ["ZCARD", "zrangestore_complex_dest"])
+        redis_members = Redix.command!(redis, ["ZRANGE", "zrangestore_complex_dest", "0", "-1"])
+
+        # Now verify TS matches Redis
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zrangestore_complex_dest")
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zrangestore_complex_dest", 0, -1, false)
+
+        assert redis_card == ts_card
+        assert redis_members == ts_members
+      end
+    end
+
+    # ===== ZRANGESTORE Edge Cases =====
+
+    test "ZRANGESTORE BYRANK with negative indices", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zr_neg_src", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+      Redix.command!(redis, ["ZRANGESTORE", "zr_neg_dest", "zr_neg_src", "-3", "-1"])
+
+      assert_within 1000 do
+        expected_members = ["c", "d", "e"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "zr_neg_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zr_neg_dest", 0, -1, false)
+
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE BYRANK with max greater than last element", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zr_maxgt_src", "1", "a", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZRANGESTORE", "zr_maxgt_dest", "zr_maxgt_src", "1", "100"])
+
+      assert_within 1000 do
+        expected_members = ["b", "c"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "zr_maxgt_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zr_maxgt_dest", 0, -1, false)
+
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE BYRANK with min greater than max", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zr_minmax_src", "1", "a", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZRANGESTORE", "zr_minmax_dest", "zr_minmax_src", "3", "1"])
+
+      assert_within 1000 do
+        redis_card = Redix.command!(redis, ["ZCARD", "zr_minmax_dest"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zr_minmax_dest")
+
+        assert 0 == redis_card
+        assert 0 == ts_card
+      end
+    end
+
+    test "ZRANGESTORE BYRANK starting beyond last element", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zr_beyond_src", "1", "a", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZRANGESTORE", "zr_beyond_dest", "zr_beyond_src", "10", "20"])
+
+      assert_within 1000 do
+        redis_card = Redix.command!(redis, ["ZCARD", "zr_beyond_dest"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zr_beyond_dest")
+
+        assert 0 == redis_card
+        assert 0 == ts_card
+      end
+    end
+
+    test "ZRANGESTORE BYSCORE with min less than first element", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zs_minlt_src", "10", "a", "20", "b", "30", "c"])
+      Redix.command!(redis, ["ZRANGESTORE", "zs_minlt_dest", "zs_minlt_src", "-100", "15", "BYSCORE"])
+
+      assert_within 1000 do
+        expected_members = ["a"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "zs_minlt_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zs_minlt_dest", 0, -1, false)
+
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE BYSCORE with max greater than last element", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zs_maxgt_src", "10", "a", "20", "b", "30", "c"])
+      Redix.command!(redis, ["ZRANGESTORE", "zs_maxgt_dest", "zs_maxgt_src", "15", "1000", "BYSCORE"])
+
+      assert_within 1000 do
+        expected_members = ["b", "c"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "zs_maxgt_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zs_maxgt_dest", 0, -1, false)
+
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE BYSCORE with min greater than max", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zs_minmax_src", "10", "a", "20", "b", "30", "c"])
+      Redix.command!(redis, ["ZRANGESTORE", "zs_minmax_dest", "zs_minmax_src", "50", "10", "BYSCORE"])
+
+      assert_within 1000 do
+        redis_card = Redix.command!(redis, ["ZCARD", "zs_minmax_dest"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zs_minmax_dest")
+
+        assert 0 == redis_card
+        assert 0 == ts_card
+      end
+    end
+
+    test "ZRANGESTORE BYSCORE with LIMIT greater than available elements", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zs_limitgt_src", "10", "a", "20", "b", "30", "c"])
+      Redix.command!(redis, ["ZRANGESTORE", "zs_limitgt_dest", "zs_limitgt_src", "10", "30", "BYSCORE", "LIMIT", "0", "100"])
+
+      assert_within 1000 do
+        expected_members = ["a", "b", "c"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "zs_limitgt_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zs_limitgt_dest", 0, -1, false)
+
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE BYSCORE with -inf and +inf", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zs_inf_src", "10", "a", "20", "b", "30", "c"])
+      Redix.command!(redis, ["ZRANGESTORE", "zs_inf_dest", "zs_inf_src", "-inf", "+inf", "BYSCORE"])
+
+      assert_within 1000 do
+        expected_members = ["a", "b", "c"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "zs_inf_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zs_inf_dest", 0, -1, false)
+
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE BYLEX with min less than first element", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zl_minlt_src", "0", "b", "0", "d", "0", "f"])
+      Redix.command!(redis, ["ZRANGESTORE", "zl_minlt_dest", "zl_minlt_src", "[a", "[c", "BYLEX"])
+
+      assert_within 1000 do
+        expected_members = ["b"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "zl_minlt_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zl_minlt_dest", 0, -1, false)
+
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE BYLEX with max greater than last element", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zl_maxgt_src", "0", "b", "0", "d", "0", "f"])
+      Redix.command!(redis, ["ZRANGESTORE", "zl_maxgt_dest", "zl_maxgt_src", "[d", "[z", "BYLEX"])
+
+      assert_within 1000 do
+        expected_members = ["d", "f"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "zl_maxgt_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zl_maxgt_dest", 0, -1, false)
+
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE BYLEX with min greater than max", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zl_minmax_src", "0", "b", "0", "d", "0", "f"])
+      Redix.command!(redis, ["ZRANGESTORE", "zl_minmax_dest", "zl_minmax_src", "[f", "[b", "BYLEX"])
+
+      assert_within 1000 do
+        redis_card = Redix.command!(redis, ["ZCARD", "zl_minmax_dest"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zl_minmax_dest")
+
+        assert 0 == redis_card
+        assert 0 == ts_card
+      end
+    end
+
+    test "ZRANGESTORE BYLEX with LIMIT greater than available elements", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zl_limitgt_src", "0", "b", "0", "d", "0", "f"])
+      Redix.command!(redis, ["ZRANGESTORE", "zl_limitgt_dest", "zl_limitgt_src", "[b", "[f", "BYLEX", "LIMIT", "0", "100"])
+
+      assert_within 1000 do
+        expected_members = ["b", "d", "f"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "zl_limitgt_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zl_limitgt_dest", 0, -1, false)
+
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZRANGESTORE BYLEX with - and + bounds", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zl_unbounded_src", "0", "a", "0", "b", "0", "c"])
+      Redix.command!(redis, ["ZRANGESTORE", "zl_unbounded_dest", "zl_unbounded_src", "-", "+", "BYLEX"])
+
+      assert_within 1000 do
+        expected_members = ["a", "b", "c"]
+        redis_members = Redix.command!(redis, ["ZRANGE", "zl_unbounded_dest", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zl_unbounded_dest", 0, -1, false)
+
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "ZMPOP replicates as ZPOPMAX", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zmpop_test", "1", "a", "2", "b", "3", "c"])
+      Redix.command!(redis, ["ZMPOP", "1", "zmpop_test", "MAX", "COUNT", "2"])
+
+      assert_within 1000 do
+        expected_card = 1
+        expected_members = ["a"]
+        redis_card = Redix.command!(redis, ["ZCARD", "zmpop_test"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "zmpop_test")
+        redis_members = Redix.command!(redis, ["ZRANGE", "zmpop_test", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "zmpop_test", 0, -1, false)
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "BZMPOP replicates as ZPOPMIN", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "bzmpop_test", "1", "a", "2", "b", "3", "c"])
+      Redix.command!(redis, ["BZMPOP", "0", "1", "bzmpop_test", "MIN", "COUNT", "2"])
+
+      assert_within 1000 do
+        expected_card = 1
+        expected_members = ["c"]
+        redis_card = Redix.command!(redis, ["ZCARD", "bzmpop_test"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "bzmpop_test")
+        redis_members = Redix.command!(redis, ["ZRANGE", "bzmpop_test", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "bzmpop_test", 0, -1, false)
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "BZPOPMAX replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "bzpopmax_test", "1", "a", "2", "b", "3", "c"])
+      Redix.command!(redis, ["BZPOPMAX", "bzpopmax_test", "0"])
+
+      assert_within 1000 do
+        expected_card = 2
+        expected_members = ["a", "b"]
+        redis_card = Redix.command!(redis, ["ZCARD", "bzpopmax_test"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "bzpopmax_test")
+        redis_members = Redix.command!(redis, ["ZRANGE", "bzpopmax_test", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "bzpopmax_test", 0, -1, false)
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
+    test "BZPOPMIN replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "bzpopmin_test", "1", "a", "2", "b", "3", "c"])
+      Redix.command!(redis, ["BZPOPMIN", "bzpopmin_test", "0"])
+
+      assert_within 1000 do
+        expected_card = 2
+        expected_members = ["b", "c"]
+        redis_card = Redix.command!(redis, ["ZCARD", "bzpopmin_test"])
+        ts_card = Veidrodelis.zcard(vdr_id(), 0, "bzpopmin_test")
+        redis_members = Redix.command!(redis, ["ZRANGE", "bzpopmin_test", "0", "-1"])
+        ts_members = Veidrodelis.zrange(vdr_id(), 0, "bzpopmin_test", 0, -1, false)
+
+        assert expected_card == redis_card
+        assert expected_card == ts_card
+        assert expected_members == redis_members
+        assert expected_members == ts_members
+      end
+    end
+
     # ===== Comprehensive Edge Case Tests =====
 
     test "ZADD with options: NX only adds new members", %{redis: redis} do
