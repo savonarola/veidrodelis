@@ -14,7 +14,15 @@ defmodule Veidrodelis.IntegrationTest do
   - High-level: Tests the Veidrodelis module using its query API
   """
 
-  use ExUnit.Case, async: false
+  @redis [host: "localhost", port: 26378]
+  @valkey [host: "localhost", port: 16378]
+
+  use ExUnit.Case,
+    async: false,
+    parameterize: [
+      %{backend: :redis, conn_opts: @redis},
+      %{backend: :valkey, conn_opts: @valkey}
+    ]
 
   alias Vdr.RedisStream.Replica
   alias Vdr.RedisStream.Command, as: RedisCommand
@@ -61,23 +69,14 @@ defmodule Veidrodelis.IntegrationTest do
     end
   end
 
-  # Simple identity decoder for high-level testing
-
-  @redis_host "localhost"
-  @redis_port 16378
-  @id "vdr_id"
-
-  setup do
-    {:ok, redis} = Redix.start_link(host: @redis_host, port: @redis_port)
-    Redix.command!(redis, ["FLUSHALL"])
-
-    {:ok, redis: redis}
-  end
-
   @doc """
   Issues a maximally diverse set of Redis commands covering all Vdr.RedisCommand types.
+
+  The `backend` parameter controls which commands are issued:
+  - `:valkey`: All commands including hash field expiration (HEXPIRE, etc.)
+  - `:redis`: Skips hash field expiration commands which are Valkey-specific
   """
-  def issue_diverse_commands(redis, db \\ 0) do
+  def issue_diverse_commands(redis, db \\ 0, backend \\ :valkey) do
     # Select database
     if db != 0 do
       Redix.command!(redis, ["SELECT", "#{db}"])
@@ -246,23 +245,42 @@ defmodule Veidrodelis.IntegrationTest do
     result3 = Redix.command!(redis, ["HINCRBYFLOAT", "hincrbyfloat_hash", "new_score", "42.3"])
     Logger.info("HINCRBYFLOAT new_score result: #{inspect(result3)}")
 
-    # Hash field expiration commands (Redis 7.4.0+)
-    Redix.command!(redis, ["HSET", "hexpire_hash", "f1", "v1", "f2", "v2", "f3", "v3"])
-    Redix.command!(redis, ["HEXPIRE", "hexpire_hash", "3600", "FIELDS", "1", "f1"])
-    Redix.command!(redis, ["HEXPIREAT", "hexpire_hash", "#{System.os_time(:second) + 86400}", "FIELDS", "1", "f2"])
-    Redix.command!(redis, ["HPEXPIRE", "hexpire_hash", "3600000", "FIELDS", "1", "f3"])
+    # Hash field expiration commands (Valkey-specific, not available in Redis)
+    if backend == :valkey do
+      Redix.command!(redis, ["HSET", "hexpire_hash", "f1", "v1", "f2", "v2", "f3", "v3"])
+      Redix.command!(redis, ["HEXPIRE", "hexpire_hash", "3600", "FIELDS", "1", "f1"])
 
-    Redix.command!(redis, ["HSET", "hpexpireat_hash", "f1", "v1"])
-    Redix.command!(redis, ["HPEXPIREAT", "hpexpireat_hash", "#{System.os_time(:millisecond) + 86400000}", "FIELDS", "1", "f1"])
+      Redix.command!(redis, [
+        "HEXPIREAT",
+        "hexpire_hash",
+        "#{System.os_time(:second) + 86400}",
+        "FIELDS",
+        "1",
+        "f2"
+      ])
 
-    Redix.command!(redis, ["HSET", "hpersist_hash", "f1", "v1"])
-    Redix.command!(redis, ["HEXPIRE", "hpersist_hash", "3600", "FIELDS", "1", "f1"])
-    Redix.command!(redis, ["HPERSIST", "hpersist_hash", "FIELDS", "1", "f1"])
+      Redix.command!(redis, ["HPEXPIRE", "hexpire_hash", "3600000", "FIELDS", "1", "f3"])
 
-    # HGETEX tests (Redis 9.0.0+) - get with TTL modification
-    Redix.command!(redis, ["HSET", "hgetex_hash", "f1", "v1", "f2", "v2"])
-    Redix.command!(redis, ["HGETEX", "hgetex_hash", "EX", "3600", "FIELDS", "1", "f1"])
-    Redix.command!(redis, ["HGETEX", "hgetex_hash", "PERSIST", "FIELDS", "1", "f2"])
+      Redix.command!(redis, ["HSET", "hpexpireat_hash", "f1", "v1"])
+
+      Redix.command!(redis, [
+        "HPEXPIREAT",
+        "hpexpireat_hash",
+        "#{System.os_time(:millisecond) + 86_400_000}",
+        "FIELDS",
+        "1",
+        "f1"
+      ])
+
+      Redix.command!(redis, ["HSET", "hpersist_hash", "f1", "v1"])
+      Redix.command!(redis, ["HEXPIRE", "hpersist_hash", "3600", "FIELDS", "1", "f1"])
+      Redix.command!(redis, ["HPERSIST", "hpersist_hash", "FIELDS", "1", "f1"])
+
+      # HGETEX tests (Valkey 9.0.0+) - get with TTL modification
+      Redix.command!(redis, ["HSET", "hgetex_hash", "f1", "v1", "f2", "v2"])
+      Redix.command!(redis, ["HGETEX", "hgetex_hash", "EX", "3600", "FIELDS", "1", "f1"])
+      Redix.command!(redis, ["HGETEX", "hgetex_hash", "PERSIST", "FIELDS", "1", "f2"])
+    end
 
     # ===== Expiration Commands =====
     future_timestamp_ms = (System.os_time(:second) + 86400) * 1000
@@ -365,8 +383,12 @@ defmodule Veidrodelis.IntegrationTest do
   Verifies that the replica received all expected commands from streaming replication.
 
   In streaming mode, all commands are replicated as they happen, including modification commands.
+
+  The `backend` parameter controls which commands are verified:
+  - `:valkey`: All commands including hash field expiration (HEXPIRE, etc.)
+  - `:redis`: Skips hash field expiration command checks which are Valkey-specific
   """
-  def verify_streaming_commands(commands) do
+  def verify_streaming_commands(commands, backend \\ :valkey) do
     # String commands
     assert command_in_list(%RedisCommand.Set{key: "simple_key", value: "simple_value"}, commands),
            "Missing SET simple_key"
@@ -442,6 +464,7 @@ defmodule Veidrodelis.IntegrationTest do
 
     # SPOP is replicated as SREM
     assert command_in_list(%RedisCommand.SAdd{key: "spop_set"}, commands), "Missing SADD spop_set"
+
     assert command_in_list(%RedisCommand.SRem{key: "spop_set"}, commands),
            "Missing SREM (from SPOP)"
 
@@ -467,39 +490,42 @@ defmodule Veidrodelis.IntegrationTest do
     assert command_in_list(%RedisCommand.HDel{key: "hash_for_del"}, commands), "Missing HDEL"
     assert command_in_list(%RedisCommand.HMSet{key: "hmset_hash"}, commands), "Missing HMSET"
     assert command_in_list(%RedisCommand.HSetNX{key: "hsetnx_hash"}, commands), "Missing HSETNX"
-    assert command_in_list(%RedisCommand.HIncrBy{key: "hincrby_hash"}, commands), "Missing HINCRBY"
+
+    assert command_in_list(%RedisCommand.HIncrBy{key: "hincrby_hash"}, commands),
+           "Missing HINCRBY"
 
     # NOTE: HINCRBYFLOAT is replicated as HSETEX (Redis) or HSET (Valkey 9.0+)
     assert command_in_list(%RedisCommand.HSetEX{key: "hincrbyfloat_hash"}, commands) or
              command_in_list(%RedisCommand.HSet{key: "hincrbyfloat_hash"}, commands),
            "Missing HSETEX or HSET (HINCRBYFLOAT replicated)"
 
-    # Hash field expiration commands (Redis/Valkey 9.0+)
+    # Hash field expiration commands (Valkey-specific, not available in Redis)
     # NOTE: Valkey converts all expiration commands to HPEXPIREAT during replication.
-    # Redis may keep original commands. We accept either format.
-    assert command_in_list(%RedisCommand.HExpire{key: "hexpire_hash"}, commands) or
-             command_in_list(%RedisCommand.HPExpireAt{key: "hexpire_hash"}, commands),
-           "Missing HEXPIRE or HPEXPIREAT"
+    if backend == :valkey do
+      assert command_in_list(%RedisCommand.HExpire{key: "hexpire_hash"}, commands) or
+               command_in_list(%RedisCommand.HPExpireAt{key: "hexpire_hash"}, commands),
+             "Missing HEXPIRE or HPEXPIREAT"
 
-    assert command_in_list(%RedisCommand.HExpireAt{key: "hexpire_hash"}, commands) or
-             command_in_list(%RedisCommand.HPExpireAt{key: "hexpire_hash"}, commands),
-           "Missing HEXPIREAT or HPEXPIREAT"
+      assert command_in_list(%RedisCommand.HExpireAt{key: "hexpire_hash"}, commands) or
+               command_in_list(%RedisCommand.HPExpireAt{key: "hexpire_hash"}, commands),
+             "Missing HEXPIREAT or HPEXPIREAT"
 
-    assert command_in_list(%RedisCommand.HPExpire{key: "hexpire_hash"}, commands) or
-             command_in_list(%RedisCommand.HPExpireAt{key: "hexpire_hash"}, commands),
-           "Missing HPEXPIRE or HPEXPIREAT"
+      assert command_in_list(%RedisCommand.HPExpire{key: "hexpire_hash"}, commands) or
+               command_in_list(%RedisCommand.HPExpireAt{key: "hexpire_hash"}, commands),
+             "Missing HPEXPIRE or HPEXPIREAT"
 
-    assert command_in_list(%RedisCommand.HPExpireAt{key: "hpexpireat_hash"}, commands),
-           "Missing HPEXPIREAT"
+      assert command_in_list(%RedisCommand.HPExpireAt{key: "hpexpireat_hash"}, commands),
+             "Missing HPEXPIREAT"
 
-    assert command_in_list(%RedisCommand.HPersist{key: "hpersist_hash"}, commands),
-           "Missing HPERSIST"
+      assert command_in_list(%RedisCommand.HPersist{key: "hpersist_hash"}, commands),
+             "Missing HPERSIST"
 
-    # HGETEX with TTL option (Redis 9.0.0+)
-    # Valkey converts to HPEXPIREAT, Redis may use HGETEX
-    assert command_in_list(%RedisCommand.HGetEX{key: "hgetex_hash"}, commands) or
-             command_in_list(%RedisCommand.HPExpireAt{key: "hgetex_hash"}, commands),
-           "Missing HGETEX or HPEXPIREAT"
+      # HGETEX with TTL option (Valkey 9.0.0+)
+      # Valkey converts to HPEXPIREAT
+      assert command_in_list(%RedisCommand.HGetEX{key: "hgetex_hash"}, commands) or
+               command_in_list(%RedisCommand.HPExpireAt{key: "hgetex_hash"}, commands),
+             "Missing HGETEX or HPEXPIREAT"
+    end
 
     # Expiration
     assert command_in_list(%RedisCommand.PExpireAt{key: "expire_key"}, commands),
@@ -511,21 +537,28 @@ defmodule Veidrodelis.IntegrationTest do
     assert command_in_list(%RedisCommand.Del{}, commands), "Missing DEL"
   end
 
-  # ===== Low-level Replica Tests =====
+  @id "vdr_id"
+
+  setup %{backend: backend, conn_opts: conn_opts} do
+    {:ok, redis} = Redix.start_link(conn_opts)
+    Redix.command!(redis, ["FLUSHALL"])
+
+    {:ok, redis: redis, conn_opts: conn_opts, backend: backend}
+  end
 
   describe "low-level replica: comprehensive command replication" do
     @tag timeout: 30_000
-    test "replicates all command types from RDB and streaming", %{redis: redis} do
+    test "replicates all command types from RDB and streaming", %{redis: redis, conn_opts: conn_opts, backend: backend} do
       Logger.info("=== [Replica] Phase 1: Setting up diverse dataset in DB 0 ===")
-      issue_diverse_commands(redis, 0)
+      issue_diverse_commands(redis, 0, backend)
 
       Process.sleep(100)
 
       Logger.info("=== [Replica] Phase 2: Starting replica and waiting for RDB sync ===")
 
       opts = [
-        host: @redis_host,
-        port: @redis_port,
+        host: conn_opts[:host],
+        port: conn_opts[:port],
         callback_module: CollectorCallback,
         callback_state: %{commands: []}
       ]
@@ -546,7 +579,7 @@ defmodule Veidrodelis.IntegrationTest do
 
       Logger.info("=== [Replica] Phase 4: Issuing commands to DB 1 while streaming ===")
 
-      issue_diverse_commands(redis, 1)
+      issue_diverse_commands(redis, 1, backend)
 
       assert_within 3000 do
         callback_state = Replica.get_callback_state(replica)
@@ -561,7 +594,7 @@ defmodule Veidrodelis.IntegrationTest do
 
       Logger.info("Received #{length(db1_commands)} commands from streaming")
 
-      verify_streaming_commands(db1_commands)
+      verify_streaming_commands(db1_commands, backend)
 
       Logger.info("=== [Replica] Test completed successfully ===")
 
@@ -573,9 +606,9 @@ defmodule Veidrodelis.IntegrationTest do
 
   describe "high-level veidrodelis: comprehensive data verification" do
     @tag timeout: 30_000
-    test "verifies all data types from RDB and streaming via query API", %{redis: redis} do
+    test "verifies all data types from RDB and streaming via query API", %{redis: redis, conn_opts: conn_opts, backend: backend} do
       Logger.info("=== [Veidrodelis] Phase 1: Setting up diverse dataset in DB 0 ===")
-      issue_diverse_commands(redis, 0)
+      issue_diverse_commands(redis, 0, backend)
 
       Process.sleep(100)
 
@@ -583,8 +616,8 @@ defmodule Veidrodelis.IntegrationTest do
 
       opts = [
         id: @id,
-        host: @redis_host,
-        port: @redis_port,
+        host: conn_opts[:host],
+        port: conn_opts[:port],
         impl: {Vdr.TSProj, []}
       ]
 
@@ -712,7 +745,7 @@ defmodule Veidrodelis.IntegrationTest do
 
       Logger.info("=== [Veidrodelis] Phase 4: Issuing commands to DB 1 while streaming ===")
 
-      issue_diverse_commands(redis, 1)
+      issue_diverse_commands(redis, 1, backend)
 
       # Wait for streaming replication
       assert_within 3000 do
@@ -760,5 +793,4 @@ defmodule Veidrodelis.IntegrationTest do
       Veidrodelis.stop(vdr)
     end
   end
-
 end

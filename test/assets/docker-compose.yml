@@ -1,16 +1,29 @@
 services:
-  redis:
+  valkey-9:
     image: valkey/valkey:9-alpine
-    container_name: veidrodelis-redis
+    container_name: veidrodelis-valkey-9
     ports:
       - "16378:6379"
+    command: >
+      valkey-server
+      --repl-diskless-sync yes
+      --save 60 1
+      --loglevel debug
+    networks:
+      - veidrodelis-net      
+
+  redis-7.2:
+    image: redis:7.2-alpine
+    container_name: veidrodelis-redis-7.2
+    ports:
+      - "26378:6379"
     command: >
       redis-server
       --repl-diskless-sync yes
       --save 60 1
       --loglevel debug
     networks:
-      - veidrodelis-net
+      - veidrodelis-net  
 
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.9.0
@@ -24,13 +37,13 @@ services:
       - ./toxiproxy.json:/toxiproxy.json:ro
     command: ["-host=0.0.0.0", "-config=/toxiproxy.json"]
 
-  redis-with-password:
+  valkey-with-password:
     image: valkey/valkey:9-alpine
-    container_name: veidrodelis-redis-password
+    container_name: veidrodelis-valkey-password
     ports:
       - "16380:6379"
     command: >
-      redis-server
+      valkey-server
       --requirepass testpassword
       --repl-diskless-sync yes
       --save 60 1
@@ -40,17 +53,17 @@ services:
 
   redis-with-acl:
     image: valkey/valkey:9-alpine
-    container_name: veidrodelis-redis-acl
+    container_name: veidrodelis-valkey-acl
     ports:
       - "16381:6379"
     command: >
-      redis-server
+      valkey-server
       --repl-diskless-sync yes
       --save 60 1
       --loglevel verbose
-      --aclfile /usr/local/etc/redis/users.acl
+      --aclfile /usr/local/etc/valkey/users.acl
     volumes:
-      - ./users.acl:/usr/local/etc/redis/users.acl:ro
+      - ./users.acl:/usr/local/etc/valkey/users.acl:ro
     networks:
       - veidrodelis-net
 
