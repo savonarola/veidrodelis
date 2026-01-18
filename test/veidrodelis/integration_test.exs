@@ -159,6 +159,16 @@ defmodule Veidrodelis.IntegrationTest do
     Redix.command!(redis, ["RPUSH", "dest_list", "d1"])
     Redix.command!(redis, ["RPOPLPUSH", "source_list", "dest_list"])
 
+    # LMOVE tests (Redis 6.2.0+)
+    Redix.command!(redis, ["RPUSH", "lmove_src", "a", "b", "c"])
+    Redix.command!(redis, ["RPUSH", "lmove_dst", "x"])
+    Redix.command!(redis, ["LMOVE", "lmove_src", "lmove_dst", "LEFT", "RIGHT"])
+
+    # LMPOP tests (Redis 7.0.0+)
+    Redix.command!(redis, ["RPUSH", "lmpop_list1", "p1", "p2", "p3"])
+    Redix.command!(redis, ["RPUSH", "lmpop_list2", "q1", "q2"])
+    Redix.command!(redis, ["LMPOP", "2", "lmpop_list1", "lmpop_list2", "LEFT", "COUNT", "2"])
+
     # ===== Set Commands =====
     Redix.command!(redis, ["SADD", "myset", "member1", "member2", "member3"])
     Redix.command!(redis, ["SADD", "rem_set", "m1", "m2", "m3"])
@@ -485,6 +495,13 @@ defmodule Veidrodelis.IntegrationTest do
     assert command_in_list(%RedisCommand.LRem{key: "rem_list"}, commands), "Missing LREM"
     assert command_in_list(%RedisCommand.RPopLPush{}, commands), "Missing RPOPLPUSH"
 
+    # LMOVE (Redis 6.2.0+)
+    assert command_in_list(%RedisCommand.LMove{source: "lmove_src"}, commands), "Missing LMOVE"
+
+    # LMPOP (Redis 7.0.0+) - replicates as LPOP with count
+    assert command_in_list(%RedisCommand.LPop{key: "lmpop_list1", count: 2}, commands),
+           "Missing LPOP with count (from LMPOP)"
+
     # Set commands
     assert command_in_list(%RedisCommand.SAdd{key: "myset"}, commands), "Missing SADD myset"
     assert command_in_list(%RedisCommand.SRem{key: "rem_set"}, commands), "Missing SREM"
@@ -583,7 +600,8 @@ defmodule Veidrodelis.IntegrationTest do
       Logger.info("=== [Replica] Phase 1: Setting up diverse dataset in DB 0 ===")
       issue_diverse_commands(redis, 0, backend)
 
-      Process.sleep(100)
+      # Ensure all data is persisted before starting replica
+      Redix.command!(redis, ["SAVE"])
 
       Logger.info("=== [Replica] Phase 2: Starting replica and waiting for RDB sync ===")
 
@@ -606,6 +624,11 @@ defmodule Veidrodelis.IntegrationTest do
       db0_commands = CollectorCallback.commands_for_db(callback_state, 0)
 
       Logger.info("Received #{length(db0_commands)} commands from RDB")
+
+      # Debug: log commands by type
+      cmd_types = Enum.frequencies_by(db0_commands, fn cmd -> cmd.__struct__ |> Module.split() |> List.last() end)
+      Logger.info("RDB commands by type: #{inspect(cmd_types)}")
+
       verify_rdb_commands(db0_commands)
 
       Logger.info("=== [Replica] Phase 4: Issuing commands to DB 1 while streaming ===")

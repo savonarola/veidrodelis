@@ -31,12 +31,15 @@ rustler::atoms! {
     lpushx,
     rpushx,
     lpop,
+    lpop_count,
     rpop,
+    rpop_count,
     lset,
     lrem,
     ltrim,
     linsert,
     rpoplpush,
+    lmove,
     hset,
     hmset,
     hdel,
@@ -98,6 +101,9 @@ rustler::atoms! {
     // Linsert direction atoms
     before,
     after,
+    // Lmove direction atoms
+    left,
+    right,
     // Aggregate atoms for sorted set operations
     sum,
     min,

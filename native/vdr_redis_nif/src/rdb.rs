@@ -508,9 +508,67 @@ impl ParserState {
             RDB_TYPE_HASH_ZIPLIST | RDB_TYPE_HASH_LISTPACK |
             RDB_TYPE_SET_INTSET | RDB_TYPE_SET_LISTPACK |
             RDB_TYPE_ZSET_ZIPLIST | RDB_TYPE_ZSET_LISTPACK |
-            RDB_TYPE_HASH_METADATA => {
+            RDB_TYPE_HASH_METADATA_PRE_GA => {
                 // These are all stored as a single string
                 self.calculate_string_size(offset)
+            }
+            RDB_TYPE_HASH_METADATA => {
+                // Length-encoded min_expire + length-encoded count + (field + value + length-encoded TTL) * count
+                let (_min_expire, min_expire_bytes) = match self.peek_length_at(offset)? {
+                    Some(v) => v,
+                    None => return Ok(None),
+                };
+                let (count, count_bytes) = match self.peek_length_at(offset + min_expire_bytes)? {
+                    Some(v) => v,
+                    None => return Ok(None),
+                };
+                let mut total = min_expire_bytes + count_bytes;
+                let mut current_offset = offset + total;
+                for _ in 0..count {
+                    // Field
+                    match self.calculate_string_size(current_offset)? {
+                        Some(size) => { total += size; current_offset += size; }
+                        None => return Ok(None),
+                    }
+                    // Value
+                    match self.calculate_string_size(current_offset)? {
+                        Some(size) => { total += size; current_offset += size; }
+                        None => return Ok(None),
+                    }
+                    // Length-encoded TTL
+                    let (_, ttl_bytes) = match self.peek_length_at(current_offset)? {
+                        Some(v) => v,
+                        None => return Ok(None),
+                    };
+                    total += ttl_bytes;
+                    current_offset += ttl_bytes;
+                }
+                Ok(Some(total))
+            }
+            RDB_TYPE_HASH_LISTPACK_EX => {
+                // Length-encoded count + (field + value + 8-byte expiry) * count
+                let (count, len_bytes) = match self.peek_length_at(offset)? {
+                    Some(v) => v,
+                    None => return Ok(None),
+                };
+                let mut total = len_bytes;
+                let mut current_offset = offset + len_bytes;
+                for _ in 0..count {
+                    // Field
+                    match self.calculate_string_size(current_offset)? {
+                        Some(size) => { total += size; current_offset += size; }
+                        None => return Ok(None),
+                    }
+                    // Value
+                    match self.calculate_string_size(current_offset)? {
+                        Some(size) => { total += size; current_offset += size; }
+                        None => return Ok(None),
+                    }
+                    // 8-byte expiry
+                    total += 8;
+                    current_offset += 8;
+                }
+                Ok(Some(total))
             }
             _ => {
                 // Unknown type - try to skip as a string
@@ -776,7 +834,8 @@ impl ParserState {
             RDB_TYPE_ZSET_ZIPLIST => self.load_zset_ziplist_value(key),
             RDB_TYPE_ZSET_LISTPACK => self.load_zset_listpack_value(key),
             _ => {
-                // Skip unknown type
+                // Skip unknown type - attempt to load as string
+                log::warn!("Unknown RDB type {} for key {:?}", value_type, String::from_utf8_lossy(key));
                 match self.load_string()? {
                     Some(_) => Ok(Some(Vec::new())),
                     None => Ok(None),
@@ -1056,13 +1115,13 @@ impl ParserState {
     }
 
     // Hash with per-field TTLs (type 21, Redis/Valkey 9.0+)
-    // Format: 8-byte min_expire, count, then for each: string field, string value, 8-byte TTL
+    // Format: length-encoded min_expire, length-encoded count, then for each: string field, string value, length-encoded TTL
     fn load_hash_metadata_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
-        // Skip 8-byte min_expire_time
-        if self.buffer.len() < 8 {
-            return Ok(None);
+        // Skip length-encoded min_expire_time
+        match self.load_length()? {
+            Some(_) => {}
+            None => return Ok(None),
         }
-        self.buffer_advance(8);
 
         // Load count
         let count = match self.load_length()? {
@@ -1082,11 +1141,11 @@ impl ParserState {
                 Some(v) => v,
                 None => return Ok(None),
             };
-            // Skip 8-byte TTL
-            if self.buffer.len() < 8 {
-                return Ok(None);
+            // Skip length-encoded TTL
+            match self.load_length()? {
+                Some(_) => {}
+                None => return Ok(None),
             }
-            self.buffer_advance(8);
 
             args.push(field);
             args.push(value);
@@ -1100,10 +1159,10 @@ impl ParserState {
         Ok(Some(vec![cmd]))
     }
 
-    // Hash with per-field TTLs (type 22, Valkey 9.0+) - dict format without min_expire
-    // Format: count, then for each: string field, string value, 8-byte TTL
+    // Hash with per-field TTLs (type 22, Valkey 9.0+)
+    // Format: length-encoded count, then for each field: string field, string value, 8-byte expiry
+    // This is the same as RDB_TYPE_HASH (type 4) but with 8-byte expiry after each field-value pair
     fn load_hash_listpack_ex_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
-        // Load count
         let count = match self.load_length()? {
             Some(c) => c,
             None => return Ok(None),
@@ -1121,7 +1180,7 @@ impl ParserState {
                 Some(v) => v,
                 None => return Ok(None),
             };
-            // Skip 8-byte TTL (little-endian, -1 = no expire)
+            // Skip 8-byte expiry time (milliseconds)
             if self.buffer.len() < 8 {
                 return Ok(None);
             }

@@ -77,7 +77,9 @@ defmodule Vdr.RedisStream.CommandParser do
   def parse(["LPUSHX", key | values]), do: {:ok, %RedisCommand.LPushX{key: key, values: values}}
   def parse(["RPUSHX", key | values]), do: {:ok, %RedisCommand.RPushX{key: key, values: values}}
   def parse(["LPOP", key]), do: {:ok, %RedisCommand.LPop{key: key}}
+  def parse(["LPOP", key, count]), do: {:ok, %RedisCommand.LPop{key: key, count: String.to_integer(count)}}
   def parse(["RPOP", key]), do: {:ok, %RedisCommand.RPop{key: key}}
+  def parse(["RPOP", key, count]), do: {:ok, %RedisCommand.RPop{key: key, count: String.to_integer(count)}}
 
   def parse(["LREM", key, count, value]) do
     {:ok, %RedisCommand.LRem{key: key, count: String.to_integer(count), value: value}}
@@ -108,6 +110,18 @@ defmodule Vdr.RedisStream.CommandParser do
 
   def parse(["RPOPLPUSH", source, destination]) do
     {:ok, %RedisCommand.RPopLPush{source: source, destination: destination}}
+  end
+
+  def parse(["LMOVE", source, destination, wherefrom, whereto]) do
+    wherefrom_atom = case String.upcase(wherefrom) do
+      "LEFT" -> :left
+      "RIGHT" -> :right
+    end
+    whereto_atom = case String.upcase(whereto) do
+      "LEFT" -> :left
+      "RIGHT" -> :right
+    end
+    {:ok, %RedisCommand.LMove{source: source, destination: destination, wherefrom: wherefrom_atom, whereto: whereto_atom}}
   end
 
   # Set commands

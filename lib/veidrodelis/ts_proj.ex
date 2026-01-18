@@ -637,12 +637,20 @@ defmodule Vdr.TSProj do
     {db, {:rpushx, key, values}}
   end
 
-  defp convert_command(db, %RedisCommand.LPop{key: key}) do
+  defp convert_command(db, %RedisCommand.LPop{key: key, count: nil}) do
     {db, {:lpop, key}}
   end
 
-  defp convert_command(db, %RedisCommand.RPop{key: key}) do
+  defp convert_command(db, %RedisCommand.LPop{key: key, count: count}) do
+    {db, {:lpop_count, key, count}}
+  end
+
+  defp convert_command(db, %RedisCommand.RPop{key: key, count: nil}) do
     {db, {:rpop, key}}
+  end
+
+  defp convert_command(db, %RedisCommand.RPop{key: key, count: count}) do
+    {db, {:rpop_count, key, count}}
   end
 
   defp convert_command(db, %RedisCommand.LSet{key: key, index: index, value: value}) do
@@ -651,6 +659,15 @@ defmodule Vdr.TSProj do
 
   defp convert_command(db, %RedisCommand.RPopLPush{source: source_key, destination: dest_key}) do
     {db, {:rpoplpush, source_key, dest_key}}
+  end
+
+  defp convert_command(db, %RedisCommand.LMove{
+         source: source_key,
+         destination: dest_key,
+         wherefrom: wherefrom,
+         whereto: whereto
+       }) do
+    {db, {:lmove, source_key, dest_key, wherefrom, whereto}}
   end
 
   defp convert_command(db, %RedisCommand.HSet{key: key, fields: fields}) do
@@ -941,6 +958,9 @@ defmodule Vdr.TSProj do
 
       # Source/destination commands (must come before single key pattern)
       %RedisCommand.RPopLPush{source: src, destination: dest} ->
+        [src, dest]
+
+      %RedisCommand.LMove{source: src, destination: dest} ->
         [src, dest]
 
       %RedisCommand.Rename{key: old_key, newkey: new_key} ->

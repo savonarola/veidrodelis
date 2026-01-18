@@ -481,12 +481,14 @@ defmodule Vdr.RedisStream.Command do
 
     ## Example
         %Vdr.RedisStream.Command.LPop{key: "mylist"}
+        %Vdr.RedisStream.Command.LPop{key: "mylist", count: 3}
     """
     @type t :: %__MODULE__{
-            key: binary()
+            key: binary(),
+            count: pos_integer() | nil
           }
 
-    defstruct [:key]
+    defstruct [:key, :count]
   end
 
   defmodule RPop do
@@ -495,12 +497,14 @@ defmodule Vdr.RedisStream.Command do
 
     ## Example
         %Vdr.RedisStream.Command.RPop{key: "mylist"}
+        %Vdr.RedisStream.Command.RPop{key: "mylist", count: 3}
     """
     @type t :: %__MODULE__{
-            key: binary()
+            key: binary(),
+            count: pos_integer() | nil
           }
 
-    defstruct [:key]
+    defstruct [:key, :count]
   end
 
   defmodule LRem do
@@ -581,6 +585,26 @@ defmodule Vdr.RedisStream.Command do
           }
 
     defstruct [:source, :destination]
+  end
+
+  defmodule LMove do
+    @moduledoc """
+    Represents a Redis LMOVE command (Redis 6.2.0+).
+
+    Atomically returns and removes the first/last element of the source list
+    and pushes it as the first/last element of the destination list.
+
+    ## Example
+        %Vdr.RedisStream.Command.LMove{source: "src", destination: "dst", wherefrom: :left, whereto: :right}
+    """
+    @type t :: %__MODULE__{
+            source: binary(),
+            destination: binary(),
+            wherefrom: :left | :right,
+            whereto: :left | :right
+          }
+
+    defstruct [:source, :destination, :wherefrom, :whereto]
   end
 
   # Hash Commands
@@ -967,6 +991,7 @@ defmodule Vdr.RedisStream.Command do
           | LSet.t()
           | LInsert.t()
           | RPopLPush.t()
+          | LMove.t()
           | HDel.t()
           | HGetEX.t()
           | HExpire.t()

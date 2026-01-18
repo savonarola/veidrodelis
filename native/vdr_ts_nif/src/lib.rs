@@ -3,7 +3,7 @@ mod storage;
 
 use ordered_float::OrderedFloat;
 use rustler::types::Binary;
-use rustler::{Encoder, Env, Resource, ResourceArc, Term};
+use rustler::{Atom, Encoder, Env, Resource, ResourceArc, Term};
 use std::sync::Mutex;
 
 use storage::{Aggregate, Score, StorageInner, ZAddOption};
@@ -513,6 +513,48 @@ fn execute_single_command<'a>(
                         args[1].decode::<Binary>()
                     ) {
                         return match inner.rpoplpush(db, source_key.as_slice(), dest_key.as_slice()) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::lpop_count() {
+                // {db, {:lpop_count, key, count}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(count)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<u64>()
+                    ) {
+                        return match inner.lpop_count(db, key.as_slice(), count as usize) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::rpop_count() {
+                // {db, {:rpop_count, key, count}}
+                if args.len() == 2 {
+                    if let (Ok(key), Ok(count)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<u64>()
+                    ) {
+                        return match inner.rpop_count(db, key.as_slice(), count as usize) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::lmove() {
+                // {db, {:lmove, source_key, dest_key, wherefrom, whereto}}
+                if args.len() == 4 {
+                    let source_key: Result<Binary, _> = args[0].decode();
+                    let dest_key: Result<Binary, _> = args[1].decode();
+                    let wherefrom: Result<Atom, _> = args[2].decode();
+                    let whereto: Result<Atom, _> = args[3].decode();
+                    if let (Ok(source_key), Ok(dest_key), Ok(wherefrom), Ok(whereto)) = (source_key, dest_key, wherefrom, whereto) {
+                        let from_left = wherefrom == atoms::left();
+                        let to_left = whereto == atoms::left();
+                        return match inner.lmove(db, source_key.as_slice(), dest_key.as_slice(), from_left, to_left) {
                             Ok(_) => atoms::ok().encode(env),
                             Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
                         };
