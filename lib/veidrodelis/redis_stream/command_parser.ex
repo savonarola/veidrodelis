@@ -275,6 +275,10 @@ defmodule Vdr.RedisStream.CommandParser do
     {:ok, %RedisCommand.PExpireAt{key: key, timestamp_ms: String.to_integer(timestamp_ms)}}
   end
 
+  def parse(["PERSIST", key]) do
+    {:ok, %RedisCommand.Persist{key: key}}
+  end
+
   # Unknown command - wrap in Generic
   def parse(args) do
     require Logger

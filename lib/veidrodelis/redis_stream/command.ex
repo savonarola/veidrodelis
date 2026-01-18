@@ -202,6 +202,20 @@ defmodule Vdr.RedisStream.Command do
     defstruct [:key, :timestamp_ms]
   end
 
+  defmodule Persist do
+    @moduledoc """
+    Represents a Redis PERSIST command for removing key expiration.
+
+    ## Example
+        %Vdr.RedisStream.Command.Persist{key: "mykey"}
+    """
+    @type t :: %__MODULE__{
+            key: binary()
+          }
+
+    defstruct [:key]
+  end
+
   # Generic and Key-Level Commands
 
   defmodule Del do
@@ -926,6 +940,7 @@ defmodule Vdr.RedisStream.Command do
           | HIncrByFloat.t()
           | HSetEX.t()
           | PExpireAt.t()
+          | Persist.t()
           | Del.t()
           | Rename.t()
           | RenameNX.t()

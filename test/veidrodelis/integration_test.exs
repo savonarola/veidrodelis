@@ -121,6 +121,22 @@ defmodule Veidrodelis.IntegrationTest do
     Redix.command!(redis, ["GETDEL", "getdel_key"])
     # getdel_key is now deleted (GETDEL replicates as DEL)
 
+    # DELIFEQ tests - conditional delete (Valkey 9.0.0+)
+    if backend == :valkey do
+      Redix.command!(redis, ["SET", "delifeq_key", "expected_value"])
+      Redix.command!(redis, ["DELIFEQ", "delifeq_key", "expected_value"])
+      # delifeq_key is now deleted - need to check how it replicates
+    end
+
+    # GETEX tests - get with TTL modification (Redis 6.2.0+)
+    Redix.command!(redis, ["SET", "getex_key", "getex_value"])
+    Redix.command!(redis, ["GETEX", "getex_key", "EX", "3600"])
+    # getex_key now has 1 hour expiration (GETEX with EX replicates as PEXPIREAT)
+    Redix.command!(redis, ["SET", "getex_persist_key", "persist_value"])
+    Redix.command!(redis, ["EXPIRE", "getex_persist_key", "3600"])
+    Redix.command!(redis, ["GETEX", "getex_persist_key", "PERSIST"])
+    # getex_persist_key now has no expiration (GETEX with PERSIST replicates as PERSIST)
+
     # ===== List Commands =====
     Redix.command!(redis, ["RPUSH", "mylist", "elem1", "elem2", "elem3"])
     Redix.command!(redis, ["LPUSH", "mylist", "elem0"])
@@ -437,6 +453,21 @@ defmodule Veidrodelis.IntegrationTest do
 
     assert command_in_list(%RedisCommand.Set{key: "psetex_key"}, commands),
            "Missing SET from PSETEX"
+
+    # GETEX commands - get with TTL modification (Redis 6.2.0+)
+    # GETEX with EX/PX/EXAT/PXAT replicates as PEXPIREAT
+    assert command_in_list(%RedisCommand.PExpireAt{key: "getex_key"}, commands),
+           "Missing PEXPIREAT from GETEX with EX"
+
+    # GETEX with PERSIST replicates as PERSIST
+    assert command_in_list(%RedisCommand.Persist{key: "getex_persist_key"}, commands),
+           "Missing PERSIST from GETEX with PERSIST"
+
+    # DELIFEQ replicates as DEL (Valkey 9.0.0+)
+    if backend == :valkey do
+      assert command_in_list(%RedisCommand.Del{keys: ["delifeq_key"]}, commands),
+             "Missing DEL from DELIFEQ (DELIFEQ replicates as DEL)"
+    end
 
     # List commands - all operations
     assert command_in_list(%RedisCommand.RPush{key: "mylist"}, commands), "Missing RPUSH mylist"

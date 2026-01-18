@@ -290,7 +290,7 @@ Veidrodelis API → Registry Lookup →
   - Register the function in the `ts` table
   - Add tests in `ts_proj/` for both direct call and Lua execution via `tx`
   - This ensures feature parity between direct access and Lua transactions
-  - Add smoke `integration/` tests 
+  - Add smoke `integration/` tests
 - **CRITICAL**: When adding mutating ts functions:
   - Do not add `ts_proj/` tests. Instead, add `integration/` tetst.
 - Add comprehensive documentation with `@doc` and examples
@@ -298,6 +298,10 @@ Veidrodelis API → Registry Lookup →
 - Ensure proper typespecs for better tooling support
 - In ExUnit setup method, do not stop processes started with `start_link`, with `on_exit` callback. They will be shutdown by the test framework.
 - **CRITICAL** When adding logging to the tests, do not forget to set appropriate logging level in `test/test_helper.exs`
+- **CRITICAL** When adding new commands to the test suite,
+  -- first add them to the `issue_diverse_commands` and `verify_streaming_commands` functions in `test/veidrodelis/integration_test.exs`.
+  -- Verify how the commands appear in the replica stream
+  -- To figure out how the commands appear in the replica stream, use the `CollectorCallback` module in `test/veidrodelis/integration_test.exs` and lookup the commands in the `commands` list by uses key/keys.
 
 ### Working with Rust NIFs
 - Two Rust crates: `vdr_redis_nif` (parsing) and `vdr_ts_nif` (storage)
