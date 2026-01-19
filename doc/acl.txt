@@ -1,0 +1,10 @@
+# Veidrodelis Redis ACL Configuration
+#
+# Denies all write commands, then whitelists:
+# 1. Commands with @scripting flag
+# 2. Commands implemented in Veidrodelis (from doc/*-write.md)
+
+user default -@write +@scripting +append +decr +decrby +delifeq +getdel +getex +getset +incr +incrby +incrbyfloat +mset +msetnx +psetex +set +setex +setnx +setrange +hdel +hexpire +hexpireat +hgetex +hincrby +hincrbyfloat +hmset +hpersist +hpexpire +hpexpireat +hset +hsetex +hsetnx +sadd +sdiffstore +sinterstore +smove +spop +srem +sunionstore +blmove +blmpop +blpop +brpop +brpoplpush +linsert +lmove +lmpop +lpop +lpush +lpushx +lrem +lset +ltrim +rpop +rpoplpush +rpush +rpushx +bzmpop +bzpopmax +bzpopmin +zadd +zdiffstore +zincrby +zinterstore +zmpop +zpopmax +zpopmin +zrangestore +zrem +zremrangebylex +zremrangebyrank +zremrangebyscore +zunionstore +copy +del +expire +expireat +flushall +flushdb +move +persist +pexpire +pexpireat +rename +renamenx +swapdb +unlink
+
+# Full ACL SETUSER command:
+# ACL SETUSER default -@write ...
