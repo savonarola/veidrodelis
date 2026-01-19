@@ -17,7 +17,9 @@ defmodule Vdr.Benchmark.Scenarios.SetCommands do
       name: "sets_20k",
       duration_seconds: 30,
       intensity: 20_000,
-      command_fn: &generate_command/0
+      command_fn: &generate_command/0,
+      reader_count: 4,
+      read_fn: &generate_read/0
     }
   end
 
@@ -32,5 +34,17 @@ defmodule Vdr.Benchmark.Scenarios.SetCommands do
     else
       ["SADD", key, member]
     end
+  end
+
+  # Generates read operations - sismember on random set keys
+  defp generate_read do
+    key_num = :rand.uniform(1000)
+    key = "set:#{key_num}"
+    member = "member_#{:rand.uniform(1000)}"
+
+    read_op = fn vdr_id -> Veidrodelis.sismember(vdr_id, 0, key, member) end
+    hit_check = fn result -> result == true end
+
+    {read_op, hit_check}
   end
 end

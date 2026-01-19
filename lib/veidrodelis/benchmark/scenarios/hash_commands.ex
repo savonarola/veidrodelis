@@ -10,15 +10,19 @@ defmodule Vdr.Benchmark.Scenarios.HashCommands do
     [
       %{
         name: "hashes_100k",
-        duration_seconds: 120,
+        duration_seconds: 15,
         intensity: 100_000,
-        command_fn: &generate_command/0
+        command_fn: &generate_command/0,
+        reader_count: 2,
+        read_fn: &generate_read/0
       },
       %{
         name: "hashes_50k",
-        duration_seconds: 60,
+        duration_seconds: 15,
         intensity: 50_000,
-        command_fn: &generate_command/0
+        command_fn: &generate_command/0,
+        reader_count: 2,
+        read_fn: &generate_read/0
       }
     ]
   end
@@ -35,5 +39,18 @@ defmodule Vdr.Benchmark.Scenarios.HashCommands do
       value = "value_#{:rand.uniform(1000)}"
       ["HSET", key, field, value]
     end
+  end
+
+  # Generates read operations for reader processes
+  # Reads random hash keys/fields - sometimes hits, sometimes misses
+  defp generate_read do
+    key_num = :rand.uniform(1000)
+    key = "hash:#{key_num}"
+    field = "field_#{:rand.uniform(100)}"
+
+    read_op = fn vdr_id -> Veidrodelis.hget(vdr_id, 0, key, field) end
+    hit_check = fn result -> result != nil end
+
+    {read_op, hit_check}
   end
 end

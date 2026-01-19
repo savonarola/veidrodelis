@@ -17,7 +17,9 @@ defmodule Vdr.Benchmark.Scenarios.ListCommands do
       name: "lists_20k",
       duration_seconds: 30,
       intensity: 20_000,
-      command_fn: &generate_command/0
+      command_fn: &generate_command/0,
+      reader_count: 4,
+      read_fn: &generate_read/0
     }
   end
 
@@ -38,5 +40,16 @@ defmodule Vdr.Benchmark.Scenarios.ListCommands do
       _ ->
         ["DEL", key]
     end
+  end
+
+  # Generates read operations - lrange on random list keys
+  defp generate_read do
+    key_num = :rand.uniform(1000)
+    key = "list:#{key_num}"
+
+    read_op = fn vdr_id -> Veidrodelis.lrange(vdr_id, 0, key, 0, 10) end
+    hit_check = fn result -> result != [] end
+
+    {read_op, hit_check}
   end
 end

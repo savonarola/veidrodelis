@@ -15,3 +15,7 @@ ordered-float = "4.2"
 ouroboros = "0.18.5"
 mlua = { version = "0.10", features = ["luajit", "vendored", "send"] }
 rand = "0.8"
+
+[profile.release]
+debug = true
+force-frame-pointers = true

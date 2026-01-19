@@ -16,7 +16,7 @@ defmodule Vdr.Benchmark.LagTracker do
   require Logger
 
   defstruct [
-    :vdr_pid,
+    :vdr_id,
     :tracker_key,
     :start_time,
     :redis_conn,
@@ -30,7 +30,7 @@ defmodule Vdr.Benchmark.LagTracker do
   specified interval and monitors the replicated data stream to measure lag.
 
   Options:
-    * `:vdr_pid` - Veidrodelis instance PID
+    * `:vdr_id` - Veidrodelis instance ID
     * `:tracker_key` - Key to monitor for timestamps (default: "lagmon")
     * `:redis_conn` - Redix connection PID for injecting timestamps
     * `:timestamp_interval_ms` - How often to inject timestamps (default: 1000ms)
@@ -77,13 +77,13 @@ defmodule Vdr.Benchmark.LagTracker do
 
   @impl true
   def init(opts) do
-    vdr_pid = Keyword.fetch!(opts, :vdr_pid)
+    vdr_id = Keyword.fetch!(opts, :vdr_id)
     tracker_key = Keyword.get(opts, :tracker_key, "lagmon")
     redis_conn = Keyword.fetch!(opts, :redis_conn)
     timestamp_interval_ms = Keyword.get(opts, :timestamp_interval_ms, 1000)
 
     state = %__MODULE__{
-      vdr_pid: vdr_pid,
+      vdr_id: vdr_id,
       tracker_key: tracker_key,
       start_time: System.monotonic_time(:microsecond),
       redis_conn: redis_conn,
@@ -150,7 +150,7 @@ defmodule Vdr.Benchmark.LagTracker do
     try do
       # Get all entries from the lagmon list (db 0)
       # Use lrange to get all elements (0 to -1 means all)
-      entries = Veidrodelis.lrange(state.vdr_pid, 0, state.tracker_key, 0, -1)
+      entries = Veidrodelis.lrange(state.vdr_id, 0, state.tracker_key, 0, -1)
       Logger.debug("fetch_lag_samples entries: #{inspect(entries)}")
 
       case entries do

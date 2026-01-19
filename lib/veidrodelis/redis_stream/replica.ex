@@ -613,7 +613,7 @@ defmodule Vdr.RedisStream.Replica do
 
       case transport_send(state.transport, state.socket, cmd) do
         :ok ->
-          Logger.info("Sent periodic REPLCONF ACK #{offset}")
+          Logger.debug("Sent periodic REPLCONF ACK #{offset}")
           :ok
 
         {:error, reason} ->
@@ -621,7 +621,7 @@ defmodule Vdr.RedisStream.Replica do
           :error
       end
     else
-      Logger.info("Skipped REPLCONF ACK - not in streaming mode")
+      Logger.debug("Skipped REPLCONF ACK - not in streaming mode")
       :ok
     end
   end
@@ -901,16 +901,21 @@ defmodule Vdr.RedisStream.Replica do
     end
   end
 
+  defp process_commands(commands, state) do
+    do_process_commands(commands, state)
+  end
+
   # Process commands from replica parser through callback
-  defp process_commands([], state) do
+  defp do_process_commands([], state) do
     {:ok, state}
   end
 
-  defp process_commands([{db, command, raw_command} | rest], state) do
+  defp do_process_commands([{db, command, raw_command} | rest], state) do
     # Handle special commands
     result =
       case command do
         # PING - send ACK
+        # TODO fixme
         %RedisCommand.Set{key: "PING", value: ""} when db == 0 ->
           Logger.debug("Received PING, sending REPLCONF ACK #{state.replication_offset}")
           send_replconf_ack(state)
@@ -943,7 +948,7 @@ defmodule Vdr.RedisStream.Replica do
 
     case result do
       {:ok, new_state} ->
-        process_commands(rest, new_state)
+        do_process_commands(rest, new_state)
 
       {:error, reason} ->
         {:error, reason}

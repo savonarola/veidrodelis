@@ -53,10 +53,32 @@ dc-logs:
 
 default_bm_scenario := 'hashes_100k'
 
-# Run benchmarks
+# Run benchmarks with reader processes
+# Output files: {scenario}_lag.csv, {scenario}_reads.csv, {scenario}_summary.csv
 bench scenario=default_bm_scenario:
     rm -f benchmark/results/*.csv
     rm -f benchmark/plots/*.png
     mix benchmark {{scenario}}
     cd benchmark && ./plot.sh
+    @echo "View plots at: http://{{HOST}}:8000"
+    python3 -m http.server 8000 -d benchmark/plots/
+
+# Run all benchmark scenarios
+bench-all:
+    rm -f benchmark/results/*.csv
+    rm -f benchmark/plots/*.png
+    mix benchmark
+    cd benchmark && ./plot.sh
+    @echo "View plots at: http://{{HOST}}:8000"
+    python3 -m http.server 8000 -d benchmark/plots/
+
+# List available benchmark scenarios
+bench-list:
+    mix benchmark --list
+
+# Run benchmark with profiling and generate flamegraphs
+# Requires: sudo access for perf, perf tools installed
+bench-profile scenario=default_bm_scenario:
+    ./scripts/bench-profile.sh {{scenario}}
+    @echo "View plots at: http://{{HOST}}:8000"
     python3 -m http.server 8000 -d benchmark/plots/

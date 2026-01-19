@@ -81,6 +81,7 @@ defmodule Mix.Tasks.Benchmark do
       Mix.shell().info("  #{scenario.name}")
       Mix.shell().info("    Duration: #{scenario.duration_seconds}s")
       Mix.shell().info("    Intensity: #{scenario.intensity} commands/sec")
+      Mix.shell().info("    Readers: #{Map.get(scenario, :reader_count, 0)}")
       Mix.shell().info("")
     end)
   end
@@ -130,7 +131,7 @@ defmodule Mix.Tasks.Benchmark do
     # Setup
     {:ok, redis_conn} = setup_redis()
     {:ok, vdr_pid} = setup_veidrodelis()
-    {:ok, _tracker_pid} = setup_lag_tracker(redis_conn, vdr_pid)
+    {:ok, _tracker_pid} = setup_lag_tracker(redis_conn)
 
     # Run scenarios
     _results =
@@ -222,11 +223,11 @@ defmodule Mix.Tasks.Benchmark do
     end
   end
 
-  defp setup_lag_tracker(redis_conn, vdr_pid) do
+  defp setup_lag_tracker(redis_conn) do
     Mix.shell().info("Starting lag tracker...")
 
     case LagTracker.start_link(
-           vdr_pid: vdr_pid,
+           vdr_id: @vdr_id,
            tracker_key: "lagmon",
            redis_conn: redis_conn,
            timestamp_interval_ms: 1000
@@ -249,13 +250,13 @@ defmodule Mix.Tasks.Benchmark do
     opts =
       scenario
       |> Map.put(:redis_conn, redis_conn)
+      |> Map.put(:vdr_id, @vdr_id)
       |> Enum.into([])
 
     result = ScenarioRunner.run(opts)
 
     # Save results to CSV
-    output_file = "benchmark/results/#{scenario.name}.csv"
-    ScenarioRunner.write_results_to_csv(result, output_file)
+    ScenarioRunner.write_results_to_csv(result, "benchmark/results")
 
     result
   end
