@@ -9,7 +9,7 @@ defmodule Vdr.TS.Watch do
   ## Internal Structure
 
   The watch storage uses two collections:
-  1. `key_to_pids`: `%{{db, key} => %{pid => ref}}` - maps database-scoped keys to pid-to-ref mappings
+  1. `key_to_pids`: `%{db => %{key => %{pid => ref}}}` - maps database to key to pid-to-ref mappings
   2. `pid_to_keys`: `%{pid => MapSet.t({db, key})}` - maps pids to sets of database-scoped keys
 
   ## Example
@@ -33,7 +33,7 @@ defmodule Vdr.TS.Watch do
   @type db_key :: {non_neg_integer(), String.t()}
 
   @type t :: %__MODULE__{
-          key_to_pids: %{db_key() => %{pid() => term()}},
+          key_to_pids: %{non_neg_integer() => %{String.t() => %{pid() => term()}}},
           pid_to_keys: %{pid() => MapSet.t(db_key())}
         }
 
@@ -76,19 +76,21 @@ defmodule Vdr.TS.Watch do
   """
   @spec add(t(), pid(), non_neg_integer(), String.t(), term()) :: {:ok, t()} | {:error, atom()}
   def add(%__MODULE__{} = watch, pid, db, key, ref) when is_integer(db) and is_binary(key) do
-    db_key = {db, key}
-
-    # Check if key already exists for this pid
-    if get_in(watch.key_to_pids, [db_key, pid]) do
+    # Check if key already exists for this pid in this db
+    if get_in(watch.key_to_pids, [db, key, pid]) do
       {:error, :already_registered}
     else
-      # Add to key_to_pids
+      # Add to key_to_pids: %{db => %{key => %{pid => ref}}}
       key_to_pids =
-        Map.update(watch.key_to_pids, db_key, %{pid => ref}, fn pid_map ->
-          Map.put(pid_map, pid, ref)
+        watch.key_to_pids
+        |> Map.update(db, %{key => %{pid => ref}}, fn db_map ->
+          Map.update(db_map, key, %{pid => ref}, fn pid_map ->
+            Map.put(pid_map, pid, ref)
+          end)
         end)
 
       # Add to pid_to_keys
+      db_key = {db, key}
       pid_to_keys =
         Map.update(watch.pid_to_keys, pid, MapSet.new([db_key]), fn keys ->
           MapSet.put(keys, db_key)
@@ -122,33 +124,32 @@ defmodule Vdr.TS.Watch do
   @spec delete(t(), pid(), non_neg_integer(), String.t()) ::
           {:ok, t(), non_neg_integer()} | {:error, atom()}
   def delete(%__MODULE__{} = watch, pid, db, key) when is_integer(db) and is_binary(key) do
-    db_key = {db, key}
-
     # Check if key exists for this pid
-    unless get_in(watch.key_to_pids, [db_key, pid]) do
+    unless get_in(watch.key_to_pids, [db, key, pid]) do
       {:error, :not_found}
     else
       # Remove from key_to_pids
       key_to_pids =
-        Map.update(watch.key_to_pids, db_key, %{}, fn pid_map ->
+        watch.key_to_pids
+        |> update_in([db, key], fn pid_map ->
           new_pid_map = Map.delete(pid_map, pid)
-
-          # Clean up empty key entries
-          if map_size(new_pid_map) == 0 do
-            :delete_key
+          if map_size(new_pid_map) == 0, do: :delete, else: new_pid_map
+        end)
+        |> then(fn ktp ->
+          if get_in(ktp, [db, key]) == :delete do
+            new_db_map = Map.delete(ktp[db], key)
+            if map_size(new_db_map) == 0 do
+              Map.delete(ktp, db)
+            else
+              Map.put(ktp, db, new_db_map)
+            end
           else
-            new_pid_map
+            ktp
           end
         end)
 
-      key_to_pids =
-        if Map.get(key_to_pids, db_key) == :delete_key do
-          Map.delete(key_to_pids, db_key)
-        else
-          key_to_pids
-        end
-
       # Remove from pid_to_keys
+      db_key = {db, key}
       pid_to_keys =
         Map.update(watch.pid_to_keys, pid, MapSet.new(), fn keys ->
           new_keys = MapSet.delete(keys, db_key)
@@ -204,27 +205,24 @@ defmodule Vdr.TS.Watch do
 
     # Remove this pid from all db_keys in key_to_pids
     key_to_pids =
-      Enum.reduce(db_keys, watch.key_to_pids, fn db_key, acc ->
-        Map.update(acc, db_key, %{}, fn pid_map ->
-          new_pid_map = Map.delete(pid_map, pid)
-
-          # Mark for deletion if empty
-          if map_size(new_pid_map) == 0 do
-            :delete_key
+      Enum.reduce(db_keys, watch.key_to_pids, fn {db, key}, acc ->
+        acc
+        |> update_in([db, key], fn pid_map ->
+          new_pid_map = Map.delete(pid_map || %{}, pid)
+          if map_size(new_pid_map) == 0, do: :delete, else: new_pid_map
+        end)
+        |> then(fn ktp ->
+          if get_in(ktp, [db, key]) == :delete do
+            new_db_map = Map.delete(ktp[db] || %{}, key)
+            if map_size(new_db_map) == 0 do
+              Map.delete(ktp, db)
+            else
+              Map.put(ktp, db, new_db_map)
+            end
           else
-            new_pid_map
+            ktp
           end
         end)
-      end)
-
-    # Clean up empty key entries
-    key_to_pids =
-      Enum.reduce(db_keys, key_to_pids, fn db_key, acc ->
-        if Map.get(acc, db_key) == :delete_key do
-          Map.delete(acc, db_key)
-        else
-          acc
-        end
       end)
 
     # Remove pid from pid_to_keys
@@ -254,9 +252,7 @@ defmodule Vdr.TS.Watch do
   """
   @spec lookup(t(), non_neg_integer(), String.t()) :: [{term(), pid()}]
   def lookup(%__MODULE__{} = watch, db, key) when is_integer(db) and is_binary(key) do
-    db_key = {db, key}
-
-    case Map.get(watch.key_to_pids, db_key) do
+    case get_in(watch.key_to_pids, [db, key]) do
       nil ->
         []
 
@@ -287,9 +283,44 @@ defmodule Vdr.TS.Watch do
   @spec all_watchers(t()) :: [{pid(), term()}]
   def all_watchers(%__MODULE__{key_to_pids: key_to_pids}) do
     key_to_pids
-    |> Enum.flat_map(fn {_db_key, pid_map} ->
-      Enum.map(pid_map, fn {pid, ref} -> {pid, ref} end)
+    |> Enum.flat_map(fn {_db, key_map} ->
+      Enum.flat_map(key_map, fn {_key, pid_map} ->
+        Enum.map(pid_map, fn {pid, ref} -> {pid, ref} end)
+      end)
     end)
     |> Enum.uniq()
+  end
+
+  @doc """
+  Returns all unique `{ref, pid}` pairs for watches in a specific database.
+
+  This is useful for database-wide operations like FLUSHDB.
+
+  ## Parameters
+
+    * `watch` - The watch storage
+    * `db` - The database number
+
+  ## Examples
+
+      iex> watch = Vdr.TS.Watch.create()
+      iex> {:ok, watch} = Vdr.TS.Watch.add(watch, self(), 0, "key1", :ref1)
+      iex> {:ok, watch} = Vdr.TS.Watch.add(watch, self(), 1, "key2", :ref2)
+      iex> watchers = Vdr.TS.Watch.lookup_by_db(watch, 0)
+      iex> length(watchers) == 1
+      true
+  """
+  @spec lookup_by_db(t(), non_neg_integer()) :: [{term(), pid()}]
+  def lookup_by_db(%__MODULE__{key_to_pids: key_to_pids}, db) when is_integer(db) do
+    case Map.get(key_to_pids, db) do
+      nil ->
+        []
+
+      key_map ->
+        key_map
+        |> Enum.flat_map(fn {_key, pid_map} ->
+          Enum.map(pid_map, fn {pid, ref} -> {ref, pid} end)
+        end)
+    end
   end
 end

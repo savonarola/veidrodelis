@@ -593,6 +593,15 @@ defmodule Vdr.TSProj do
     {db, {:del, keys}}
   end
 
+  defp convert_command(db, %RedisCommand.Unlink{keys: keys}) do
+    # UNLINK is semantically equivalent to DEL for our purposes
+    {db, {:del, keys}}
+  end
+
+  defp convert_command(db, %RedisCommand.Copy{source: source, destination: destination, replace: replace}) do
+    {db, {:copy, source, destination, replace}}
+  end
+
   defp convert_command(db, %RedisCommand.SAdd{key: key, members: members}) do
     {db, {:sadd, key, members}}
   end
@@ -766,6 +775,14 @@ defmodule Vdr.TSProj do
     {db, {:move_key, key, target_db}}
   end
 
+  defp convert_command(db, %RedisCommand.Persist{key: key}) do
+    {db, {:persist, key}}
+  end
+
+  defp convert_command(db, %RedisCommand.PExpireAt{key: key, timestamp_ms: timestamp_ms}) do
+    {db, {:pexpireat, key, timestamp_ms}}
+  end
+
   defp convert_command(db, %RedisCommand.LRem{key: key, count: count, value: value}) do
     {db, {:lrem, key, count, value}}
   end
@@ -857,6 +874,22 @@ defmodule Vdr.TSProj do
     # Convert options list to uppercase strings
     opts = (options || []) |> Enum.map(&String.upcase/1)
     {db, {:zrangestore, dest_key, source_key, min_str, max_str, opts}}
+  end
+
+  # Server commands
+  defp convert_command(_db, %RedisCommand.FlushAll{}) do
+    # db is ignored - flushall clears all databases
+    {0, {:flushall}}
+  end
+
+  defp convert_command(db, %RedisCommand.FlushDB{}) do
+    # Clear the specific database
+    {db, {:flushdb}}
+  end
+
+  defp convert_command(_db, %RedisCommand.SwapDB{db1: db1, db2: db2}) do
+    # db is ignored - swapdb uses explicit db1 and db2
+    {0, {:swapdb, db1, db2}}
   end
 
   # Ignore all other commands
@@ -1029,15 +1062,47 @@ defmodule Vdr.TSProj do
   defp notify_watchers(state, db, command) do
     # Only notify in streaming mode (not during RDB transfer)
     if state.ready do
-      keys = extract_affected_keys(command)
+      case command do
+        # FLUSHALL affects all databases - notify all watchers
+        %RedisCommand.FlushAll{} ->
+          state.watch
+          |> Vdr.TS.Watch.all_watchers()
+          |> Enum.each(fn {pid, ref} ->
+            send(pid, {ref, %Vdr.WatchEvent.Update{command: command, db: db}})
+          end)
 
-      Enum.each(keys, fn key ->
-        state.watch
-        |> Vdr.TS.Watch.lookup(db, key)
-        |> Enum.each(fn {ref, pid} ->
-          send(pid, {ref, %Vdr.WatchEvent.Update{command: command, db: db}})
-        end)
-      end)
+        # FLUSHDB affects a specific database - notify all watchers in that db
+        %RedisCommand.FlushDB{} ->
+          state.watch
+          |> Vdr.TS.Watch.lookup_by_db(db)
+          |> Enum.each(fn {ref, pid} ->
+            send(pid, {ref, %Vdr.WatchEvent.Update{command: command, db: db}})
+          end)
+
+        # SWAPDB affects two databases - notify watchers in both
+        %RedisCommand.SwapDB{db1: db1, db2: db2} ->
+          db1_watchers = Vdr.TS.Watch.lookup_by_db(state.watch, db1)
+          db2_watchers = Vdr.TS.Watch.lookup_by_db(state.watch, db2)
+
+          # Combine and deduplicate watchers
+          all_watchers = Enum.uniq(db1_watchers ++ db2_watchers)
+
+          Enum.each(all_watchers, fn {ref, pid} ->
+            send(pid, {ref, %Vdr.WatchEvent.Update{command: command, db: db}})
+          end)
+
+        # Regular key-based commands
+        _ ->
+          keys = extract_affected_keys(command)
+
+          Enum.each(keys, fn key ->
+            state.watch
+            |> Vdr.TS.Watch.lookup(db, key)
+            |> Enum.each(fn {ref, pid} ->
+              send(pid, {ref, %Vdr.WatchEvent.Update{command: command, db: db}})
+            end)
+          end)
+      end
     end
 
     :ok

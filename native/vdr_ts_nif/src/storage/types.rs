@@ -34,6 +34,20 @@ impl ZSet {
     }
 }
 
+impl Clone for ZSet {
+    fn clone(&self) -> Self {
+        // Clone by rebuilding from entries
+        let mut new_zset = ZSet::new();
+        for (member, score) in &self.entries {
+            let new_member = Bytes::new(member.as_slice());
+            let new_key = ZSetIndexKey::create(*score, new_member.as_slice());
+            new_zset.index.insert(new_key);
+            new_zset.entries.insert(new_member, *score);
+        }
+        new_zset
+    }
+}
+
 /// ZADD command options
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ZAddOption {
@@ -61,6 +75,7 @@ pub enum HSetEXMode {
 }
 
 /// Storage value types
+#[derive(Clone)]
 pub enum StorageValue {
     String(Bytes),
     Set(StdBTreeSet<Bytes>),

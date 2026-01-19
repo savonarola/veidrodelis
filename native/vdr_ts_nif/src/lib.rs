@@ -205,6 +205,23 @@ fn execute_single_command<'a>(
             } else if cmd_atom == atoms::pexpireat() {
                 // {db, {:pexpireat, key, timestamp}} - null handler, just return ok
                 return atoms::ok().encode(env);
+            } else if cmd_atom == atoms::persist() {
+                // {db, {:persist, key}} - null handler, just return ok
+                return atoms::ok().encode(env);
+            } else if cmd_atom == atoms::copy() {
+                // {db, {:copy, source, destination, replace}}
+                if args.len() == 3 {
+                    if let (Ok(source), Ok(destination), Ok(replace)) = (
+                        args[0].decode::<Binary>(),
+                        args[1].decode::<Binary>(),
+                        args[2].decode::<bool>()
+                    ) {
+                        return match inner.copy_key(db, source.as_slice(), destination.as_slice(), replace) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
             } else if cmd_atom == atoms::rename() {
                 // {db, {:rename, old_key, new_key}}
                 if args.len() == 2 {
@@ -1020,6 +1037,31 @@ fn execute_single_command<'a>(
                             rev,
                             limit
                         ) {
+                            Ok(_) => atoms::ok().encode(env),
+                            Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                        };
+                    }
+                }
+            } else if cmd_atom == atoms::flushall() {
+                // {db, {:flushall}} - db is ignored, clears all databases
+                return match inner.flushall() {
+                    Ok(_) => atoms::ok().encode(env),
+                    Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                };
+            } else if cmd_atom == atoms::flushdb() {
+                // {db, {:flushdb}} - clears the specified database
+                return match inner.flushdb(db) {
+                    Ok(_) => atoms::ok().encode(env),
+                    Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
+                };
+            } else if cmd_atom == atoms::swapdb() {
+                // {db, {:swapdb, db1, db2}} - db parameter is ignored, uses db1 and db2 from args
+                if args.len() == 2 {
+                    if let (Ok(db1), Ok(db2)) = (
+                        args[0].decode::<u64>(),
+                        args[1].decode::<u64>()
+                    ) {
+                        return match inner.swapdb(db1, db2) {
                             Ok(_) => atoms::ok().encode(env),
                             Err(_) => (atoms::error(), atoms::wrong_type()).encode(env),
                         };

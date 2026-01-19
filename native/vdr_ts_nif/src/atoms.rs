@@ -7,7 +7,9 @@ rustler::atoms! {
     set,
     mset,
     del,
+    copy,
     pexpireat,  // null handler - accepts but ignores expiration
+    persist,    // null handler - accepts but ignores persist
     rename,
     renamenx,
     move_key,
@@ -58,6 +60,10 @@ rustler::atoms! {
     zinterstore,
     zdiffstore,
     zrangestore,
+    // Server command atoms
+    flushall,
+    flushdb,
+    swapdb,
     // Read command atoms
     get,
     smembers,

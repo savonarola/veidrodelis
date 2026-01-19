@@ -232,6 +232,36 @@ defmodule Vdr.RedisStream.Command do
     defstruct [:keys]
   end
 
+  defmodule Unlink do
+    @moduledoc """
+    Represents a Redis UNLINK command for asynchronously deleting one or more keys.
+
+    ## Example
+        %Vdr.RedisStream.Command.Unlink{keys: ["key1", "key2"]}
+    """
+    @type t :: %__MODULE__{
+            keys: [binary()]
+          }
+
+    defstruct [:keys]
+  end
+
+  defmodule Copy do
+    @moduledoc """
+    Represents a Redis COPY command for copying a key to another key.
+
+    ## Example
+        %Vdr.RedisStream.Command.Copy{source: "src", destination: "dst", replace: false}
+    """
+    @type t :: %__MODULE__{
+            source: binary(),
+            destination: binary(),
+            replace: boolean()
+          }
+
+    defstruct [:source, :destination, replace: false]
+  end
+
   defmodule Rename do
     @moduledoc """
     Represents a Redis RENAME command.
@@ -965,6 +995,49 @@ defmodule Vdr.RedisStream.Command do
     defstruct [:destination, :keys]
   end
 
+  # Server Commands
+
+  defmodule FlushAll do
+    @moduledoc """
+    Represents a Redis FLUSHALL command that clears all databases.
+
+    ## Example
+        %Vdr.RedisStream.Command.FlushAll{}
+    """
+    @type t :: %__MODULE__{}
+
+    defstruct []
+  end
+
+  defmodule FlushDB do
+    @moduledoc """
+    Represents a Redis FLUSHDB command that clears the current database.
+
+    The database context comes from the ReplicaCommand wrapper.
+
+    ## Example
+        %Vdr.RedisStream.Command.FlushDB{}
+    """
+    @type t :: %__MODULE__{}
+
+    defstruct []
+  end
+
+  defmodule SwapDB do
+    @moduledoc """
+    Represents a Redis SWAPDB command that swaps two databases.
+
+    ## Example
+        %Vdr.RedisStream.Command.SwapDB{db1: 0, db2: 1}
+    """
+    @type t :: %__MODULE__{
+            db1: non_neg_integer(),
+            db2: non_neg_integer()
+          }
+
+    defstruct [:db1, :db2]
+  end
+
   # Generic Command
 
   defmodule Generic do
@@ -999,6 +1072,8 @@ defmodule Vdr.RedisStream.Command do
           | PExpireAt.t()
           | Persist.t()
           | Del.t()
+          | Unlink.t()
+          | Copy.t()
           | Rename.t()
           | RenameNX.t()
           | Move.t()
@@ -1047,5 +1122,8 @@ defmodule Vdr.RedisStream.Command do
           | ZUnionStore.t()
           | ZInterStore.t()
           | ZDiffStore.t()
+          | FlushAll.t()
+          | FlushDB.t()
+          | SwapDB.t()
           | Generic.t()
 end

@@ -105,6 +105,28 @@ impl StorageInner {
         Ok(())
     }
 
+    /// Copy a key to another key. If replace is false, won't overwrite existing destination.
+    pub fn copy_key(&mut self, db: u64, source: &[u8], destination: &[u8], replace: bool) -> Result<(), &'static str> {
+        let Some(db_map) = self.map.get_mut(&db) else {
+            return Ok(());
+        };
+
+        // Check if destination already exists and replace is false
+        if !replace && db_map.contains_key(destination) {
+            return Ok(());
+        }
+
+        // Get source value and clone it
+        let Some(value) = db_map.get(source) else {
+            return Ok(());
+        };
+        let cloned_value = value.clone();
+
+        // Insert at destination
+        db_map.insert(Bytes::new(destination), cloned_value);
+        Ok(())
+    }
+
     /// Append value to an existing string. Creates key if it doesn't exist.
     pub fn append(&mut self, db: u64, key: &[u8], value: &[u8]) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
@@ -292,5 +314,35 @@ impl StorageInner {
     /// Clear all entries from all databases
     pub fn clear(&mut self) {
         self.map.clear();
+    }
+
+    /// Clear all entries from all databases (FLUSHALL)
+    pub fn flushall(&mut self) -> Result<(), &'static str> {
+        self.map.clear();
+        Ok(())
+    }
+
+    /// Clear all entries from a specific database (FLUSHDB)
+    pub fn flushdb(&mut self, db: u64) -> Result<(), &'static str> {
+        self.map.remove(&db);
+        Ok(())
+    }
+
+    /// Swap the contents of two databases (SWAPDB)
+    pub fn swapdb(&mut self, db1: u64, db2: u64) -> Result<(), &'static str> {
+        // Get db1 content (or empty map if doesn't exist)
+        let content1 = self.map.remove(&db1);
+        // Get db2 content (or empty map if doesn't exist)
+        let content2 = self.map.remove(&db2);
+
+        // Swap: insert db1 content into db2, and db2 content into db1
+        if let Some(c1) = content1 {
+            self.map.insert(db2, c1);
+        }
+        if let Some(c2) = content2 {
+            self.map.insert(db1, c2);
+        }
+
+        Ok(())
     }
 }

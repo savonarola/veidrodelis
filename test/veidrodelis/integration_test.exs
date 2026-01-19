@@ -81,6 +81,7 @@ defmodule Veidrodelis.IntegrationTest do
     if db != 0 do
       Redix.command!(redis, ["SELECT", "#{db}"])
     end
+    Redix.command!(redis, ["FLUSHALL"])
 
     # ===== String Commands =====
     Redix.command!(redis, ["SET", "simple_key", "simple_value"])
@@ -373,6 +374,51 @@ defmodule Veidrodelis.IntegrationTest do
     Redix.command!(redis, ["SET", "delete_key1", "v1"])
     Redix.command!(redis, ["SET", "delete_key2", "v2"])
     Redix.command!(redis, ["DEL", "delete_key1", "delete_key2"])
+
+    # UNLINK - async delete (replicates as UNLINK or DEL depending on Redis version)
+    Redix.command!(redis, ["SET", "unlink_key1", "v1"])
+    Redix.command!(redis, ["SET", "unlink_key2", "v2"])
+    Redix.command!(redis, ["UNLINK", "unlink_key1", "unlink_key2"])
+
+    # COPY - copy key to another key (Redis 6.2.0+)
+    Redix.command!(redis, ["SET", "copy_source", "copy_value"])
+    Redix.command!(redis, ["COPY", "copy_source", "copy_dest"])
+
+    # RESTORE - create a key from a serialized value (Redis 2.6.0+)
+    # First create and DUMP a key, then RESTORE it to a new key
+    Redix.command!(redis, ["SET", "restore_source", "restore_value"])
+    serialized = Redix.command!(redis, ["DUMP", "restore_source"])
+    Logger.info("DUMP result for restore_source: #{inspect(serialized)}")
+    # RESTORE format: RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds] [FREQ frequency]
+    # TTL 0 means no expiration
+    restore_result = Redix.command!(redis, ["RESTORE", "restore_dest", "0", serialized])
+    Logger.info("RESTORE result: #{inspect(restore_result)}")
+
+    # MOVE - move key to another database (always to db 3)
+    # Test with different data types to see how MOVE replicates
+    # Explicitly SELECT before each pair of create+move
+    Redix.command!(redis, ["SELECT", "#{db}"])
+    Redix.command!(redis, ["SET", "move_string", "move_value"])
+    Redix.command!(redis, ["MOVE", "move_string", "3"])
+    Redix.command!(redis, ["SELECT", "#{db}"])
+    Redix.command!(redis, ["RPUSH", "move_list", "a", "b", "c"])
+    Redix.command!(redis, ["MOVE", "move_list", "3"])
+    Redix.command!(redis, ["SELECT", "#{db}"])
+    Redix.command!(redis, ["SADD", "move_set", "x", "y", "z"])
+    Redix.command!(redis, ["MOVE", "move_set", "3"])
+    Redix.command!(redis, ["SELECT", "#{db}"])
+    Redix.command!(redis, ["HSET", "move_hash", "f1", "v1", "f2", "v2"])
+    Redix.command!(redis, ["MOVE", "move_hash", "3"])
+    Redix.command!(redis, ["SELECT", "#{db}"])
+    Redix.command!(redis, ["ZADD", "move_zset", "1", "a", "2", "b"])
+    Redix.command!(redis, ["MOVE", "move_zset", "3"])
+    Redix.command!(redis, ["SELECT", "#{db}"])
+
+    # EXPIRE/PEXPIRE - these are ignored (no-op) but we still want to test they're parsed
+    Redix.command!(redis, ["SET", "expire_test_key", "expire_value"])
+    Redix.command!(redis, ["EXPIRE", "expire_test_key", "3600"])
+    Redix.command!(redis, ["PEXPIRE", "expire_test_key", "3600000"])
+    Redix.command!(redis, ["EXPIREAT", "expire_test_key", "#{System.os_time(:second) + 86400}"])
 
     # Ensure all data is persisted
     Redix.command!(redis, ["SAVE"])
@@ -685,6 +731,22 @@ defmodule Veidrodelis.IntegrationTest do
     assert command_in_list(%RedisCommand.Rename{}, commands), "Missing RENAME"
     assert command_in_list(%RedisCommand.RenameNX{}, commands), "Missing RENAMENX"
     assert command_in_list(%RedisCommand.Del{}, commands), "Missing DEL"
+
+    # UNLINK - replicates as UNLINK
+    assert command_in_list(%RedisCommand.Unlink{keys: ["unlink_key1", "unlink_key2"]}, commands),
+           "Missing UNLINK"
+
+    # COPY - replicates as COPY
+    assert command_in_list(%RedisCommand.Copy{source: "copy_source", destination: "copy_dest"}, commands),
+           "Missing COPY"
+
+    # MOVE - replicates as MOVE (move_string to db 3)
+    assert command_in_list(%RedisCommand.Move{key: "move_string", db: 3}, commands),
+           "Missing MOVE for move_string"
+
+    # EXPIRE/PEXPIRE/EXPIREAT - these are converted to PEXPIREAT in replication
+    assert command_in_list(%RedisCommand.PExpireAt{key: "expire_test_key"}, commands),
+           "Missing PEXPIREAT (from EXPIRE/PEXPIRE/EXPIREAT)"
   end
 
   @id "vdr_id"
@@ -748,11 +810,18 @@ defmodule Veidrodelis.IntegrationTest do
       callback_state = Replica.get_callback_state(replica)
       db1_commands = CollectorCallback.commands_for_db(callback_state, 1)
 
-      Logger.info("Received #{length(db1_commands)} commands from streaming")
+      # Debug: Log RESTORE-related commands to see how they replicate
+      restore_commands = Enum.filter(db1_commands, fn cmd ->
+        cmd_str = inspect(cmd)
+        String.contains?(cmd_str, "restore")
+      end)
+      Logger.info("=== RESTORE-related commands (by string match): #{inspect(restore_commands, pretty: true)} ===")
+
+      # Log all command types to see if RESTORE appears as something else
+      all_types = Enum.frequencies_by(db1_commands, fn cmd -> cmd.__struct__ end)
+      Logger.info("=== All command types in streaming: #{inspect(all_types)} ===")
 
       verify_streaming_commands(db1_commands, backend)
-
-      Logger.info("=== [Replica] Test completed successfully ===")
 
       Replica.stop(replica)
     end

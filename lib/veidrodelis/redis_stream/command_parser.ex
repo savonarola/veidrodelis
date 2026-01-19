@@ -282,6 +282,13 @@ defmodule Vdr.RedisStream.CommandParser do
 
   # Generic key commands
   def parse(["DEL" | keys]), do: {:ok, %RedisCommand.Del{keys: keys}}
+  def parse(["UNLINK" | keys]), do: {:ok, %RedisCommand.Unlink{keys: keys}}
+
+  # COPY source destination [DB destination-db] [REPLACE]
+  def parse(["COPY", source, destination | options]) do
+    replace = "REPLACE" in Enum.map(options, &String.upcase/1)
+    {:ok, %RedisCommand.Copy{source: source, destination: destination, replace: replace}}
+  end
 
   def parse(["RENAME", key, newkey]) do
     {:ok, %RedisCommand.Rename{key: key, newkey: newkey}}
@@ -299,8 +306,40 @@ defmodule Vdr.RedisStream.CommandParser do
     {:ok, %RedisCommand.PExpireAt{key: key, timestamp_ms: String.to_integer(timestamp_ms)}}
   end
 
+  # EXPIRE/PEXPIRE/EXPIREAT are replicated as PEXPIREAT, but we parse them if they appear
+  def parse(["EXPIRE", key, seconds | _options]) do
+    timestamp_ms = (System.os_time(:second) + String.to_integer(seconds)) * 1000
+    {:ok, %RedisCommand.PExpireAt{key: key, timestamp_ms: timestamp_ms}}
+  end
+
+  def parse(["PEXPIRE", key, milliseconds | _options]) do
+    timestamp_ms = System.os_time(:millisecond) + String.to_integer(milliseconds)
+    {:ok, %RedisCommand.PExpireAt{key: key, timestamp_ms: timestamp_ms}}
+  end
+
+  def parse(["EXPIREAT", key, timestamp | _options]) do
+    timestamp_ms = String.to_integer(timestamp) * 1000
+    {:ok, %RedisCommand.PExpireAt{key: key, timestamp_ms: timestamp_ms}}
+  end
+
   def parse(["PERSIST", key]) do
     {:ok, %RedisCommand.Persist{key: key}}
+  end
+
+  # Server commands
+  # FLUSHALL [ASYNC|SYNC]
+  def parse(["FLUSHALL" | _options]) do
+    {:ok, %RedisCommand.FlushAll{}}
+  end
+
+  # FLUSHDB [ASYNC|SYNC]
+  def parse(["FLUSHDB" | _options]) do
+    {:ok, %RedisCommand.FlushDB{}}
+  end
+
+  # SWAPDB db1 db2
+  def parse(["SWAPDB", db1, db2]) do
+    {:ok, %RedisCommand.SwapDB{db1: String.to_integer(db1), db2: String.to_integer(db2)}}
   end
 
   # Unknown command - wrap in Generic
