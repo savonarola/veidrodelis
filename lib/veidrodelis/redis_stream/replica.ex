@@ -70,7 +70,6 @@ defmodule Vdr.RedisStream.Replica do
 
   alias Vdr.RedisStream.Parser
   alias Vdr.RedisStream.CommandFilter
-  alias Vdr.RedisStream.Command, as: RedisCommand
 
   @default_port 6379
   @default_timeout 5000
@@ -837,9 +836,18 @@ defmodule Vdr.RedisStream.Replica do
 
     # Feed data to replica parser (handles RDB and command stream automatically)
     case Parser.data(state.replica_parser, data) do
-      {:ok, commands, new_replica_parser} ->
+      {:ok, commands, new_replica_parser, flags} ->
         # Parser returned commands and wants more data
         #
+        # If PING or REPLCONF GETACK was received, send ACK
+        if flags.ping or flags.replconf_getack do
+          Logger.debug(
+            "Received #{if flags.ping, do: "PING", else: "REPLCONF GETACK"}, sending REPLCONF ACK #{state.replication_offset}"
+          )
+
+          send_replconf_ack(state)
+        end
+
         # Check parser state AFTER feeding data to detect streaming transition
         parser_state_after = Vdr.RedisStream.Nif.replica_state(new_replica_parser)
 
@@ -895,6 +903,19 @@ defmodule Vdr.RedisStream.Replica do
             {:stop, reason, state}
         end
 
+      {:finished, commands} ->
+        # Parser finished (connection closed by master)
+        # Process any final commands and then stop
+        Logger.info("Replica parser finished (connection closed)")
+
+        case process_commands(commands, state) do
+          {:ok, new_state} ->
+            {:stop, :normal, new_state}
+
+          {:error, reason} ->
+            {:stop, {:callback_failed, reason}, state}
+        end
+
       {:error, reason} ->
         Logger.error("Replica parser error: #{inspect(reason)}")
         {:stop, {:parse_failed, reason}, state}
@@ -911,39 +932,27 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   defp do_process_commands([{db, command, raw_command} | rest], state) do
-    # Handle special commands
+    # Create ReplicaCommand struct
+    replica_command = %Vdr.RedisStream.ReplicaCommand{
+      db: db,
+      command: command,
+      raw_command: raw_command,
+      context: %{}
+    }
+
     result =
-      case command do
-        # PING - send ACK
-        # TODO fixme
-        %RedisCommand.Set{key: "PING", value: ""} when db == 0 ->
-          Logger.debug("Received PING, sending REPLCONF ACK #{state.replication_offset}")
-          send_replconf_ack(state)
-          {:ok, state}
+      CommandFilter.apply(state.command_filter, replica_command, fn replica_command ->
+        state.callback_module.handle_command(state.callback_state, replica_command)
+      end)
 
-        # Regular commands - invoke callback
-        _ ->
-          # Create ReplicaCommand struct
-          replica_command = %Vdr.RedisStream.ReplicaCommand{
-            db: db,
-            command: command,
-            raw_command: raw_command,
-            context: %{}
-          }
+    result =
+      case result do
+        {:ok, new_callback_state} ->
+          {:ok, %{state | callback_state: new_callback_state}}
 
-          result =
-            CommandFilter.apply(state.command_filter, replica_command, fn replica_command ->
-              state.callback_module.handle_command(state.callback_state, replica_command)
-            end)
-
-          case result do
-            {:ok, new_callback_state} ->
-              {:ok, %{state | callback_state: new_callback_state}}
-
-            {:error, reason} ->
-              Logger.error("Callback error: #{inspect(reason)}")
-              {:error, reason}
-          end
+        {:error, reason} ->
+          Logger.error("Callback error: #{inspect(reason)}")
+          {:error, reason}
       end
 
     case result do

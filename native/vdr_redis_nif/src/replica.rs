@@ -38,6 +38,10 @@ struct ParserState {
     rdb_parser: Option<ResourceArc<RDBParser>>,
     rdb_bulk_size: Option<usize>,
     rdb_bytes_read: usize,
+
+    // Flags for special commands encountered during parsing
+    ping_received: bool,
+    replconf_getack_received: bool,
 }
 
 /// Replica parser resource
@@ -71,16 +75,22 @@ impl ReplicaParser {
                 rdb_parser: None,
                 rdb_bulk_size: None,
                 rdb_bytes_read: 0,
+                ping_received: false,
+                replconf_getack_received: false,
             }),
         }
     }
 
-    fn feed_data(&self, data: &[u8]) -> Result<Vec<RawCommand>, String> {
+    fn feed_data(&self, data: &[u8]) -> Result<(Vec<RawCommand>, bool, bool), String> {
         let mut state = self.state.borrow_mut();
 
         if state.state == ReplicaState::Finished {
             return Err("already_finished".to_string());
         }
+
+        // Reset flags at the start of each feed_data call
+        state.ping_received = false;
+        state.replconf_getack_received = false;
 
         // Append data to buffer
         state.buffer.put_slice(data);
@@ -95,7 +105,7 @@ impl ReplicaParser {
             }
         }
 
-        Ok(commands)
+        Ok((commands, state.ping_received, state.replconf_getack_received))
     }
 }
 
@@ -291,8 +301,20 @@ impl ParserState {
                 // Don't emit SELECT commands
                 Ok(Some(Vec::new()))
             }
-            "PING" | "REPLCONF" => {
-                // Don't emit replication protocol commands
+            "PING" => {
+                // Set ping flag but don't emit command
+                self.ping_received = true;
+                Ok(Some(Vec::new()))
+            }
+            "REPLCONF" => {
+                // Check if this is REPLCONF GETACK
+                if elements.len() >= 2 {
+                    let subcommand = String::from_utf8_lossy(&elements[1]).to_uppercase();
+                    if subcommand == "GETACK" {
+                        self.replconf_getack_received = true;
+                    }
+                }
+                // Don't emit REPLCONF commands
                 Ok(Some(Vec::new()))
             }
             _ => {
@@ -334,8 +356,8 @@ fn create_parser(env: Env, skip_rdb: bool) -> ResourceArc<ReplicaParser> {
 /// Feed data to the replica parser
 ///
 /// Returns:
-/// - {:ok, commands} if finished parsing
-/// - {:ok, commands, parser} if more data needed
+/// - {:finished, commands} if finished parsing
+/// - {:ok, commands, parser, %{ping: boolean}} if more data needed
 /// - {:error, reason} on error
 ///
 /// Commands are tuples: {db, name, [args...]}
@@ -351,7 +373,7 @@ fn feed_data<'a>(
     }
 
     match parser.feed_data(data.as_slice()) {
-        Ok(commands) => {
+        Ok((commands, ping_received, replconf_getack_received)) => {
             // Convert RawCommand to Elixir terms: {db, name, [args...]}
             let result: Vec<Term<'a>> = commands.iter()
                 .map(|cmd| {
@@ -377,11 +399,17 @@ fn feed_data<'a>(
             let finished = parser.state.borrow().state == ReplicaState::Finished;
 
             if finished {
-                // Return {:ok, commands} - finished parsing
-                (atoms::ok(), result).encode(env)
+                // Return {:finished, commands} - finished parsing
+                (atoms::finished(), result).encode(env)
             } else {
-                // Return {:ok, commands, parser} - more data needed
-                (atoms::ok(), result, parser).encode(env)
+                // Build flags map with ping and replconf_getack flags
+                let flags = rustler::Term::map_from_pairs(env, &[
+                    (atoms::ping(), ping_received),
+                    (atoms::replconf_getack(), replconf_getack_received),
+                ]).expect("failed to create flags map");
+
+                // Return {:ok, commands, parser, %{ping: boolean, replconf_getack: boolean}} - more data needed
+                (atoms::ok(), result, parser, flags).encode(env)
             }
         }
         Err(e) => (atoms::error(), e).encode(env),

@@ -21,8 +21,8 @@ defmodule Vdr.RedisStream.ParserTest do
       # Feed empty data - should succeed without raising nif_not_loaded error
       result = Vdr.RedisStream.Parser.data(parser, <<>>)
 
-      # Should return either {:ok, commands, parser} or {:ok, commands}
-      assert match?({:ok, _, _}, result) or match?({:ok, _}, result)
+      # Should return {:ok, commands, parser, flags} or {:finished, commands}
+      assert match?({:ok, _, _, _}, result) or match?({:finished, _}, result)
     end
   end
 
@@ -38,15 +38,18 @@ defmodule Vdr.RedisStream.ParserTest do
       result = Vdr.RedisStream.Parser.data(parser, <<>>)
 
       # Result should be one of:
-      # - {:ok, commands, new_parser} - more data needed
-      # - {:ok, commands} - finished
+      # - {:ok, commands, new_parser, flags} - more data needed
+      # - {:finished, commands} - finished
       # - {:error, reason} - error
       case result do
-        {:ok, commands, new_parser} ->
+        {:ok, commands, new_parser, flags} ->
           assert is_list(commands)
           assert is_reference(new_parser)
+          assert is_map(flags)
+          assert Map.has_key?(flags, :ping)
+          assert Map.has_key?(flags, :replconf_getack)
 
-        {:ok, commands} ->
+        {:finished, commands} ->
           assert is_list(commands)
 
         {:error, _reason} ->
@@ -61,10 +64,10 @@ defmodule Vdr.RedisStream.ParserTest do
       result = Vdr.RedisStream.Parser.data(parser, <<>>)
 
       case result do
-        {:ok, commands, _parser} ->
+        {:ok, commands, _parser, _flags} ->
           assert commands == []
 
-        {:ok, commands} ->
+        {:finished, commands} ->
           assert commands == []
 
         {:error, _reason} ->
@@ -95,17 +98,17 @@ defmodule Vdr.RedisStream.ParserTest do
       result = Vdr.RedisStream.Parser.data(parser, <<>>)
 
       case result do
-        {:ok, commands, _} when is_list(commands) ->
-          # Each command should be {db, command_struct}
+        {:ok, commands, _, _flags} when is_list(commands) ->
+          # Each command should be {db, command_struct, raw_command}
           Enum.each(commands, fn item ->
-            assert match?({db, _command} when is_integer(db), item)
-            {_db, command} = item
+            assert match?({db, _command, _raw} when is_integer(db), item)
+            {_db, command, _raw} = item
 
             # Command should be a struct
             assert is_struct(command)
           end)
 
-        {:ok, []} ->
+        {:finished, []} ->
           # Empty list is valid
           :ok
 
@@ -122,15 +125,15 @@ defmodule Vdr.RedisStream.ParserTest do
       # In ReadingRdb state, the scaffolded parser returns a dummy SET command
       # We'll test this by examining any commands returned
       case Vdr.RedisStream.Parser.data(parser, <<>>) do
-        {:ok, [_ | _] = commands, _} ->
+        {:ok, [_ | _] = commands, _, _flags} ->
           # Check if any SET commands were returned
           set_commands =
             Enum.filter(commands, fn
-              {_db, %RedisCommand.Set{}} -> true
+              {_db, %RedisCommand.Set{}, _raw} -> true
               _ -> false
             end)
 
-          Enum.each(set_commands, fn {db, %RedisCommand.Set{key: key, value: value}} ->
+          Enum.each(set_commands, fn {db, %RedisCommand.Set{key: key, value: value}, _raw} ->
             assert is_integer(db)
             assert is_binary(key)
             assert is_binary(value)

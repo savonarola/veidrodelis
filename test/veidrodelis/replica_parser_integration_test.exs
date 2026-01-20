@@ -15,11 +15,11 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       # Feed minimal RDB first to get into streaming mode
       rdb_data = build_minimal_rdb()
       rdb_header = "$#{byte_size(rdb_data)}\r\n"
-      {:ok, _, parser} = Vdr.RedisStream.Parser.data(parser, rdb_header <> rdb_data)
+      {:ok, _, parser, _flags} = Vdr.RedisStream.Parser.data(parser, rdb_header <> rdb_data)
 
       # Single SET command
       cmd = "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n"
-      {:ok, commands, _parser} = Vdr.RedisStream.Parser.data(parser, cmd)
+      {:ok, commands, _parser, _flags} = Vdr.RedisStream.Parser.data(parser, cmd)
 
       assert length(commands) == 1
       assert match?([{0, %RedisCommand.Set{key: "key1", value: "value1"}, _raw}], commands)
@@ -31,7 +31,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       # Feed minimal RDB first
       rdb_data = build_minimal_rdb()
 
-      {:ok, _, parser} =
+      {:ok, _, parser, _flags} =
         Vdr.RedisStream.Parser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
 
       # Two SET commands
@@ -39,7 +39,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
         "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n" <>
           "*3\r\n$3\r\nSET\r\n$4\r\nkey2\r\n$6\r\nvalue2\r\n"
 
-      {:ok, commands, _parser} = Vdr.RedisStream.Parser.data(parser, cmds)
+      {:ok, commands, _parser, _flags} = Vdr.RedisStream.Parser.data(parser, cmds)
 
       assert length(commands) == 2
 
@@ -55,13 +55,13 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       # Feed minimal RDB first
       rdb_data = build_minimal_rdb()
 
-      {:ok, _, parser} =
+      {:ok, _, parser, _flags} =
         Vdr.RedisStream.Parser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
 
       # RPUSH with 2 values: *4\r\n$6\r\nRPUSH\r\n$7\r\nmylist\r\n$5\r\nitem1\r\n$5\r\nitem2\r\n
       cmd = "*4\r\n$5\r\nRPUSH\r\n$6\r\nmylist\r\n$5\r\nitem1\r\n$5\r\nitem2\r\n"
 
-      {:ok, commands, _parser} = Vdr.RedisStream.Parser.data(parser, cmd)
+      {:ok, commands, _parser, _flags} = Vdr.RedisStream.Parser.data(parser, cmd)
 
       assert length(commands) == 1
 
@@ -86,7 +86,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       rdb_data = build_minimal_rdb()
 
       # Feed header
-      {:ok, commands1, parser} = Vdr.RedisStream.Parser.data(parser, rdb_header)
+      {:ok, commands1, parser, _flags} = Vdr.RedisStream.Parser.data(parser, rdb_header)
       # Should return empty - just parsed header
       assert commands1 == []
 
@@ -106,10 +106,10 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       {final_parser, all_commands} =
         Enum.reduce(chunks, {parser, []}, fn chunk, {p, cmds} ->
           case Vdr.RedisStream.Parser.data(p, chunk) do
-            {:ok, new_cmds, new_parser} ->
+            {:ok, new_cmds, new_parser, _flags} ->
               {new_parser, cmds ++ new_cmds}
 
-            {:ok, new_cmds} ->
+            {:finished, new_cmds} ->
               # Finished
               {p, cmds ++ new_cmds}
           end
@@ -130,7 +130,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       rdb_header = "$#{byte_size(rdb_data)}\r\n"
 
       # Feed RDB
-      {:ok, commands1, parser} = Vdr.RedisStream.Parser.data(parser, rdb_header <> rdb_data)
+      {:ok, commands1, parser, _flags} = Vdr.RedisStream.Parser.data(parser, rdb_header <> rdb_data)
 
       # Should have parsed commands from RDB
       assert length(commands1) > 0
@@ -147,7 +147,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       # Now feed streaming commands
       # *3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n
       resp_cmd = "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n"
-      {:ok, commands2, parser} = Vdr.RedisStream.Parser.data(parser, resp_cmd)
+      {:ok, commands2, parser, _flags} = Vdr.RedisStream.Parser.data(parser, resp_cmd)
 
       # Should have parsed the SET command from stream
       assert length(commands2) == 1
@@ -162,7 +162,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       # Redis sends \n while preparing RDB
       data = "\n\n\n$88\r\n" <> build_minimal_rdb()
 
-      {:ok, _commands, parser} = Vdr.RedisStream.Parser.data(parser, data)
+      {:ok, _commands, parser, _flags} = Vdr.RedisStream.Parser.data(parser, data)
       assert is_reference(parser)
     end
 
@@ -172,7 +172,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       # Feed RDB first
       rdb_data = build_minimal_rdb()
       rdb_header = "$#{byte_size(rdb_data)}\r\n"
-      {:ok, _commands, parser} = Vdr.RedisStream.Parser.data(parser, rdb_header <> rdb_data)
+      {:ok, _commands, parser, _flags} = Vdr.RedisStream.Parser.data(parser, rdb_header <> rdb_data)
 
       # Feed multiple RESP commands at once
       commands_data =
@@ -180,7 +180,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
           "*3\r\n$3\r\nSET\r\n$4\r\nkey2\r\n$6\r\nvalue2\r\n" <>
           "*4\r\n$5\r\nRPUSH\r\n$6\r\nmylist\r\n$5\r\nitem1\r\n$5\r\nitem2\r\n"
 
-      {:ok, commands, parser} = Vdr.RedisStream.Parser.data(parser, commands_data)
+      {:ok, commands, parser, _flags} = Vdr.RedisStream.Parser.data(parser, commands_data)
 
       # Should have parsed 3 commands
       assert length(commands) == 3
@@ -203,14 +203,14 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       # Feed RDB first
       rdb_data = build_minimal_rdb()
 
-      {:ok, _commands, parser} =
+      {:ok, _commands, parser, _flags} =
         Vdr.RedisStream.Parser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
 
       # SELECT command should be filtered out but db should change
       select_cmd = "*2\r\n$6\r\nSELECT\r\n$1\r\n3\r\n"
       set_cmd = "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n"
 
-      {:ok, commands, parser} = Vdr.RedisStream.Parser.data(parser, select_cmd <> set_cmd)
+      {:ok, commands, parser, _flags} = Vdr.RedisStream.Parser.data(parser, select_cmd <> set_cmd)
 
       # Should only have SET command, SELECT filtered out
       assert length(commands) == 1
@@ -219,26 +219,30 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       assert is_reference(parser)
     end
 
-    test "filters out PING and REPLCONF commands" do
+    test "filters out PING and REPLCONF commands and returns flags" do
       parser = Vdr.RedisStream.Parser.create()
 
       # Feed RDB first
       rdb_data = build_minimal_rdb()
 
-      {:ok, _commands, parser} =
+      {:ok, _commands, parser, _flags} =
         Vdr.RedisStream.Parser.data(parser, "$#{byte_size(rdb_data)}\r\n" <> rdb_data)
 
-      # PING and REPLCONF should be filtered
+      # PING and REPLCONF should be filtered but signaled via flags
       ping_cmd = "*1\r\n$4\r\nPING\r\n"
       replconf_cmd = "*3\r\n$8\r\nREPLCONF\r\n$6\r\nGETACK\r\n$1\r\n*\r\n"
       set_cmd = "*3\r\n$3\r\nSET\r\n$4\r\nkey1\r\n$6\r\nvalue1\r\n"
 
-      {:ok, commands, parser} =
+      {:ok, commands, parser, flags} =
         Vdr.RedisStream.Parser.data(parser, ping_cmd <> replconf_cmd <> set_cmd)
 
       # Should only have SET command
       assert length(commands) == 1
       assert match?([{0, %RedisCommand.Set{}, _}], commands)
+
+      # Flags should indicate PING and REPLCONF GETACK were received
+      assert flags.ping == true
+      assert flags.replconf_getack == true
 
       assert is_reference(parser)
     end
@@ -267,10 +271,10 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
             chunk = binary_part(full_data, offset, size)
 
             case Vdr.RedisStream.Parser.data(p, chunk) do
-              {:ok, new_cmds, new_parser} ->
+              {:ok, new_cmds, new_parser, _flags} ->
                 {new_parser, cmds ++ new_cmds}
 
-              {:ok, new_cmds} ->
+              {:finished, new_cmds} ->
                 {p, cmds ++ new_cmds}
             end
           else

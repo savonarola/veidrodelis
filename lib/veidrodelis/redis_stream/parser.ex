@@ -19,7 +19,10 @@ defmodule Vdr.RedisStream.Parser do
 
       # Feed data chunks from replication stream
       case Vdr.RedisStream.Parser.data(parser, chunk1) do
-        {:ok, commands, parser} ->
+        {:ok, commands, parser, flags} ->
+          # Check if PING was received
+          if flags.ping, do: IO.puts("Received PING")
+
           # Process commands from RDB or stream
           Enum.each(commands, fn {db, command, raw_command} ->
             IO.inspect({db, command, raw_command})
@@ -28,7 +31,7 @@ defmodule Vdr.RedisStream.Parser do
           # Continue feeding more data
           Vdr.RedisStream.Parser.data(parser, chunk2)
 
-        {:ok, commands} ->
+        {:finished, commands} ->
           # Parser finished (connection closed)
           process_final_commands(commands)
 
@@ -62,11 +65,11 @@ defmodule Vdr.RedisStream.Parser do
 
       # Standard mode - expects RDB followed by command stream
       parser = Vdr.RedisStream.Parser.create()
-      {:ok, commands, parser} = Vdr.RedisStream.Parser.data(parser, chunk)
+      {:ok, commands, parser, flags} = Vdr.RedisStream.Parser.data(parser, chunk)
 
       # Streaming mode - no RDB expected (for partial resync)
       parser = Vdr.RedisStream.Parser.create(rdb: false)
-      {:ok, commands, parser} = Vdr.RedisStream.Parser.data(parser, chunk)
+      {:ok, commands, parser, flags} = Vdr.RedisStream.Parser.data(parser, chunk)
   """
   @spec create(keyword()) :: reference()
   def create(opts \\ []) do
@@ -78,6 +81,14 @@ defmodule Vdr.RedisStream.Parser do
 
     Vdr.RedisStream.Nif.do_replica_create(skip_rdb)
   end
+
+  @typedoc """
+  Flags returned from the parser along with commands.
+
+  - `:ping` - `true` if a PING command was encountered during parsing
+  - `:replconf_getack` - `true` if a REPLCONF GETACK command was encountered during parsing
+  """
+  @type flags :: %{ping: boolean(), replconf_getack: boolean()}
 
   @doc """
   Feed a chunk of binary data to the replica parser.
@@ -94,8 +105,8 @@ defmodule Vdr.RedisStream.Parser do
 
   ## Returns
 
-    * `{:ok, commands}` - Parser finished (connection closed), returns final commands
-    * `{:ok, commands, new_parser}` - Successfully processed chunk, returns parsed commands (may be empty)
+    * `{:ok, commands, new_parser, flags}` - Successfully processed chunk, returns parsed commands (may be empty)
+    * `{:finished, commands}` - Parser finished (connection closed), returns final commands
     * `{:error, reason}` - Parsing failed
 
   Commands are tuples: `{db, command_struct, raw_command}` where:
@@ -103,16 +114,23 @@ defmodule Vdr.RedisStream.Parser do
   - `command_struct` is a parsed `Vdr.RedisStream.Command.*` struct
   - `raw_command` is the raw `Vdr.RedisStream.Command.Generic` representation
 
+  The flags map contains:
+  - `:ping` - `true` if a PING command was encountered during this chunk processing
+  - `:replconf_getack` - `true` if a REPLCONF GETACK command was encountered during this chunk processing
+
+  Note: PING and REPLCONF commands are not returned as commands - they are signaled via flags only.
+
   ## Example
 
       parser = Vdr.RedisStream.Parser.create()
       case Vdr.RedisStream.Parser.data(parser, chunk) do
-        {:ok, commands, parser} ->
+        {:ok, commands, parser, flags} ->
           # More data expected
+          if flags.ping, do: IO.puts("Received PING")
           process_commands(commands)
           # Continue with next chunk...
 
-        {:ok, commands} ->
+        {:finished, commands} ->
           # Finished
           process_final_commands(commands)
 
@@ -121,18 +139,18 @@ defmodule Vdr.RedisStream.Parser do
       end
   """
   @spec data(reference(), binary()) ::
-          {:ok, list()} | {:ok, list(), reference()} | {:error, term()}
+          {:ok, list(), reference(), flags()} | {:finished, list()} | {:error, term()}
   def data(parser, chunk) when is_reference(parser) and is_binary(chunk) do
     case Vdr.RedisStream.Nif.replica_data(parser, chunk) do
-      {:ok, raw_commands} when is_list(raw_commands) ->
+      {:finished, raw_commands} when is_list(raw_commands) ->
         # Parser finished, convert commands
         commands = convert_commands(raw_commands)
-        {:ok, commands}
+        {:finished, commands}
 
-      {:ok, raw_commands, new_parser} ->
+      {:ok, raw_commands, new_parser, flags} ->
         # More data needed, convert commands
         commands = convert_commands(raw_commands)
-        {:ok, commands, new_parser}
+        {:ok, commands, new_parser, flags}
 
       {:error, reason} ->
         {:error, reason}

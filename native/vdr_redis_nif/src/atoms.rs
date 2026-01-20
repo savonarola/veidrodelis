@@ -9,4 +9,6 @@ rustler::atoms! {
     reading_rdb,
     streaming,
     finished,
+    ping,
+    replconf_getack,
 }
