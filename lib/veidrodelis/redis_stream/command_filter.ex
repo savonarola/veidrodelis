@@ -9,7 +9,7 @@ defmodule Vdr.RedisStream.CommandFilter do
   alias Vdr.RedisStream.ReplicaCommand
 
   @type pre_handle :: (ReplicaCommand.t() -> {:ok, ReplicaCommand.t()} | :skip)
-  @type post_handle :: (ReplicaCommand.t() -> :ok)
+  @type post_handle :: (ReplicaCommand.t(), :ok | {:error, term()} -> :ok)
 
   @type t :: %__MODULE__{
           pre_handle: pre_handle(),
@@ -17,7 +17,7 @@ defmodule Vdr.RedisStream.CommandFilter do
         }
 
   defstruct pre_handle: &__MODULE__.identity_pre_handle/1,
-            post_handle: &__MODULE__.identity_post_handle/1
+            post_handle: &__MODULE__.identity_post_handle/2
 
   @doc """
   Default pre_handle that passes the command through unchanged.
@@ -29,7 +29,7 @@ defmodule Vdr.RedisStream.CommandFilter do
   @doc """
   Default post_handle that does nothing.
   """
-  def identity_post_handle(_replica_command) do
+  def identity_post_handle(_replica_command, _result) do
     :ok
   end
 
@@ -59,39 +59,32 @@ defmodule Vdr.RedisStream.CommandFilter do
     }
   end
 
-  @doc """
-  Applies a filter to a ReplicaCommand and executes a function if not skipped.
+  def apply_pre(filter, replica_commands, filtered_commands \\ [])
 
-  ## Flow
+  def apply_pre(_filter, [], filtered_commands) do
+    Enum.reverse(filtered_commands)
+  end
 
-  1. Calls `filter.pre_handle(replica_command)`
-  2. If `:skip`, returns `:ok` without executing the function
-  3. If `{:ok, replica_command}`, executes `fun.(replica_command)`
-  4. Calls `filter.post_handle(replica_command)`
-  5. Returns the result from the function
-
-  ## Parameters
-
-    * `filter` - The CommandFilter to apply
-    * `replica_command` - The ReplicaCommand to process
-    * `fun` - Function to execute if not skipped (receives the potentially modified ReplicaCommand)
-
-  ## Examples
-
-      CommandFilter.apply(filter, replica_command, fn rc ->
-        callback_module.handle_command(state, rc)
-      end)
-
-  """
-  def apply(filter, replica_command, fun) do
+  def apply_pre(filter, [replica_command | rest], filtered_commands) do
     case filter.pre_handle.(replica_command) do
-      :skip ->
-        :ok
+      {:ok, new_replica_command} ->
+        apply_pre(filter, rest, [new_replica_command | filtered_commands])
 
-      {:ok, replica_command} ->
-        result = fun.(replica_command)
-        :ok = filter.post_handle.(replica_command)
-        result
+      :skip ->
+        apply_pre(filter, rest, filtered_commands)
     end
+  end
+
+  def apply_post(filter, replica_commands, result) do
+    do_apply_post(filter, Enum.reverse(replica_commands), result)
+  end
+
+  defp do_apply_post(_filter, [], _result) do
+    :ok
+  end
+
+  defp do_apply_post(filter, [replica_command | rest], result) do
+    :ok = filter.post_handle.(replica_command, result)
+    do_apply_post(filter, rest, result)
   end
 end

@@ -923,7 +923,28 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   defp process_commands(commands, state) do
-    do_process_commands(commands, state)
+    replica_commands = for {db, command, raw_command} <- commands do
+      %Vdr.RedisStream.ReplicaCommand{
+        db: db,
+        command: command,
+        raw_command: raw_command,
+        context: %{}
+      }
+    end
+
+    command_filter = state.command_filter
+
+    filtered_replica_commands = CommandFilter.apply_pre(command_filter, replica_commands)
+    result = do_process_commands(filtered_replica_commands, state)
+
+    filter_result =
+      case result do
+        {:ok, _} -> :ok
+        {:error, _} = error -> error
+      end
+
+    :ok = CommandFilter.apply_post(command_filter, filtered_replica_commands, filter_result)
+    result
   end
 
   # Process commands from replica parser through callback
@@ -931,37 +952,15 @@ defmodule Vdr.RedisStream.Replica do
     {:ok, state}
   end
 
-  defp do_process_commands([{db, command, raw_command} | rest], state) do
-    # Create ReplicaCommand struct
-    replica_command = %Vdr.RedisStream.ReplicaCommand{
-      db: db,
-      command: command,
-      raw_command: raw_command,
-      context: %{}
-    }
-
-    result =
-      CommandFilter.apply(state.command_filter, replica_command, fn replica_command ->
-        state.callback_module.handle_command(state.callback_state, replica_command)
-      end)
-
-    result =
-      case result do
+  defp do_process_commands([replica_command | rest], state) do
+      case state.callback_module.handle_command(state.callback_state, replica_command) do
         {:ok, new_callback_state} ->
-          {:ok, %{state | callback_state: new_callback_state}}
+          do_process_commands(rest, %{state | callback_state: new_callback_state})
 
         {:error, reason} ->
           Logger.error("Callback error: #{inspect(reason)}")
           {:error, reason}
       end
-
-    case result do
-      {:ok, new_state} ->
-        do_process_commands(rest, new_state)
-
-      {:error, reason} ->
-        {:error, reason}
-    end
   end
 
   # Buffer management helpers
