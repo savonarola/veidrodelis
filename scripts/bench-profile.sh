@@ -1,7 +1,7 @@
 #!/bin/bash
 # Run benchmark with profiling and generate flamegraphs
 #
-# Usage: ./bench-profile.sh [scenario]
+# Usage: ./bench-profile.sh [scenario] [duration] [intensity] [readers]
 #
 # This script:
 # 1. Starts the benchmark with perf support enabled (ERL_FLAGS="+JPperf true")
@@ -14,6 +14,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 SCENARIO="${1:-hashes_100k}"
+DURATION="${2:-30}"
+INTENSITY="${3:-50000}"
+READERS="${4:-1}"
 
 # Clean previous results
 rm -f "$PROJECT_DIR/benchmark/results"/*.csv
@@ -21,11 +24,15 @@ rm -f "$PROJECT_DIR/benchmark/plots"/*.png
 rm -f "$PROJECT_DIR/benchmark/plots"/*.svg
 
 echo "=== Running benchmark with profiling: $SCENARIO ==="
+echo "  Duration: ${DURATION}s, Intensity: ${INTENSITY} cmd/s, Readers: ${READERS}"
 echo ""
+
+just clean
+just compile
 
 # Start benchmark in background with perf support
 cd "$PROJECT_DIR"
-ERL_FLAGS="+JPperf true" mix benchmark "$SCENARIO" &
+ERL_FLAGS="+JPperf true" mix benchmark "$SCENARIO" --duration "$DURATION" --intensity "$INTENSITY" --readers "$READERS" &
 BENCH_PID=$!
 
 # Wait a moment for the BEAM to start
@@ -43,9 +50,14 @@ fi
 echo "Found BEAM process: $BEAM_PID"
 echo "Benchmark process: $BENCH_PID"
 
-# Get the duration from the scenario (rough estimate - profile for most of the run)
-# We'll profile for a fixed duration and let the benchmark complete
-PROFILE_DURATION=10
+# Calculate profile duration: benchmark duration minus 10s threshold (minimum 5s)
+# This allows time for benchmark startup/warmup and cleanup
+PROFILE_THRESHOLD=10
+PROFILE_MIN=5
+PROFILE_DURATION=$((DURATION - PROFILE_THRESHOLD))
+if [ "$PROFILE_DURATION" -lt "$PROFILE_MIN" ]; then
+    PROFILE_DURATION=$PROFILE_MIN
+fi
 
 echo "Profiling for $PROFILE_DURATION seconds..."
 

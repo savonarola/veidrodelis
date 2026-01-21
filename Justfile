@@ -11,6 +11,9 @@ test:
 test-all:
     mix test --trace --include slow
 
+compile:
+    mix compile
+
 # Run tests with coverage report (HTML)
 cov:
     mix coveralls.html # --include slow
@@ -27,7 +30,9 @@ cov-ex:
 clean:
     rm -rf native/vdr_redis_nif/target/*
     rm -rf priv/native/*
-    rm *.profraw
+    rm -f *.profraw
+    sudo rm -rf benchmark/plots/*_perf.data.old
+    sudo rm -rf benchmark/plots/*_perf.data
     mix clean
 
 clean-all: clean
@@ -51,34 +56,18 @@ dc-clean:
 dc-logs:
     cd test/assets && docker compose logs -f
 
-default_bm_scenario := 'hashes_100k'
-
-# Run benchmarks with reader processes
-# Output files: {scenario}_lag.csv, {scenario}_reads.csv, {scenario}_summary.csv
-bench scenario=default_bm_scenario:
-    rm -f benchmark/results/*.csv
-    rm -f benchmark/plots/*.png
-    mix benchmark {{scenario}}
-    cd benchmark && ./plot.sh
-    @echo "View plots at: http://{{HOST}}:8000"
-    python3 -m http.server 8000 -d benchmark/plots/
-
-# Run all benchmark scenarios
-bench-all:
-    rm -f benchmark/results/*.csv
-    rm -f benchmark/plots/*.png
-    mix benchmark
-    cd benchmark && ./plot.sh
-    @echo "View plots at: http://{{HOST}}:8000"
-    python3 -m http.server 8000 -d benchmark/plots/
-
 # List available benchmark scenarios
 bench-list:
     mix benchmark --list
 
+default_scenario := 'hashes_50k'
+duration := '30'
+intensity := '50000'
+readers := '1'
+
 # Run benchmark with profiling and generate flamegraphs
 # Requires: sudo access for perf, perf tools installed
-bench-profile scenario=default_bm_scenario:
-    ./scripts/bench-profile.sh {{scenario}}
+bench-profile scenario=default_scenario:
+    ./scripts/bench-profile.sh {{scenario}} {{duration}} {{intensity}} {{readers}}
     @echo "View plots at: http://{{HOST}}:8000"
     python3 -m http.server 8000 -d benchmark/plots/

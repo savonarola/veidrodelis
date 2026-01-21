@@ -4,7 +4,14 @@ defmodule Mix.Tasks.Benchmark do
 
   ## Usage
 
-      mix benchmark [scenario_name]
+      mix benchmark [scenario_name] [options]
+
+  ## Options
+
+      --duration SECONDS   Override scenario duration
+      --intensity N        Override commands per second
+      --readers N          Override number of reader processes
+      --list               List available scenarios
 
   ## Examples
 
@@ -13,6 +20,9 @@ defmodule Mix.Tasks.Benchmark do
 
       # Run specific scenario
       mix benchmark strings_low
+
+      # Run with custom parameters
+      mix benchmark hashes_100k --duration 30 --intensity 50000 --readers 2
 
       # List available scenarios
       mix benchmark --list
@@ -55,18 +65,29 @@ defmodule Mix.Tasks.Benchmark do
     {:ok, _} = Application.ensure_all_started(:veidrodelis)
     {:ok, _} = Application.ensure_all_started(:redix)
 
-    case args do
-      ["--list"] ->
+    {opts, positional, _invalid} =
+      OptionParser.parse(args,
+        strict: [list: :boolean, duration: :integer, intensity: :integer, readers: :integer]
+      )
+
+    overrides = %{
+      duration: Keyword.get(opts, :duration),
+      intensity: Keyword.get(opts, :intensity),
+      readers: Keyword.get(opts, :readers)
+    }
+
+    case {positional, opts} do
+      {_, [list: true]} ->
         list_scenarios()
 
-      [scenario_filter] ->
-        run_benchmarks(scenario_filter)
+      {[scenario_filter], _opts} ->
+        run_benchmarks(scenario_filter, overrides)
 
-      [] ->
-        run_benchmarks(nil)
+      {[], _opts} ->
+        run_benchmarks(nil, overrides)
 
       _ ->
-        Mix.shell().error("Invalid arguments. Usage: mix benchmark [scenario_name]")
+        Mix.shell().error("Invalid arguments. Usage: mix benchmark [scenario_name] [options]")
         Mix.shell().info("Run 'mix benchmark --list' to see available scenarios")
     end
   end
@@ -86,7 +107,7 @@ defmodule Mix.Tasks.Benchmark do
     end)
   end
 
-  defp run_benchmarks(scenario_filter) do
+  defp run_benchmarks(scenario_filter, overrides) do
     Logger.configure(level: :info)
     Mix.shell().info("=== Veidrodelis Replication Lag Benchmark ===")
     Mix.shell().info("")
@@ -115,6 +136,9 @@ defmodule Mix.Tasks.Benchmark do
       else
         all_scenarios
       end
+
+    # Apply overrides if specified
+    scenarios = Enum.map(scenarios, fn s -> apply_overrides(s, overrides) end)
 
     Mix.shell().info("Running #{length(scenarios)} scenario(s):")
     Mix.shell().info("")
@@ -162,6 +186,16 @@ defmodule Mix.Tasks.Benchmark do
       ListCommands.scenarios() ++
       SetCommands.scenarios()
   end
+
+  defp apply_overrides(scenario, overrides) do
+    scenario
+    |> maybe_override(:duration_seconds, overrides.duration)
+    |> maybe_override(:intensity, overrides.intensity)
+    |> maybe_override(:reader_count, overrides.readers)
+  end
+
+  defp maybe_override(scenario, _key, nil), do: scenario
+  defp maybe_override(scenario, key, value), do: Map.put(scenario, key, value)
 
   defp setup_redis do
     Mix.shell().info("Connecting to Redis at #{@redis_host}:#{@redis_port}...")

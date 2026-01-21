@@ -37,7 +37,7 @@ defmodule Vdr.TS do
   use Rustler,
     otp_app: :veidrodelis,
     crate: :vdr_ts_nif,
-    mode: if(Mix.env() == :prod, do: :release, else: :debug)
+    mode: if(Mix.env() == :test, do: :debug, else: :release)
 
   @doc """
   Creates a new storage instance.

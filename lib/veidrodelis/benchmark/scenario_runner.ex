@@ -129,7 +129,7 @@ defmodule Vdr.Benchmark.ScenarioRunner do
       batch_start = System.monotonic_time(:millisecond)
 
       # Generate commands for this second
-      commands = for _ <- 1..intensity, do: command_fn.()
+      commands = gen_commands(command_fn, intensity)
 
       # Send all commands in a pipeline
       Redix.pipeline!(redis_conn, commands)
@@ -156,6 +156,17 @@ defmodule Vdr.Benchmark.ScenarioRunner do
 
       execute_command_loop(redis_conn, command_fn, intensity, end_time, count + intensity)
     end
+  end
+
+  defp gen_commands(command_fn, count, generated_commands \\ [])
+
+  defp gen_commands(_command_fn, 0, generated_commands) do
+    generated_commands
+  end
+
+  defp gen_commands(command_fn, count, generated_commands) do
+    generated_commands = [command_fn.() | generated_commands]
+    gen_commands(command_fn, count - 1, generated_commands)
   end
 
   @doc """

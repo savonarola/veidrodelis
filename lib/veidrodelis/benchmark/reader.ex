@@ -200,10 +200,7 @@ defmodule Vdr.Benchmark.Reader do
         # Run batch_size operations and collect results
         batch_start = System.monotonic_time(:microsecond)
 
-        results =
-          for _ <- 1..batch_size do
-            read_op.(vdr_id)
-          end
+        results = read_many(vdr_id, read_op, batch_size)
 
         batch_end = System.monotonic_time(:microsecond)
 
@@ -221,6 +218,16 @@ defmodule Vdr.Benchmark.Reader do
 
         reader_loop(reader_id, vdr_id, read_fn, samples_ets, total_ops, start_time, batch_size)
     end
+  end
+
+  defp read_many(vdr_id, read_op, batch_size, results \\ [])
+
+  defp read_many(_vdr_id, _read_op, 0, results) do
+    Enum.reverse(results)
+  end
+  defp read_many(vdr_id, read_op, batch_size, results) do
+    result = read_op.(vdr_id)
+    read_many(vdr_id, read_op, batch_size - 1, [result | results])
   end
 
   defp collect_metrics(state, end_time) do

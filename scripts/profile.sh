@@ -26,8 +26,13 @@ SVG="${OUTPUT_PREFIX}_flamegraph.svg"
 
 echo "Profiling PID $PID for $DURATION seconds..."
 
-# Record with perf
-sudo perf record --call-graph=fp -o "$PERF_DATA" --pid "$PID" -- sleep "$DURATION"
+# Enable kernel symbol access
+echo 0 | sudo tee /proc/sys/kernel/kptr_restrict > /dev/null
+echo -1 | sudo tee /proc/sys/kernel/perf_event_paranoid > /dev/null
+
+# Record with perf using frame pointers
+sudo rm -f "$PERF_DATA"
+sudo perf record --call-graph=fp -F 99 -o "$PERF_DATA" --pid "$PID" -- sleep "$DURATION"
 
 # Change ownership so we can read it
 sudo chown "$USER" "$PERF_DATA"
@@ -44,4 +49,4 @@ perf script -i "$PERF_DATA" > "$PERF_SCRIPT"
 echo "Flamegraph saved to: $SVG"
 
 # Cleanup intermediate files
-rm -f "$PERF_DATA" "$PERF_SCRIPT" "$FOLDED"
+# rm -f "$PERF_DATA" "$PERF_SCRIPT" "$FOLDED"

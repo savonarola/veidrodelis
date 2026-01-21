@@ -4,7 +4,7 @@ defmodule Vdr.RedisStream.Nif do
   use Rustler,
     otp_app: :veidrodelis,
     crate: :vdr_redis_nif,
-    mode: if(Mix.env() == :prod, do: :release, else: :debug)
+    mode: if(Mix.env() == :test, do: :debug, else: :release)
 
   # RDB Parser NIFs
   @doc false

@@ -13,15 +13,15 @@ defmodule Vdr.Benchmark.Scenarios.HashCommands do
         duration_seconds: 15,
         intensity: 100_000,
         command_fn: &generate_command/0,
-        reader_count: 2,
+        reader_count: 3,
         read_fn: &generate_read/0
       },
       %{
         name: "hashes_50k",
-        duration_seconds: 15,
+        duration_seconds: 120,
         intensity: 50_000,
         command_fn: &generate_command/0,
-        reader_count: 2,
+        reader_count: 4,
         read_fn: &generate_read/0
       }
     ]
