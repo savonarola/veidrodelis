@@ -19,13 +19,15 @@ defmodule Vdr.RedisStream.Replica do
         alias Vdr.RedisStream.Command, as: RedisCommand
 
         @impl true
-        def handle_command(state, db, %RedisCommand.Set{key: key, value: value}) do
-          IO.puts("SET \#{key} = \#{value} in DB \#{db}")
-          {:ok, Map.update(state, :count, 1, &(&1 + 1))}
-        end
-
-        def handle_command(state, _db, _command) do
-          {:ok, Map.update(state, :count, 1, &(&1 + 1))}
+        def handle_commands(state, commands) do
+          Enum.reduce(commands, state, fn
+            %Vdr.RedisStream.ReplicaCommand{db: db, command: %RedisCommand.Set{key: key, value: value}}, acc ->
+              IO.puts("SET \#{key} = \#{value} in DB \#{db}")
+              Map.update(acc, :count, 1, &(&1 + 1))
+            _command, acc ->
+              Map.update(acc, :count, 1, &(&1 + 1))
+          end)
+          |> then(&{:ok, &1})
         end
       end
 
@@ -952,15 +954,15 @@ defmodule Vdr.RedisStream.Replica do
     {:ok, state}
   end
 
-  defp do_process_commands([replica_command | rest], state) do
-      case state.callback_module.handle_command(state.callback_state, replica_command) do
-        {:ok, new_callback_state} ->
-          do_process_commands(rest, %{state | callback_state: new_callback_state})
+  defp do_process_commands(replica_commands, state) do
+    case state.callback_module.handle_commands(state.callback_state, replica_commands) do
+      {:ok, new_callback_state} ->
+        {:ok, %{state | callback_state: new_callback_state}}
 
-        {:error, reason} ->
-          Logger.error("Callback error: #{inspect(reason)}")
-          {:error, reason}
-      end
+      {:error, reason} ->
+        Logger.error("Callback error: #{inspect(reason)}")
+        {:error, reason}
+    end
   end
 
   # Buffer management helpers

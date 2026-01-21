@@ -120,20 +120,25 @@ defmodule Vdr.TSProj do
   end
 
   @impl Vdr.RedisStream.Callback
+  def handle_commands(%__MODULE__{} = state, commands) when is_list(commands) do
+    new_state = Enum.reduce(commands, state, &process_single_command/2)
+    {:ok, new_state}
+  end
+
   # Transaction start: SET __vdr_tx
-  def handle_command(
-        %__MODULE__{} = state,
-        %Vdr.RedisStream.ReplicaCommand{db: db, command: %RedisCommand.Set{key: @tx_key} = cmd}
-      ) do
+  defp process_single_command(
+         %Vdr.RedisStream.ReplicaCommand{db: db, command: %RedisCommand.Set{key: @tx_key} = cmd},
+         %__MODULE__{} = state
+       ) do
     # Start transaction and buffer this SET command
-    {:ok, %{state | in_transaction: true, tx_buffer: [{db, cmd}]}}
+    %{state | in_transaction: true, tx_buffer: [{db, cmd}]}
   end
 
   # Transaction end: DEL __vdr_tx
-  def handle_command(
-        %__MODULE__{} = state,
-        %Vdr.RedisStream.ReplicaCommand{db: db, command: %RedisCommand.Del{keys: keys} = cmd}
-      ) do
+  defp process_single_command(
+         %Vdr.RedisStream.ReplicaCommand{db: db, command: %RedisCommand.Del{keys: keys} = cmd},
+         %__MODULE__{} = state
+       ) do
     if @tx_key in keys do
       # Buffer the DEL command, then apply all buffered commands
       state_with_del = %{state | tx_buffer: [{db, cmd} | state.tx_buffer]}
@@ -146,35 +151,35 @@ defmodule Vdr.TSProj do
         notify_watchers(new_state, tx_db, tx_cmd)
       end)
 
-      {:ok, %{new_state | in_transaction: false, tx_buffer: []}}
+      %{new_state | in_transaction: false, tx_buffer: []}
     else
       # Normal DEL command, buffer if in transaction
       if state.in_transaction do
-        {:ok, %{state | tx_buffer: [{db, cmd} | state.tx_buffer]}}
+        %{state | tx_buffer: [{db, cmd} | state.tx_buffer]}
       else
         execute_command(state, db, cmd)
         notify_watchers(state, db, cmd)
-        {:ok, state}
+        state
       end
     end
   end
 
   # In transaction: buffer the command (prepend for O(1) performance)
-  def handle_command(
-        %__MODULE__{in_transaction: true} = state,
-        %Vdr.RedisStream.ReplicaCommand{db: db, command: command}
-      ) do
-    {:ok, %{state | tx_buffer: [{db, command} | state.tx_buffer]}}
+  defp process_single_command(
+         %Vdr.RedisStream.ReplicaCommand{db: db, command: command},
+         %__MODULE__{in_transaction: true} = state
+       ) do
+    %{state | tx_buffer: [{db, command} | state.tx_buffer]}
   end
 
   # Normal command processing
-  def handle_command(%__MODULE__{} = state, %Vdr.RedisStream.ReplicaCommand{
-        db: db,
-        command: command
-      }) do
+  defp process_single_command(
+         %Vdr.RedisStream.ReplicaCommand{db: db, command: command},
+         %__MODULE__{} = state
+       ) do
     execute_command(state, db, command)
     notify_watchers(state, db, command)
-    {:ok, state}
+    state
   end
 
   @impl Vdr.RedisStream.Callback

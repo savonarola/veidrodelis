@@ -49,10 +49,20 @@ defmodule Veidrodelis.IntegrationTest do
     end
 
     @impl true
-    def handle_command(state, %Vdr.RedisStream.ReplicaCommand{db: db, command: command}) do
+    def handle_commands(state, replica_commands) do
       commands = Map.get(state, :commands, [])
-      entry = {System.monotonic_time(), db, command}
-      new_state = Map.put(state, :commands, [entry | commands])
+
+      new_commands =
+        Enum.reduce(replica_commands, commands, fn %Vdr.RedisStream.ReplicaCommand{
+                                                      db: db,
+                                                      command: command
+                                                    },
+                                                    acc ->
+          entry = {System.monotonic_time(), db, command}
+          [entry | acc]
+        end)
+
+      new_state = Map.put(state, :commands, new_commands)
       {:ok, new_state}
     end
 
