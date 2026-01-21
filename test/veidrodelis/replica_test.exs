@@ -10,22 +10,22 @@ defmodule Veidrodelis.ReplicaTest do
   defmodule CollectorCallback do
     @behaviour Vdr.RedisStream.Callback
 
-    @impl true
+    @impl Vdr.RedisStream.Callback
     def init(_opts) do
       {:ok, %{}}
     end
 
-    @impl true
+    @impl Vdr.RedisStream.Callback
     def handle_replication_start(state) do
       {:ok, state}
     end
 
-    @impl true
+    @impl Vdr.RedisStream.Callback
     def handle_streaming_start(state) do
       {:ok, state}
     end
 
-    @impl true
+    @impl Vdr.RedisStream.Callback
     def handle_commands(state, replica_commands) do
       # Add commands to the list with timestamp
       commands = Map.get(state, :commands, [])
@@ -42,6 +42,21 @@ defmodule Veidrodelis.ReplicaTest do
 
       new_state = Map.put(state, :commands, new_commands)
       {:ok, new_state}
+    end
+
+    @impl Vdr.RedisStream.Callback
+    def handle_call(state, _message) do
+      {:reply, :ok, state}
+    end
+
+    @impl Vdr.RedisStream.Callback
+    def handle_info(state, _message) do
+      {:noreply, state}
+    end
+
+    @impl Vdr.RedisStream.Callback
+    def handle_destroy(_state) do
+      :ok
     end
 
     def commands(state) do

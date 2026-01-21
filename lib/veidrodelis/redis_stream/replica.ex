@@ -307,20 +307,15 @@ defmodule Vdr.RedisStream.Replica do
     # Only allow calls when replica is in a valid state (after replication start)
     # Valid state is :replication (which handles both RDB and streaming)
     if state.state == :replication do
-      # Check if callback implements handle_call
-      if function_exported?(state.callback_module, :handle_call, 2) do
-        case state.callback_module.handle_call(state.callback_state, message) do
-          {:reply, reply, new_callback_state} ->
-            {:reply, {:ok, reply}, %{state | callback_state: new_callback_state}}
+      case state.callback_module.handle_call(state.callback_state, message) do
+        {:reply, reply, new_callback_state} ->
+          {:reply, {:ok, reply}, %{state | callback_state: new_callback_state}}
 
-          {:noreply, new_callback_state} ->
-            {:noreply, %{state | callback_state: new_callback_state}}
+        {:noreply, new_callback_state} ->
+          {:noreply, %{state | callback_state: new_callback_state}}
 
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
-      else
-        {:reply, {:error, :not_implemented}, state}
+        {:error, reason} ->
+          {:reply, {:error, reason}, state}
       end
     else
       {:reply, {:error, :not_connected}, state}
@@ -380,19 +375,13 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   def handle_info(message, state) do
-    # Try to forward to callback's handle_info if defined
-    if function_exported?(state.callback_module, :handle_info, 2) do
-      case state.callback_module.handle_info(state.callback_state, message) do
-        {:noreply, new_callback_state} ->
-          {:noreply, %{state | callback_state: new_callback_state}}
+    case state.callback_module.handle_info(state.callback_state, message) do
+      {:noreply, new_callback_state} ->
+        {:noreply, %{state | callback_state: new_callback_state}}
 
-        {:error, _reason} ->
-          Logger.warning("Callback handle_info returned error for message: #{inspect(message)}")
-          {:noreply, state}
-      end
-    else
-      Logger.warning("Unhandled message: #{inspect(message)}")
-      {:noreply, state}
+      {:error, _reason} ->
+        Logger.warning("Callback handle_info returned error for message: #{inspect(message)}")
+        {:noreply, state}
     end
   end
 
@@ -401,15 +390,12 @@ defmodule Vdr.RedisStream.Replica do
     # Cancel ACK timer
     cancel_ack_timer(state)
 
-    # Call handle_destroy callback if implemented
-    if function_exported?(state.callback_module, :handle_destroy, 1) do
-      case state.callback_module.handle_destroy(state.callback_state) do
-        :ok ->
-          Logger.debug("handle_destroy callback succeeded")
+    case state.callback_module.handle_destroy(state.callback_state) do
+      :ok ->
+        Logger.debug("handle_destroy callback succeeded")
 
-        {:error, reason} ->
-          Logger.error("handle_destroy callback failed: #{inspect(reason)}")
-      end
+      {:error, reason} ->
+        Logger.error("handle_destroy callback failed: #{inspect(reason)}")
     end
 
     if state.socket do
