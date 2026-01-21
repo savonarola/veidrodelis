@@ -122,7 +122,11 @@ defmodule Vdr.TSProj do
   @impl Vdr.RedisStream.Callback
   def handle_commands(%__MODULE__{} = state, commands) when is_list(commands) do
     new_state = Enum.reduce(commands, state, &process_single_command/2)
-    {:ok, new_state}
+    # Flush any remaining buffered commands at the end (only if not in transaction)
+    flushed_state =
+      if new_state.in_transaction, do: new_state, else: flush_tx_buffer(new_state)
+
+    {:ok, flushed_state}
   end
 
   # Transaction start: SET __vdr_tx
@@ -130,8 +134,10 @@ defmodule Vdr.TSProj do
          %Vdr.RedisStream.ReplicaCommand{db: db, command: %RedisCommand.Set{key: @tx_key} = cmd},
          %__MODULE__{} = state
        ) do
+    # Flush any buffered commands before starting the transaction
+    flushed_state = flush_tx_buffer(state)
     # Start transaction and buffer this SET command
-    %{state | in_transaction: true, tx_buffer: [{db, cmd}]}
+    %{flushed_state | in_transaction: true, tx_buffer: [{db, cmd}]}
   end
 
   # Transaction end: DEL __vdr_tx
@@ -140,46 +146,23 @@ defmodule Vdr.TSProj do
          %__MODULE__{} = state
        ) do
     if @tx_key in keys do
-      # Buffer the DEL command, then apply all buffered commands
+      # Buffer the DEL command, then flush all buffered commands
       state_with_del = %{state | tx_buffer: [{db, cmd} | state.tx_buffer]}
-      new_state = apply_transaction(state_with_del)
-
-      # Notify for all commands in the transaction (in order)
-      state_with_del.tx_buffer
-      |> Enum.reverse()
-      |> Enum.each(fn {tx_db, tx_cmd} ->
-        notify_watchers(new_state, tx_db, tx_cmd)
-      end)
-
-      %{new_state | in_transaction: false, tx_buffer: []}
+      flushed_state = flush_tx_buffer(state_with_del)
+      %{flushed_state | in_transaction: false}
     else
-      # Normal DEL command, buffer if in transaction
-      if state.in_transaction do
-        %{state | tx_buffer: [{db, cmd} | state.tx_buffer]}
-      else
-        execute_command(state, db, cmd)
-        notify_watchers(state, db, cmd)
-        state
-      end
+      # Normal DEL command, buffer it
+      %{state | tx_buffer: [{db, cmd} | state.tx_buffer]}
     end
   end
 
-  # In transaction: buffer the command (prepend for O(1) performance)
-  defp process_single_command(
-         %Vdr.RedisStream.ReplicaCommand{db: db, command: command},
-         %__MODULE__{in_transaction: true} = state
-       ) do
-    %{state | tx_buffer: [{db, command} | state.tx_buffer]}
-  end
-
-  # Normal command processing
+  # Buffer the command (prepend for O(1) performance)
+  # Commands are flushed at end of handle_commands or when transaction ends
   defp process_single_command(
          %Vdr.RedisStream.ReplicaCommand{db: db, command: command},
          %__MODULE__{} = state
        ) do
-    execute_command(state, db, command)
-    notify_watchers(state, db, command)
-    state
+    %{state | tx_buffer: [{db, command} | state.tx_buffer]}
   end
 
   @impl Vdr.RedisStream.Callback
@@ -966,43 +949,40 @@ defmodule Vdr.TSProj do
     end
   end
 
-  # Unified command handler using the common NIF
-  defp do_handle_command(ts_storage, db, command) do
-    # Convert the command to tuple format
-    case convert_command(db, command) do
-      nil ->
-        # Command not supported, ignore
-        :ok
-
-      cmd_tuple ->
-        # Execute the command via the common NIF
-        [_result] = Vdr.TS.tx(ts_storage, [cmd_tuple])
-        :ok
-    end
-  end
-
   # Transaction helper functions
 
-  defp apply_transaction(%__MODULE__{tx_buffer: buffer} = state) do
+  # Flush buffered commands: execute all in single tx, notify watchers, clear buffer
+  defp flush_tx_buffer(%__MODULE__{tx_buffer: []} = state), do: state
+
+  defp flush_tx_buffer(%__MODULE__{tx_buffer: buffer} = state) do
     # Reverse the buffer since we prepended commands
     commands = Enum.reverse(buffer)
 
-    # Apply all commands to the appropriate ts_storage
-    Enum.each(commands, fn {db, command} ->
-      execute_command(state, db, command)
+    # Determine which storage to write to
+    ts_storage =
+      if state.new_ts_storage do
+        state.new_ts_storage
+      else
+        state.ts_storage
+      end
+
+    # Convert all commands to tuple format, filtering out unsupported ones
+    cmd_tuples =
+      commands
+      |> Enum.map(fn {db, command} -> convert_command(db, command) end)
+      |> Enum.reject(&is_nil/1)
+
+    # Execute all commands in a single tx call
+    if cmd_tuples != [] do
+      Vdr.TS.tx(ts_storage, cmd_tuples)
+    end
+
+    # Notify watchers for each command (in order)
+    Enum.each(commands, fn {db, cmd} ->
+      notify_watchers(state, db, cmd)
     end)
 
-    state
-  end
-
-  defp execute_command(%__MODULE__{} = state, db, command) do
-    if state.new_ts_storage do
-      # Writing to new_ts_storage during RDB transfer
-      do_handle_command(state.new_ts_storage, db, command)
-    else
-      # Writing to ts_storage during streaming
-      do_handle_command(state.ts_storage, db, command)
-    end
+    %{state | tx_buffer: []}
   end
 
   # Extract all keys affected by a command for watch notifications
