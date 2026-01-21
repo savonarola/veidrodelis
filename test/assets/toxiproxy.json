@@ -2,7 +2,7 @@
   {
     "name": "redis",
     "listen": "0.0.0.0:16379",
-    "upstream": "redis:6379",
+    "upstream": "veidrodelis-valkey-9:6379",
     "enabled": true
   }
 ]
