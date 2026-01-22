@@ -29,10 +29,8 @@ defmodule Mix.Tasks.Benchmark do
 
   ## Available Scenarios
 
-  - strings_low, strings_medium, strings_high
-  - hashes_low, hashes_medium, hashes_high
-  - lists_low, lists_medium, lists_high
-  - sets_low, sets_medium, sets_high
+  - strings, hashes, lists, sets - basic command benchmarks
+  - lua_aggregate - complex Lua transaction benchmark (reads 5 hash fields, returns sum)
 
   ## Prerequisites
 
@@ -51,7 +49,7 @@ defmodule Mix.Tasks.Benchmark do
   use Mix.Task
 
   alias Vdr.Benchmark.{LagTracker, ScenarioRunner}
-  alias Vdr.Benchmark.Scenarios.{StringCommands, HashCommands, ListCommands, SetCommands}
+  alias Vdr.Benchmark.Scenarios.{StringCommands, HashCommands, ListCommands, SetCommands, LuaAggregate}
 
   @redis_host "localhost"
   @redis_port 6379
@@ -184,7 +182,8 @@ defmodule Mix.Tasks.Benchmark do
     StringCommands.scenarios() ++
       HashCommands.scenarios() ++
       ListCommands.scenarios() ++
-      SetCommands.scenarios()
+      SetCommands.scenarios() ++
+      LuaAggregate.scenarios()
   end
 
   defp apply_overrides(scenario, overrides) do

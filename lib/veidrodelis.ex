@@ -464,6 +464,24 @@ defmodule Veidrodelis do
     with_handle(id, :tx, [db, script])
   end
 
+  @doc """
+  Compiles a Lua script to bytecode for faster execution.
+
+  The compiled bytecode can be passed to `read_tx/3` instead of a script string.
+  This is useful when the same script will be executed multiple times.
+
+  ## Examples
+
+      {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
+      script = "return ts.get('key1')"
+      {:ok, bytecode} = Veidrodelis.lua_load(:my_instance, script)
+      {:ok, result} = Veidrodelis.read_tx(:my_instance, 0, bytecode)
+  """
+  @spec lua_load(instance_id(), binary()) :: {:ok, binary()} | {:error, term()}
+  def lua_load(id, script) when is_binary(script) do
+    with_handle(id, :lua_load, [script])
+  end
+
   defp with_handle(id, fun_name, fun_args) do
     case Vdr.Registry.lookup(id) do
       {:ok, %Vdr.Handle{handle_state: handle_state, callback_module: callback_module}} ->

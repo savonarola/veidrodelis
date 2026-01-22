@@ -14,12 +14,12 @@ defmodule Vdr.Benchmark.Scenarios.ListCommands do
 
   defp extreme_intensity do
     %{
-      name: "lists_20k",
+      name: "lists",
       duration_seconds: 30,
       intensity: 20_000,
       command_fn: &generate_command/0,
       reader_count: 4,
-      read_fn: &generate_read/0
+      read_fn: &generate_read/1
     }
   end
 
@@ -43,7 +43,7 @@ defmodule Vdr.Benchmark.Scenarios.ListCommands do
   end
 
   # Generates read operations - lrange on random list keys
-  defp generate_read do
+  defp generate_read(_vdr_id) do
     key_num = :rand.uniform(1000)
     key = "list:#{key_num}"
 

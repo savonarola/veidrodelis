@@ -31,8 +31,8 @@ clean:
     rm -rf native/vdr_redis_nif/target/*
     rm -rf priv/native/*
     rm -f *.profraw
-    sudo rm -rf benchmark/plots/*_perf.data.old
-    sudo rm -rf benchmark/plots/*_perf.data
+    sudo rm -rf benchmark/plots/*.data.old
+    sudo rm -rf benchmark/plots/*.data benchmark/plots/*.folded benchmark/plots/*.txt
     mix clean
 
 clean-all: clean

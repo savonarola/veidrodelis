@@ -14,12 +14,12 @@ defmodule Vdr.Benchmark.Scenarios.StringCommands do
 
   defp extreme_intensity do
     %{
-      name: "strings_20k",
+      name: "strings",
       duration_seconds: 5,
       intensity: 20_000,
       command_fn: &generate_command/0,
       reader_count: 4,
-      read_fn: &generate_read/0
+      read_fn: &generate_read/1
     }
   end
 
@@ -37,7 +37,7 @@ defmodule Vdr.Benchmark.Scenarios.StringCommands do
   end
 
   # Generates read operations - random string keys
-  defp generate_read do
+  defp generate_read(_vdr_id) do
     key_num = :rand.uniform(10000)
     key = "str:#{key_num}"
 

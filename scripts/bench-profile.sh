@@ -28,7 +28,7 @@ echo "  Duration: ${DURATION}s, Intensity: ${INTENSITY} cmd/s, Readers: ${READER
 echo ""
 
 just clean
-just compile
+RUSTFLAGS="-C force-frame-pointers=yes" just compile
 
 # Start benchmark in background with perf support
 cd "$PROJECT_DIR"
@@ -52,7 +52,7 @@ echo "Benchmark process: $BENCH_PID"
 
 # Calculate profile duration: benchmark duration minus 10s threshold (minimum 5s)
 # This allows time for benchmark startup/warmup and cleanup
-PROFILE_THRESHOLD=10
+PROFILE_THRESHOLD=3
 PROFILE_MIN=5
 PROFILE_DURATION=$((DURATION - PROFILE_THRESHOLD))
 if [ "$PROFILE_DURATION" -lt "$PROFILE_MIN" ]; then

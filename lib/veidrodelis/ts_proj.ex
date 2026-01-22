@@ -572,6 +572,16 @@ defmodule Vdr.TSProj do
     end
   end
 
+  @doc """
+  Compiles a Lua script to bytecode for faster execution.
+
+  The compiled bytecode can be passed to `tx/3` instead of a script string.
+  """
+  @spec lua_load(%{ts_storage: reference()}, binary()) :: {:ok, binary()} | {:error, term()}
+  def lua_load(%{ts_storage: ts_storage}, script) when is_binary(script) do
+    Vdr.TS.lua_load(ts_storage, script)
+  end
+
   # Convert RedisCommand to tuple format for NIF
   defp convert_command(db, %RedisCommand.Set{key: key, value: value}) do
     {db, {:set, key, value}}

@@ -9,20 +9,12 @@ defmodule Vdr.Benchmark.Scenarios.HashCommands do
   def scenarios do
     [
       %{
-        name: "hashes_100k",
+        name: "hashes",
         duration_seconds: 15,
         intensity: 100_000,
         command_fn: &generate_command/0,
         reader_count: 3,
-        read_fn: &generate_read/0
-      },
-      %{
-        name: "hashes_50k",
-        duration_seconds: 120,
-        intensity: 50_000,
-        command_fn: &generate_command/0,
-        reader_count: 4,
-        read_fn: &generate_read/0
+        read_fn: &generate_read/1
       }
     ]
   end
@@ -43,7 +35,7 @@ defmodule Vdr.Benchmark.Scenarios.HashCommands do
 
   # Generates read operations for reader processes
   # Reads random hash keys/fields - sometimes hits, sometimes misses
-  defp generate_read do
+  defp generate_read(_vdr_id) do
     key_num = :rand.uniform(1000)
     key = "hash:#{key_num}"
     field = "field_#{:rand.uniform(100)}"

@@ -195,7 +195,7 @@ defmodule Vdr.Benchmark.Reader do
     after
       0 ->
         # Get the read operation and hit checker
-        {read_op, hit_check} = read_fn.()
+        {read_op, hit_check} = read_fn.(vdr_id)
 
         # Run batch_size operations and collect results
         batch_start = System.monotonic_time(:microsecond)

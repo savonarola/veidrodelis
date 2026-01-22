@@ -5,6 +5,8 @@ defmodule Vdr.Benchmark.ScenarioRunner do
 
   alias Vdr.Benchmark.Reader
 
+  @pipeline_batch_size 100
+
   @doc """
   Runs a benchmark scenario.
 
@@ -129,10 +131,7 @@ defmodule Vdr.Benchmark.ScenarioRunner do
       batch_start = System.monotonic_time(:millisecond)
 
       # Generate commands for this second
-      commands = gen_commands(command_fn, intensity)
-
-      # Send all commands in a pipeline
-      Redix.pipeline!(redis_conn, commands)
+      run_commands(command_fn, redis_conn, @pipeline_batch_size, intensity, [])
 
       # Calculate elapsed time
       elapsed_ms = System.monotonic_time(:millisecond) - batch_start
@@ -158,15 +157,19 @@ defmodule Vdr.Benchmark.ScenarioRunner do
     end
   end
 
-  defp gen_commands(command_fn, count, generated_commands \\ [])
 
-  defp gen_commands(_command_fn, 0, generated_commands) do
-    generated_commands
+  defp run_commands(_command_fn, redis_conn, _batch_left, 0, commands) do
+    Redix.pipeline!(redis_conn, commands)
+    :ok
   end
 
-  defp gen_commands(command_fn, count, generated_commands) do
-    generated_commands = [command_fn.() | generated_commands]
-    gen_commands(command_fn, count - 1, generated_commands)
+  defp run_commands(command_fn, redis_conn, 0, total_left, commands) do
+    Redix.pipeline!(redis_conn, commands)
+    run_commands(command_fn, redis_conn, @pipeline_batch_size, total_left, [])
+  end
+
+  defp run_commands(command_fn, redis_conn, batch_left, total_left, commands) do
+    run_commands(command_fn, redis_conn, batch_left - 1, total_left - 1, [command_fn.() | commands])
   end
 
   @doc """

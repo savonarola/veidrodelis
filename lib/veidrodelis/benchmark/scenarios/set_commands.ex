@@ -14,12 +14,12 @@ defmodule Vdr.Benchmark.Scenarios.SetCommands do
 
   defp extreme_intensity do
     %{
-      name: "sets_20k",
+      name: "sets",
       duration_seconds: 30,
       intensity: 20_000,
       command_fn: &generate_command/0,
       reader_count: 4,
-      read_fn: &generate_read/0
+      read_fn: &generate_read/1
     }
   end
 
@@ -37,7 +37,7 @@ defmodule Vdr.Benchmark.Scenarios.SetCommands do
   end
 
   # Generates read operations - sismember on random set keys
-  defp generate_read do
+  defp generate_read(_vdr_id) do
     key_num = :rand.uniform(1000)
     key = "set:#{key_num}"
     member = "member_#{:rand.uniform(1000)}"
