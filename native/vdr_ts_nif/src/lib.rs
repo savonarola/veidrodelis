@@ -1858,7 +1858,7 @@ fn lua_value_to_term<'a>(env: Env<'a>, value: mlua::Value) -> Result<Term<'a>, S
     }
 }
 
-#[rustler::nif(name = "read_tx")]
+#[rustler::nif(name = "read_tx_nif")]
 fn execute_tx<'a>(
     env: Env<'a>,
     storage: ResourceArc<TStorage>,

@@ -547,6 +547,64 @@ defmodule Vdr.TSProj do
   end
 
   @doc """
+  Executes multiple read-only commands atomically under a single mutex lock.
+
+  Commands are executed in order and their results are returned as a list.
+  Only read-only commands are allowed; write commands will return `{:error, :readonly_violation}`.
+
+  ## Parameters
+
+    * `handle_state` - The handle state map with `:ready` and `:ts_storage` keys
+    * `db` - Database number
+    * `commands` - List of read command tuples
+
+  ## Supported Commands
+
+    * `{:get, key}` - Get string value
+    * `{:hget, key, field}` - Get hash field value
+    * `{:hmget, key, fields}` - Get multiple hash field values
+    * `{:hgetall, key}` - Get all hash fields and values
+    * `{:hkeys, key}` - Get hash field names
+    * `{:hvals, key}` - Get hash values
+    * `{:hlen, key}` - Get hash length
+    * `{:llen, key}` - Get list length
+    * `{:lrange, key, start, stop}` - Get list range
+    * `{:smembers, key}` - Get set members
+    * `{:sismember, key, member}` - Check set membership
+    * `{:scard, key}` - Get set cardinality
+    * `{:zscore, key, member}` - Get sorted set member score
+    * `{:zcard, key}` - Get sorted set cardinality
+    * `{:zrange, key, start, stop, with_scores}` - Get sorted set range
+    * `{:zrangebyscore, key, min, max, with_scores}` - Get sorted set range by score
+    * `{:zrank, key, member}` - Get sorted set member rank
+    * `{:zrevrank, key, member}` - Get sorted set member reverse rank
+    * `{:zcount, key, min, max}` - Count sorted set members in score range
+
+  ## Returns
+
+    * `{:ok, results}` - List of results in same order as commands
+    * `{:error, :not_ready}` - Instance not ready
+    * `{:error, :readonly_violation}` - Write command detected
+
+  ## Examples
+
+      handle_state = %{ts_storage: storage, ready: true}
+      {:ok, [value1, value2]} = Vdr.TSProj.read_tx(handle_state, 0, [
+        {:get, "key1"},
+        {:hget, "hash1", "field1"}
+      ])
+  """
+  @spec read_tx(%{ts_storage: reference(), ready: boolean()}, non_neg_integer(), [tuple()]) ::
+          {:ok, [term()]} | {:error, term()}
+  def read_tx(%{ready: ready, ts_storage: ts_storage}, db, commands) when is_list(commands) do
+    if ready do
+      Vdr.TS.read_tx(ts_storage, db, commands)
+    else
+      {:error, :not_ready}
+    end
+  end
+
+  @doc """
   Executes a Lua script with access to ts.get and ts.hget functions.
 
   The script is executed atomically under the storage mutex and has access to:
@@ -596,7 +654,11 @@ defmodule Vdr.TSProj do
     {db, {:del, keys}}
   end
 
-  defp convert_command(db, %RedisCommand.Copy{source: source, destination: destination, replace: replace}) do
+  defp convert_command(db, %RedisCommand.Copy{
+         source: source,
+         destination: destination,
+         replace: replace
+       }) do
     {db, {:copy, source, destination, replace}}
   end
 
@@ -697,11 +759,19 @@ defmodule Vdr.TSProj do
     {db, {:hincrby, key, field, increment}}
   end
 
-  defp convert_command(db, %RedisCommand.HIncrByFloat{key: key, field: field, increment: increment}) do
+  defp convert_command(db, %RedisCommand.HIncrByFloat{
+         key: key,
+         field: field,
+         increment: increment
+       }) do
     {db, {:hincrbyfloat, key, field, increment}}
   end
 
-  defp convert_command(db, %RedisCommand.HSetEX{key: key, nx_xx_option: nx_xx_option, fields: fields}) do
+  defp convert_command(db, %RedisCommand.HSetEX{
+         key: key,
+         nx_xx_option: nx_xx_option,
+         fields: fields
+       }) do
     {db, {:hsetex, key, nx_xx_option, fields}}
   end
 

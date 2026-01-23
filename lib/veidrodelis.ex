@@ -423,9 +423,46 @@ defmodule Veidrodelis do
   end
 
   @doc """
-  Executes a Lua script with access to ts.get and ts.hget functions.
+  Executes multiple read-only commands or a Lua script atomically.
 
-  The script is executed atomically under the storage mutex and has access to:
+  ## With a list of commands
+
+  Executes multiple read-only commands atomically under a single mutex lock.
+  Commands are executed in order and their results are returned as a list.
+  Only read-only commands are allowed; write commands will return `{:error, :readonly_violation}`.
+
+  ### Supported Commands
+
+    * `{:get, key}` - Get string value
+    * `{:hget, key, field}` - Get hash field value
+    * `{:hmget, key, fields}` - Get multiple hash field values
+    * `{:hgetall, key}` - Get all hash fields and values
+    * `{:hkeys, key}` - Get hash field names
+    * `{:hvals, key}` - Get hash values
+    * `{:hlen, key}` - Get hash length
+    * `{:llen, key}` - Get list length
+    * `{:lrange, key, start, stop}` - Get list range
+    * `{:smembers, key}` - Get set members
+    * `{:sismember, key, member}` - Check set membership
+    * `{:scard, key}` - Get set cardinality
+    * `{:zscore, key, member}` - Get sorted set member score
+    * `{:zcard, key}` - Get sorted set cardinality
+    * `{:zrange, key, start, stop, with_scores}` - Get sorted set range
+    * `{:zrangebyscore, key, min, max, with_scores}` - Get sorted set range by score
+    * `{:zrank, key, member}` - Get sorted set member rank
+    * `{:zrevrank, key, member}` - Get sorted set member reverse rank
+    * `{:zcount, key, min, max}` - Count sorted set members in score range
+
+  ### Example
+
+      {:ok, [value1, value2]} = Veidrodelis.read_tx(:my_instance, 0, [
+        {:get, "key1"},
+        {:hget, "hash1", "field1"}
+      ])
+
+  ## With a Lua script
+
+  Executes a Lua script atomically under the storage mutex. The script has access to:
   - `ts.get(key)` - Get a string value
   - `ts.hget(key, field)` - Get a hash field value
   - `ts.llen(key)` - Get list length
@@ -450,16 +487,25 @@ defmodule Veidrodelis do
   - `ts.znext(key, score, member)` - Get next sorted set member (returns score, member)
   - `ts.zprev(key, score, member)` - Get previous sorted set member (returns score, member)
 
-  Returns `{:ok, result}` where result is the script's return value as a binary,
-  or `{:error, reason}` if the script fails.
-
-  ## Examples
+  ### Example
 
       {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
       script = "return ts.get('key1')"
       {:ok, result} = Veidrodelis.read_tx(:my_instance, 0, script)
+
+  ## Returns
+
+    * `{:ok, results}` - For commands: list of results. For scripts: the script's return value
+    * `{:error, :not_ready}` - Instance not ready
+    * `{:error, :readonly_violation}` - Write command detected (commands only)
+    * `{:error, reason}` - Script execution error (scripts only)
   """
-  @spec read_tx(instance_id(), db(), binary()) :: {:ok, binary()} | {:error, term()}
+  @spec read_tx(instance_id(), db(), [tuple()] | binary()) ::
+          {:ok, [term()] | term()} | {:error, term()}
+  def read_tx(id, db, commands) when is_list(commands) do
+    with_handle(id, :read_tx, [db, commands])
+  end
+
   def read_tx(id, db, script) when is_binary(script) do
     with_handle(id, :tx, [db, script])
   end

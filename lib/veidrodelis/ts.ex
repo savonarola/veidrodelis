@@ -1222,8 +1222,13 @@ defmodule Vdr.TS do
     end
   end
 
-  @spec read_tx(reference(), non_neg_integer(), binary()) :: {:ok, term()} | {:error, term()}
-  def read_tx(_storage, _db, _script_or_bytecode), do: :erlang.nif_error(:nif_not_loaded)
+  def read_tx(storage, db, script) when is_binary(script) do
+    read_tx_nif(storage, db, script)
+  end
+
+  @spec read_tx_nif(reference(), non_neg_integer(), binary()) :: {:ok, term()} | {:error, term()}
+  defp read_tx_nif(_storage, _db, _script_or_bytecode),
+    do: :erlang.nif_error(:nif_not_loaded)
 
   # Whitelist of read-only commands
   @readonly_commands MapSet.new([

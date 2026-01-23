@@ -571,4 +571,190 @@ defmodule VeidrodelisTest do
       assert {:ok, "lua_value"} = Veidrodelis.read_tx(id, 0, script)
     end
   end
+
+  describe "read_tx/3 with command list" do
+    test "executes multiple read commands atomically", %{redis: redis} do
+      id = :"test_read_tx_list_#{:erlang.unique_integer([:positive])}"
+
+      # Set up test data
+      Redix.command!(redis, ["SET", "key1", "value1"])
+      Redix.command!(redis, ["SET", "key2", "value2"])
+      Redix.command!(redis, ["HSET", "hash1", "field1", "hvalue1", "field2", "hvalue2"])
+
+      {:ok, _pid} =
+        Veidrodelis.start_link(
+          id: id,
+          host: @redis_host,
+          port: @redis_port
+        )
+
+      assert_within 2000 do
+        assert :streaming == Veidrodelis.get_replication_state(id)
+      end
+
+      # Wait for data to replicate
+      assert_within 500 do
+        assert "value1" == Veidrodelis.get(id, 0, "key1")
+      end
+
+      # Execute multiple read commands atomically
+      assert {:ok, [val1, val2, hval1]} =
+               Veidrodelis.read_tx(id, 0, [
+                 {:get, "key1"},
+                 {:get, "key2"},
+                 {:hget, "hash1", "field1"}
+               ])
+
+      assert val1 == "value1"
+      assert val2 == "value2"
+      assert hval1 == "hvalue1"
+    end
+
+    test "handles mixed data types in single transaction", %{redis: redis} do
+      id = :"test_read_tx_mixed_#{:erlang.unique_integer([:positive])}"
+
+      # Set up diverse test data
+      Redix.command!(redis, ["SET", "str_key", "string_value"])
+      Redix.command!(redis, ["RPUSH", "list_key", "item1", "item2", "item3"])
+      Redix.command!(redis, ["SADD", "set_key", "member1", "member2"])
+      Redix.command!(redis, ["HSET", "hash_key", "f1", "v1", "f2", "v2"])
+      Redix.command!(redis, ["ZADD", "zset_key", "1.0", "a", "2.0", "b", "3.0", "c"])
+
+      {:ok, _pid} =
+        Veidrodelis.start_link(
+          id: id,
+          host: @redis_host,
+          port: @redis_port
+        )
+
+      assert_within 2000 do
+        assert :streaming == Veidrodelis.get_replication_state(id)
+      end
+
+      # Wait for data to replicate
+      assert_within 500 do
+        assert "string_value" == Veidrodelis.get(id, 0, "str_key")
+      end
+
+      # Execute mixed read commands
+      assert {:ok, [str_val, list_len, set_card, hash_val, zset_card]} =
+               Veidrodelis.read_tx(id, 0, [
+                 {:get, "str_key"},
+                 {:llen, "list_key"},
+                 {:scard, "set_key"},
+                 {:hget, "hash_key", "f1"},
+                 {:zcard, "zset_key"}
+               ])
+
+      assert str_val == "string_value"
+      assert list_len == 3
+      assert set_card == 2
+      assert hash_val == "v1"
+      assert zset_card == 3
+    end
+
+    test "returns nil for non-existent keys", %{redis: redis} do
+      id = :"test_read_tx_nil_#{:erlang.unique_integer([:positive])}"
+
+      Redix.command!(redis, ["SET", "existing_key", "exists"])
+
+      {:ok, _pid} =
+        Veidrodelis.start_link(
+          id: id,
+          host: @redis_host,
+          port: @redis_port
+        )
+
+      assert_within 2000 do
+        assert :streaming == Veidrodelis.get_replication_state(id)
+      end
+
+      assert_within 500 do
+        assert "exists" == Veidrodelis.get(id, 0, "existing_key")
+      end
+
+      # Mix of existing and non-existing keys
+      assert {:ok, [val1, val2, val3]} =
+               Veidrodelis.read_tx(id, 0, [
+                 {:get, "existing_key"},
+                 {:get, "nonexistent_key"},
+                 {:hget, "nonexistent_hash", "field"}
+               ])
+
+      assert val1 == "exists"
+      assert val2 == nil
+      assert val3 == nil
+    end
+
+    test "rejects write commands with readonly_violation error", %{redis: redis} do
+      id = :"test_read_tx_readonly_#{:erlang.unique_integer([:positive])}"
+
+      Redix.command!(redis, ["SET", "some_key", "some_value"])
+
+      {:ok, _pid} =
+        Veidrodelis.start_link(
+          id: id,
+          host: @redis_host,
+          port: @redis_port
+        )
+
+      assert_within 2000 do
+        assert :streaming == Veidrodelis.get_replication_state(id)
+      end
+
+      # Attempt to include a write command - should be rejected
+      assert {:error, :readonly_violation} =
+               Veidrodelis.read_tx(id, 0, [
+                 {:get, "some_key"},
+                 {:set, "new_key", "new_value"}
+               ])
+    end
+
+    test "handles empty command list", %{redis: _redis} do
+      id = :"test_read_tx_empty_#{:erlang.unique_integer([:positive])}"
+
+      {:ok, _pid} =
+        Veidrodelis.start_link(
+          id: id,
+          host: @redis_host,
+          port: @redis_port
+        )
+
+      assert_within 2000 do
+        assert :streaming == Veidrodelis.get_replication_state(id)
+      end
+
+      # Empty command list should return empty results
+      assert {:ok, []} = Veidrodelis.read_tx(id, 0, [])
+    end
+
+    test "works with hmget for multiple hash fields", %{redis: redis} do
+      id = :"test_read_tx_hmget_#{:erlang.unique_integer([:positive])}"
+
+      Redix.command!(redis, ["HSET", "user:1", "name", "Alice", "age", "30", "city", "NYC"])
+
+      {:ok, _pid} =
+        Veidrodelis.start_link(
+          id: id,
+          host: @redis_host,
+          port: @redis_port
+        )
+
+      assert_within 2000 do
+        assert :streaming == Veidrodelis.get_replication_state(id)
+      end
+
+      assert_within 500 do
+        assert "Alice" == Veidrodelis.hget(id, 0, "user:1", "name")
+      end
+
+      # Use hmget in read_tx
+      assert {:ok, [values]} =
+               Veidrodelis.read_tx(id, 0, [
+                 {:hmget, "user:1", ["name", "age", "nonexistent"]}
+               ])
+
+      assert values == ["Alice", "30", nil]
+    end
+  end
 end
