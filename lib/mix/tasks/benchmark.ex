@@ -49,7 +49,7 @@ defmodule Mix.Tasks.Benchmark do
   use Mix.Task
 
   alias Vdr.Benchmark.{LagTracker, ScenarioRunner}
-  alias Vdr.Benchmark.Scenarios.{StringCommands, HashCommands, ListCommands, SetCommands, LuaAggregate}
+  alias Vdr.Benchmark.Scenarios.{HashCommands, LuaAggregate}
 
   @redis_host "localhost"
   @redis_port 6379
@@ -179,10 +179,7 @@ defmodule Mix.Tasks.Benchmark do
   end
 
   defp get_all_scenarios do
-    StringCommands.scenarios() ++
       HashCommands.scenarios() ++
-      ListCommands.scenarios() ++
-      SetCommands.scenarios() ++
       LuaAggregate.scenarios()
   end
 
