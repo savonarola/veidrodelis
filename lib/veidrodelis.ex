@@ -194,49 +194,49 @@ defmodule Veidrodelis do
   @doc """
   Gets the value of a string key.
   """
-  @spec get(instance_id(), db(), key()) :: binary() | nil
+  @spec get(instance_id(), db(), key()) :: binary() | nil | {:error, term()}
   def get(id, db, key) do
-    with_handle(id, :get, [db, key])
+    with_read_tx(id, db, {:get, key})
   end
 
   @doc """
   Returns the length of the list stored at key.
   """
-  @spec llen(instance_id(), db(), key()) :: non_neg_integer()
+  @spec llen(instance_id(), db(), key()) :: non_neg_integer() | {:error, term()}
   def llen(id, db, key) do
-    with_handle(id, :llen, [db, key])
+    with_read_tx(id, db, {:llen, key})
   end
 
   @doc """
   Returns the specified elements of the list stored at key.
   """
-  @spec lrange(instance_id(), db(), key(), integer(), integer()) :: [any()]
+  @spec lrange(instance_id(), db(), key(), integer(), integer()) :: [any()] | {:error, term()}
   def lrange(id, db, key, start_idx, stop_idx) do
-    with_handle(id, :lrange, [db, key, start_idx, stop_idx])
+    with_read_tx(id, db, {:lrange, key, start_idx, stop_idx})
   end
 
   @doc """
   Returns all members of the set stored at key.
   """
-  @spec smembers(instance_id(), db(), key()) :: [any()]
+  @spec smembers(instance_id(), db(), key()) :: [any()] | {:error, term()}
   def smembers(id, db, key) do
-    with_handle(id, :smembers, [db, key])
+    with_read_tx(id, db, {:smembers, key})
   end
 
   @doc """
   Returns the cardinality (number of elements) of the set stored at key.
   """
-  @spec scard(instance_id(), db(), key()) :: non_neg_integer()
+  @spec scard(instance_id(), db(), key()) :: non_neg_integer() | {:error, term()}
   def scard(id, db, key) do
-    with_handle(id, :scard, [db, key])
+    with_read_tx(id, db, {:scard, key})
   end
 
   @doc """
   Returns whether member is a member of the set stored at key.
   """
-  @spec sismember(instance_id(), db(), key(), any()) :: boolean()
+  @spec sismember(instance_id(), db(), key(), any()) :: boolean() | {:error, term()}
   def sismember(id, db, key, member) do
-    with_handle(id, :sismember, [db, key, member])
+    with_read_tx(id, db, {:sismember, key, member})
   end
 
   @doc """
@@ -250,9 +250,9 @@ defmodule Veidrodelis do
       first = Veidrodelis.sfirst(:my_instance, 0, "myset")
       # Returns: "a" (assuming set contains ["a", "b", "c"])
   """
-  @spec sfirst(instance_id(), db(), key()) :: binary() | nil
+  @spec sfirst(instance_id(), db(), key()) :: binary() | nil | {:error, term()}
   def sfirst(id, db, key) do
-    with_handle(id, :sfirst, [db, key])
+    with_read_tx(id, db, {:sfirst, key})
   end
 
   @doc """
@@ -266,9 +266,9 @@ defmodule Veidrodelis do
       last = Veidrodelis.slast(:my_instance, 0, "myset")
       # Returns: "c" (assuming set contains ["a", "b", "c"])
   """
-  @spec slast(instance_id(), db(), key()) :: binary() | nil
+  @spec slast(instance_id(), db(), key()) :: binary() | nil | {:error, term()}
   def slast(id, db, key) do
-    with_handle(id, :slast, [db, key])
+    with_read_tx(id, db, {:slast, key})
   end
 
   @doc """
@@ -282,9 +282,9 @@ defmodule Veidrodelis do
       next = Veidrodelis.snext(:my_instance, 0, "myset", "a")
       # Returns: "b" (assuming set contains ["a", "b", "c"])
   """
-  @spec snext(instance_id(), db(), key(), any()) :: binary() | nil
+  @spec snext(instance_id(), db(), key(), any()) :: binary() | nil | {:error, term()}
   def snext(id, db, key, member) do
-    with_handle(id, :snext, [db, key, member])
+    with_read_tx(id, db, {:snext, key, member})
   end
 
   @doc """
@@ -298,57 +298,57 @@ defmodule Veidrodelis do
       prev = Veidrodelis.sprev(:my_instance, 0, "myset", "c")
       # Returns: "b" (assuming set contains ["a", "b", "c"])
   """
-  @spec sprev(instance_id(), db(), key(), any()) :: binary() | nil
+  @spec sprev(instance_id(), db(), key(), any()) :: binary() | nil | {:error, term()}
   def sprev(id, db, key, member) do
-    with_handle(id, :sprev, [db, key, member])
+    with_read_tx(id, db, {:sprev, key, member})
   end
 
   @doc """
   Returns the value associated with field in the hash stored at key.
   """
-  @spec hget(instance_id(), db(), key(), any()) :: any()
+  @spec hget(instance_id(), db(), key(), any()) :: any() | {:error, term()}
   def hget(id, db, key, field) do
-    with_handle(id, :hget, [db, key, field])
+    with_read_tx(id, db, {:hget, key, field})
   end
 
   @doc """
   Returns the values associated with the specified fields in the hash stored at key.
   """
-  @spec hmget(instance_id(), db(), key(), [any()]) :: [any()]
+  @spec hmget(instance_id(), db(), key(), [any()]) :: [any()] | {:error, term()}
   def hmget(id, db, key, fields) do
-    with_handle(id, :hmget, [db, key, fields])
+    with_read_tx(id, db, {:hmget, key, fields})
   end
 
   @doc """
   Returns all fields and values of the hash stored at key.
   """
-  @spec hgetall(instance_id(), db(), key()) :: [{any(), any()}]
+  @spec hgetall(instance_id(), db(), key()) :: [{any(), any()}] | {:error, term()}
   def hgetall(id, db, key) do
-    with_handle(id, :hgetall, [db, key])
+    with_read_tx(id, db, {:hgetall, key})
   end
 
   @doc """
   Returns all field names in the hash stored at key.
   """
-  @spec hkeys(instance_id(), db(), key()) :: [any()]
+  @spec hkeys(instance_id(), db(), key()) :: [any()] | {:error, term()}
   def hkeys(id, db, key) do
-    with_handle(id, :hkeys, [db, key])
+    with_read_tx(id, db, {:hkeys, key})
   end
 
   @doc """
   Returns all values in the hash stored at key.
   """
-  @spec hvals(instance_id(), db(), key()) :: [any()]
+  @spec hvals(instance_id(), db(), key()) :: [any()] | {:error, term()}
   def hvals(id, db, key) do
-    with_handle(id, :hvals, [db, key])
+    with_read_tx(id, db, {:hvals, key})
   end
 
   @doc """
   Returns the number of fields in the hash stored at key.
   """
-  @spec hlen(instance_id(), db(), key()) :: non_neg_integer()
+  @spec hlen(instance_id(), db(), key()) :: non_neg_integer() | {:error, term()}
   def hlen(id, db, key) do
-    with_handle(id, :hlen, [db, key])
+    with_read_tx(id, db, {:hlen, key})
   end
 
   @doc """
@@ -358,25 +358,25 @@ defmodule Veidrodelis do
   If `with_scores` is `false`, returns a list of members only.
   """
   @spec zrange(instance_id(), db(), key(), integer(), integer(), boolean()) ::
-          [{any(), float()}] | [any()]
+          [{any(), float()}] | [any()] | {:error, term()}
   def zrange(id, db, key, start_idx, stop_idx, with_scores \\ true) do
-    with_handle(id, :zrange, [db, key, start_idx, stop_idx, with_scores])
+    with_read_tx(id, db, {:zrange, key, start_idx, stop_idx, with_scores})
   end
 
   @doc """
   Returns the cardinality (number of elements) of the sorted set stored at key.
   """
-  @spec zcard(instance_id(), db(), key()) :: non_neg_integer()
+  @spec zcard(instance_id(), db(), key()) :: non_neg_integer() | {:error, term()}
   def zcard(id, db, key) do
-    with_handle(id, :zcard, [db, key])
+    with_read_tx(id, db, {:zcard, key})
   end
 
   @doc """
   Returns the score of member in the sorted set stored at key.
   """
-  @spec zscore(instance_id(), db(), key(), any()) :: float() | nil
+  @spec zscore(instance_id(), db(), key(), any()) :: float() | nil | {:error, term()}
   def zscore(id, db, key, member) do
-    with_handle(id, :zscore, [db, key, member])
+    with_read_tx(id, db, {:zscore, key, member})
   end
 
   @doc """
@@ -395,9 +395,9 @@ defmodule Veidrodelis do
       # Returns: ["one", "two", "three"]
   """
   @spec zrangebyscore(instance_id(), db(), key(), float(), float(), boolean()) ::
-          [{any(), float()}] | [any()]
+          [{any(), float()}] | [any()] | {:error, term()}
   def zrangebyscore(id, db, key, min, max, with_scores \\ true) do
-    with_handle(id, :zrangebyscore, [db, key, min, max, with_scores])
+    with_read_tx(id, db, {:zrangebyscore, key, min, max, with_scores})
   end
 
   @doc """
@@ -406,9 +406,9 @@ defmodule Veidrodelis do
   Returns the rank (0-based index) where the member would be in the sorted set,
   ordered from lowest to highest score. Returns `nil` if the member or key doesn't exist.
   """
-  @spec zrank(instance_id(), db(), key(), any()) :: non_neg_integer() | nil
+  @spec zrank(instance_id(), db(), key(), any()) :: non_neg_integer() | nil | {:error, term()}
   def zrank(id, db, key, member) do
-    with_handle(id, :zrank, [db, key, member])
+    with_read_tx(id, db, {:zrank, key, member})
   end
 
   @doc """
@@ -417,9 +417,9 @@ defmodule Veidrodelis do
   Returns the rank (0-based index) where the member would be in the sorted set,
   ordered from highest to lowest score. Returns `nil` if the member or key doesn't exist.
   """
-  @spec zrevrank(instance_id(), db(), key(), any()) :: non_neg_integer() | nil
+  @spec zrevrank(instance_id(), db(), key(), any()) :: non_neg_integer() | nil | {:error, term()}
   def zrevrank(id, db, key, member) do
-    with_handle(id, :zrevrank, [db, key, member])
+    with_read_tx(id, db, {:zrevrank, key, member})
   end
 
   @doc """
@@ -528,10 +528,33 @@ defmodule Veidrodelis do
     with_handle(id, :lua_load, [script])
   end
 
-  defp with_handle(id, fun_name, fun_args) do
+  defp with_handle(id, fun_name, fun_args, check_ready \\ false) do
     case Vdr.Registry.lookup(id) do
       {:ok, %Vdr.Handle{handle_state: handle_state, callback_module: callback_module}} ->
-        Kernel.apply(callback_module, fun_name, [handle_state | fun_args])
+        if check_ready and not handle_state.ready do
+          {:error, :not_ready}
+        else
+          Kernel.apply(callback_module, fun_name, [handle_state | fun_args])
+        end
+
+      :not_found ->
+        {:error, :not_connected}
+    end
+  end
+
+  # Helper for single read command - checks ready flag and calls Vdr.TS.read_tx directly
+  defp with_read_tx(id, db, command) do
+    case Vdr.Registry.lookup(id) do
+      {:ok, %Vdr.Handle{handle_state: %{ready: ready, ts_storage: ts_storage}}} ->
+        if ready do
+          case Vdr.TS.read_tx(ts_storage, db, [command]) do
+            {:ok, [{:ok, result}]} -> result
+            {:ok, [result]} -> result
+            {:error, _} = error -> error
+          end
+        else
+          {:error, :not_ready}
+        end
 
       :not_found ->
         {:error, :not_connected}
