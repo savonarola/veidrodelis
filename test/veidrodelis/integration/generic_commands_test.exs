@@ -31,14 +31,14 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
         # Key should no longer exist in DB 0
         redis_db0 = Redix.command!(redis, ["GET", "move_string"])
-        ts_db0 = Veidrodelis.get(vdr_id(), 0, "move_string")
+        {:ok, ts_db0} = Veidrodelis.get(vdr_id(), 0, "move_string")
         assert nil == redis_db0
         assert nil == ts_db0
 
         # Key should now exist in DB 1
         Redix.command!(redis, ["SELECT", "1"])
         redis_db1 = Redix.command!(redis, ["GET", "move_string"])
-        ts_db1 = Veidrodelis.get(vdr_id(), 1, "move_string")
+        {:ok, ts_db1} = Veidrodelis.get(vdr_id(), 1, "move_string")
         Redix.command!(redis, ["SELECT", "0"])
 
         assert expected == redis_db1
@@ -56,14 +56,14 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
         # Key should no longer exist in DB 0
         redis_db0 = Redix.command!(redis, ["LRANGE", "move_list", "0", "-1"])
-        ts_db0 = Veidrodelis.lrange(vdr_id(), 0, "move_list", 0, -1)
+        {:ok, ts_db0} = Veidrodelis.lrange(vdr_id(), 0, "move_list", 0, -1)
         assert [] == redis_db0
         assert [] == ts_db0
 
         # Key should now exist in DB 2
         Redix.command!(redis, ["SELECT", "2"])
         redis_db2 = Redix.command!(redis, ["LRANGE", "move_list", "0", "-1"])
-        ts_db2 = Veidrodelis.lrange(vdr_id(), 2, "move_list", 0, -1)
+        {:ok, ts_db2} = Veidrodelis.lrange(vdr_id(), 2, "move_list", 0, -1)
         Redix.command!(redis, ["SELECT", "0"])
 
         assert expected == redis_db2
@@ -81,14 +81,16 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
         # Key should no longer exist in DB 0
         redis_db0 = Redix.command!(redis, ["SMEMBERS", "move_set"]) |> Enum.sort()
-        ts_db0 = Veidrodelis.smembers(vdr_id(), 0, "move_set") |> Enum.sort()
+        {:ok, ts_db0_temp} = Veidrodelis.smembers(vdr_id(), 0, "move_set")
+        ts_db0 = Enum.sort(ts_db0_temp)
         assert [] == redis_db0
         assert [] == ts_db0
 
         # Key should now exist in DB 3
         Redix.command!(redis, ["SELECT", "3"])
         redis_db3 = Redix.command!(redis, ["SMEMBERS", "move_set"]) |> Enum.sort()
-        ts_db3 = Veidrodelis.smembers(vdr_id(), 3, "move_set") |> Enum.sort()
+        {:ok, ts_db3_temp} = Veidrodelis.smembers(vdr_id(), 3, "move_set")
+        ts_db3 = Enum.sort(ts_db3_temp)
         Redix.command!(redis, ["SELECT", "0"])
 
         assert expected == redis_db3
@@ -106,14 +108,20 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
         # Key should no longer exist in DB 0
         redis_db0 = Redix.command!(redis, ["HGETALL", "move_hash"])
-        ts_db0 = Veidrodelis.hgetall(vdr_id(), 0, "move_hash")
+        {:ok, ts_db0} = Veidrodelis.hgetall(vdr_id(), 0, "move_hash")
         assert [] == redis_db0
         assert [] == ts_db0
 
         # Key should now exist in DB 4
         Redix.command!(redis, ["SELECT", "4"])
-        redis_db4 = Redix.command!(redis, ["HGETALL", "move_hash"]) |> Enum.chunk_every(2) |> Map.new(fn [k, v] -> {k, v} end)
-        ts_db4 = Veidrodelis.hgetall(vdr_id(), 4, "move_hash") |> Map.new()
+
+        redis_db4 =
+          Redix.command!(redis, ["HGETALL", "move_hash"])
+          |> Enum.chunk_every(2)
+          |> Map.new(fn [k, v] -> {k, v} end)
+
+        {:ok, ts_db4_temp} = Veidrodelis.hgetall(vdr_id(), 4, "move_hash")
+        ts_db4 = Map.new(ts_db4_temp)
         Redix.command!(redis, ["SELECT", "0"])
 
         assert expected_map == redis_db4
@@ -131,14 +139,14 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
         # Key should no longer exist in DB 0
         redis_db0 = Redix.command!(redis, ["ZRANGE", "move_zset", "0", "-1"])
-        ts_db0 = Veidrodelis.zrange(vdr_id(), 0, "move_zset", 0, -1, false)
+        {:ok, ts_db0} = Veidrodelis.zrange(vdr_id(), 0, "move_zset", 0, -1, false)
         assert [] == redis_db0
         assert [] == ts_db0
 
         # Key should now exist in DB 5
         Redix.command!(redis, ["SELECT", "5"])
         redis_db5 = Redix.command!(redis, ["ZRANGE", "move_zset", "0", "-1"])
-        ts_db5 = Veidrodelis.zrange(vdr_id(), 5, "move_zset", 0, -1, false)
+        {:ok, ts_db5} = Veidrodelis.zrange(vdr_id(), 5, "move_zset", 0, -1, false)
         Redix.command!(redis, ["SELECT", "0"])
 
         assert expected == redis_db5
@@ -158,14 +166,14 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
       assert_within 1000 do
         # Source should still exist in DB 0
         redis_db0 = Redix.command!(redis, ["GET", "move_src"])
-        ts_db0 = Veidrodelis.get(vdr_id(), 0, "move_src")
+        {:ok, ts_db0} = Veidrodelis.get(vdr_id(), 0, "move_src")
         assert "value" == redis_db0
         assert "value" == ts_db0
 
         # Destination should be unchanged in DB 6
         Redix.command!(redis, ["SELECT", "6"])
         redis_db6 = Redix.command!(redis, ["GET", "move_src"])
-        ts_db6 = Veidrodelis.get(vdr_id(), 6, "move_src")
+        {:ok, ts_db6} = Veidrodelis.get(vdr_id(), 6, "move_src")
         Redix.command!(redis, ["SELECT", "0"])
 
         assert "existing" == redis_db6
@@ -199,13 +207,13 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
         # Source should still exist
         redis_src = Redix.command!(redis, ["GET", "copy_src_str"])
-        ts_src = Veidrodelis.get(vdr_id(), 0, "copy_src_str")
+        {:ok, ts_src} = Veidrodelis.get(vdr_id(), 0, "copy_src_str")
         assert expected == redis_src
         assert expected == ts_src
 
         # Destination should have the copied value
         redis_dst = Redix.command!(redis, ["GET", "copy_dst_str"])
-        ts_dst = Veidrodelis.get(vdr_id(), 0, "copy_dst_str")
+        {:ok, ts_dst} = Veidrodelis.get(vdr_id(), 0, "copy_dst_str")
         assert expected == redis_dst
         assert expected == ts_dst
         assert 1 == result
@@ -221,13 +229,13 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
         # Source should still exist
         redis_src = Redix.command!(redis, ["LRANGE", "copy_src_list", "0", "-1"])
-        ts_src = Veidrodelis.lrange(vdr_id(), 0, "copy_src_list", 0, -1)
+        {:ok, ts_src} = Veidrodelis.lrange(vdr_id(), 0, "copy_src_list", 0, -1)
         assert expected == redis_src
         assert expected == ts_src
 
         # Destination should have the copied value
         redis_dst = Redix.command!(redis, ["LRANGE", "copy_dst_list", "0", "-1"])
-        ts_dst = Veidrodelis.lrange(vdr_id(), 0, "copy_dst_list", 0, -1)
+        {:ok, ts_dst} = Veidrodelis.lrange(vdr_id(), 0, "copy_dst_list", 0, -1)
         assert expected == redis_dst
         assert expected == ts_dst
         assert 1 == result
@@ -243,13 +251,15 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
         # Source should still exist
         redis_src = Redix.command!(redis, ["SMEMBERS", "copy_src_set"]) |> Enum.sort()
-        ts_src = Veidrodelis.smembers(vdr_id(), 0, "copy_src_set") |> Enum.sort()
+        {:ok, ts_src_temp} = Veidrodelis.smembers(vdr_id(), 0, "copy_src_set")
+        ts_src = Enum.sort(ts_src_temp)
         assert expected == redis_src
         assert expected == ts_src
 
         # Destination should have the copied value
         redis_dst = Redix.command!(redis, ["SMEMBERS", "copy_dst_set"]) |> Enum.sort()
-        ts_dst = Veidrodelis.smembers(vdr_id(), 0, "copy_dst_set") |> Enum.sort()
+        {:ok, ts_dst_temp} = Veidrodelis.smembers(vdr_id(), 0, "copy_dst_set")
+        ts_dst = Enum.sort(ts_dst_temp)
         assert expected == redis_dst
         assert expected == ts_dst
         assert 1 == result
@@ -264,14 +274,24 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
         expected = %{"f1" => "v1", "f2" => "v2"}
 
         # Source should still exist
-        redis_src = Redix.command!(redis, ["HGETALL", "copy_src_hash"]) |> Enum.chunk_every(2) |> Map.new(fn [k, v] -> {k, v} end)
-        ts_src = Veidrodelis.hgetall(vdr_id(), 0, "copy_src_hash") |> Map.new()
+        redis_src =
+          Redix.command!(redis, ["HGETALL", "copy_src_hash"])
+          |> Enum.chunk_every(2)
+          |> Map.new(fn [k, v] -> {k, v} end)
+
+        {:ok, ts_src_temp} = Veidrodelis.hgetall(vdr_id(), 0, "copy_src_hash")
+        ts_src = Map.new(ts_src_temp)
         assert expected == redis_src
         assert expected == ts_src
 
         # Destination should have the copied value
-        redis_dst = Redix.command!(redis, ["HGETALL", "copy_dst_hash"]) |> Enum.chunk_every(2) |> Map.new(fn [k, v] -> {k, v} end)
-        ts_dst = Veidrodelis.hgetall(vdr_id(), 0, "copy_dst_hash") |> Map.new()
+        redis_dst =
+          Redix.command!(redis, ["HGETALL", "copy_dst_hash"])
+          |> Enum.chunk_every(2)
+          |> Map.new(fn [k, v] -> {k, v} end)
+
+        {:ok, ts_dst_temp} = Veidrodelis.hgetall(vdr_id(), 0, "copy_dst_hash")
+        ts_dst = Map.new(ts_dst_temp)
         assert expected == redis_dst
         assert expected == ts_dst
         assert 1 == result
@@ -287,13 +307,13 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
         # Source should still exist
         redis_src = Redix.command!(redis, ["ZRANGE", "copy_src_zset", "0", "-1"])
-        ts_src = Veidrodelis.zrange(vdr_id(), 0, "copy_src_zset", 0, -1, false)
+        {:ok, ts_src} = Veidrodelis.zrange(vdr_id(), 0, "copy_src_zset", 0, -1, false)
         assert expected == redis_src
         assert expected == ts_src
 
         # Destination should have the copied value
         redis_dst = Redix.command!(redis, ["ZRANGE", "copy_dst_zset", "0", "-1"])
-        ts_dst = Veidrodelis.zrange(vdr_id(), 0, "copy_dst_zset", 0, -1, false)
+        {:ok, ts_dst} = Veidrodelis.zrange(vdr_id(), 0, "copy_dst_zset", 0, -1, false)
         assert expected == redis_dst
         assert expected == ts_dst
         assert 1 == result
@@ -310,7 +330,7 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
         # Destination should have the copied value
         redis_dst = Redix.command!(redis, ["GET", "copy_replace_dst"])
-        ts_dst = Veidrodelis.get(vdr_id(), 0, "copy_replace_dst")
+        {:ok, ts_dst} = Veidrodelis.get(vdr_id(), 0, "copy_replace_dst")
         assert expected == redis_dst
         assert expected == ts_dst
         assert 1 == result
@@ -325,7 +345,7 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
       assert_within 1000 do
         # Destination should be unchanged
         redis_dst = Redix.command!(redis, ["GET", "copy_noreplace_dst"])
-        ts_dst = Veidrodelis.get(vdr_id(), 0, "copy_noreplace_dst")
+        {:ok, ts_dst} = Veidrodelis.get(vdr_id(), 0, "copy_noreplace_dst")
         assert "old_value" == redis_dst
         assert "old_value" == ts_dst
         assert 0 == result
@@ -338,7 +358,7 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
       assert_within 1000 do
         assert 0 == result
         redis_dst = Redix.command!(redis, ["GET", "copy_dst_nonexist"])
-        ts_dst = Veidrodelis.get(vdr_id(), 0, "copy_dst_nonexist")
+        {:ok, ts_dst} = Veidrodelis.get(vdr_id(), 0, "copy_dst_nonexist")
         assert nil == redis_dst
         assert nil == ts_dst
       end
@@ -358,7 +378,7 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       assert_within 1000 do
         redis_val = Redix.command!(redis, ["GET", "unlink_str"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "unlink_str")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "unlink_str")
         assert nil == redis_val
         assert nil == ts_val
         assert 1 == result
@@ -375,9 +395,9 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
         redis_v1 = Redix.command!(redis, ["GET", "unlink_m1"])
         redis_v2 = Redix.command!(redis, ["GET", "unlink_m2"])
         redis_v3 = Redix.command!(redis, ["GET", "unlink_m3"])
-        ts_v1 = Veidrodelis.get(vdr_id(), 0, "unlink_m1")
-        ts_v2 = Veidrodelis.get(vdr_id(), 0, "unlink_m2")
-        ts_v3 = Veidrodelis.get(vdr_id(), 0, "unlink_m3")
+        {:ok, ts_v1} = Veidrodelis.get(vdr_id(), 0, "unlink_m1")
+        {:ok, ts_v2} = Veidrodelis.get(vdr_id(), 0, "unlink_m2")
+        {:ok, ts_v3} = Veidrodelis.get(vdr_id(), 0, "unlink_m3")
 
         assert nil == redis_v1
         assert nil == redis_v2
@@ -395,7 +415,7 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       assert_within 1000 do
         redis_val = Redix.command!(redis, ["LRANGE", "unlink_list", "0", "-1"])
-        ts_val = Veidrodelis.lrange(vdr_id(), 0, "unlink_list", 0, -1)
+        {:ok, ts_val} = Veidrodelis.lrange(vdr_id(), 0, "unlink_list", 0, -1)
         assert [] == redis_val
         assert [] == ts_val
         assert 1 == result
@@ -408,7 +428,7 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       assert_within 1000 do
         redis_val = Redix.command!(redis, ["SMEMBERS", "unlink_set"])
-        ts_val = Veidrodelis.smembers(vdr_id(), 0, "unlink_set")
+        {:ok, ts_val} = Veidrodelis.smembers(vdr_id(), 0, "unlink_set")
         assert [] == redis_val
         assert [] == ts_val
         assert 1 == result
@@ -421,7 +441,7 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       assert_within 1000 do
         redis_val = Redix.command!(redis, ["HGETALL", "unlink_hash"])
-        ts_val = Veidrodelis.hgetall(vdr_id(), 0, "unlink_hash")
+        {:ok, ts_val} = Veidrodelis.hgetall(vdr_id(), 0, "unlink_hash")
         assert [] == redis_val
         assert [] == ts_val
         assert 1 == result
@@ -434,7 +454,7 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       assert_within 1000 do
         redis_val = Redix.command!(redis, ["ZRANGE", "unlink_zset", "0", "-1"])
-        ts_val = Veidrodelis.zrange(vdr_id(), 0, "unlink_zset", 0, -1, false)
+        {:ok, ts_val} = Veidrodelis.zrange(vdr_id(), 0, "unlink_zset", 0, -1, false)
         assert [] == redis_val
         assert [] == ts_val
         assert 1 == result
@@ -452,13 +472,21 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
     test "UNLINK with mix of existent and non-existent keys", %{redis: redis} do
       Redix.command!(redis, ["SET", "unlink_exists1", "value"])
       Redix.command!(redis, ["SET", "unlink_exists2", "value"])
-      result = Redix.command!(redis, ["UNLINK", "unlink_exists1", "nonexistent1", "unlink_exists2", "nonexistent2"])
+
+      result =
+        Redix.command!(redis, [
+          "UNLINK",
+          "unlink_exists1",
+          "nonexistent1",
+          "unlink_exists2",
+          "nonexistent2"
+        ])
 
       assert_within 1000 do
         redis_v1 = Redix.command!(redis, ["GET", "unlink_exists1"])
         redis_v2 = Redix.command!(redis, ["GET", "unlink_exists2"])
-        ts_v1 = Veidrodelis.get(vdr_id(), 0, "unlink_exists1")
-        ts_v2 = Veidrodelis.get(vdr_id(), 0, "unlink_exists2")
+        {:ok, ts_v1} = Veidrodelis.get(vdr_id(), 0, "unlink_exists1")
+        {:ok, ts_v2} = Veidrodelis.get(vdr_id(), 0, "unlink_exists2")
 
         assert nil == redis_v1
         assert nil == redis_v2
@@ -475,14 +503,15 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
       Redix.command!(redis, ["HSET", "unlink_mixed_hash", "f", "v"])
       Redix.command!(redis, ["ZADD", "unlink_mixed_zset", "1.0", "member"])
 
-      result = Redix.command!(redis, [
-        "UNLINK",
-        "unlink_mixed_str",
-        "unlink_mixed_list",
-        "unlink_mixed_set",
-        "unlink_mixed_hash",
-        "unlink_mixed_zset"
-      ])
+      result =
+        Redix.command!(redis, [
+          "UNLINK",
+          "unlink_mixed_str",
+          "unlink_mixed_list",
+          "unlink_mixed_set",
+          "unlink_mixed_hash",
+          "unlink_mixed_zset"
+        ])
 
       assert_within 1000 do
         assert nil == Redix.command!(redis, ["GET", "unlink_mixed_str"])
@@ -491,11 +520,11 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
         assert [] == Redix.command!(redis, ["HGETALL", "unlink_mixed_hash"])
         assert [] == Redix.command!(redis, ["ZRANGE", "unlink_mixed_zset", "0", "-1"])
 
-        assert nil == Veidrodelis.get(vdr_id(), 0, "unlink_mixed_str")
-        assert [] == Veidrodelis.lrange(vdr_id(), 0, "unlink_mixed_list", 0, -1)
-        assert [] == Veidrodelis.smembers(vdr_id(), 0, "unlink_mixed_set")
-        assert [] == Veidrodelis.hgetall(vdr_id(), 0, "unlink_mixed_hash")
-        assert [] == Veidrodelis.zrange(vdr_id(), 0, "unlink_mixed_zset", 0, -1, false)
+        assert {:ok, nil} == Veidrodelis.get(vdr_id(), 0, "unlink_mixed_str")
+        assert {:ok, []} == Veidrodelis.lrange(vdr_id(), 0, "unlink_mixed_list", 0, -1)
+        assert {:ok, []} == Veidrodelis.smembers(vdr_id(), 0, "unlink_mixed_set")
+        assert {:ok, []} == Veidrodelis.hgetall(vdr_id(), 0, "unlink_mixed_hash")
+        assert {:ok, []} == Veidrodelis.zrange(vdr_id(), 0, "unlink_mixed_zset", 0, -1, false)
 
         assert 5 == result
       end
@@ -522,8 +551,8 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       # Wait for replication
       assert_within 1000 do
-        assert "value" == Veidrodelis.get(vdr_id(), 0, "flushdb_str")
-        assert "keep_me" == Veidrodelis.get(vdr_id(), 1, "flushdb_other")
+        assert {:ok, "value"} == Veidrodelis.get(vdr_id(), 0, "flushdb_str")
+        assert {:ok, "keep_me"} == Veidrodelis.get(vdr_id(), 1, "flushdb_other")
       end
 
       # Flush DB 0
@@ -532,15 +561,15 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
       assert_within 1000 do
         # DB 0 should be empty
         assert nil == Redix.command!(redis, ["GET", "flushdb_str"])
-        assert nil == Veidrodelis.get(vdr_id(), 0, "flushdb_str")
-        assert [] == Veidrodelis.lrange(vdr_id(), 0, "flushdb_list", 0, -1)
-        assert [] == Veidrodelis.smembers(vdr_id(), 0, "flushdb_set")
+        assert {:ok, nil} == Veidrodelis.get(vdr_id(), 0, "flushdb_str")
+        assert {:ok, []} == Veidrodelis.lrange(vdr_id(), 0, "flushdb_list", 0, -1)
+        assert {:ok, []} == Veidrodelis.smembers(vdr_id(), 0, "flushdb_set")
 
         # DB 1 should be unchanged
         Redix.command!(redis, ["SELECT", "1"])
         assert "keep_me" == Redix.command!(redis, ["GET", "flushdb_other"])
         Redix.command!(redis, ["SELECT", "0"])
-        assert "keep_me" == Veidrodelis.get(vdr_id(), 1, "flushdb_other")
+        assert {:ok, "keep_me"} == Veidrodelis.get(vdr_id(), 1, "flushdb_other")
       end
     end
 
@@ -556,7 +585,7 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       # Wait for replication
       assert_within 1000 do
-        assert "value" == Veidrodelis.get(vdr_id(), 0, "flushdb_watch_key")
+        assert {:ok, "value"} == Veidrodelis.get(vdr_id(), 0, "flushdb_watch_key")
       end
 
       # Watch keys in both databases
@@ -592,9 +621,9 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       # Wait for replication
       assert_within 1000 do
-        assert "value0" == Veidrodelis.get(vdr_id(), 0, "flushall_db0")
-        assert "value1" == Veidrodelis.get(vdr_id(), 1, "flushall_db1")
-        assert "value2" == Veidrodelis.get(vdr_id(), 2, "flushall_db2")
+        assert {:ok, "value0"} == Veidrodelis.get(vdr_id(), 0, "flushall_db0")
+        assert {:ok, "value1"} == Veidrodelis.get(vdr_id(), 1, "flushall_db1")
+        assert {:ok, "value2"} == Veidrodelis.get(vdr_id(), 2, "flushall_db2")
       end
 
       # Flush all databases
@@ -602,9 +631,9 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       assert_within 1000 do
         # All databases should be empty
-        assert nil == Veidrodelis.get(vdr_id(), 0, "flushall_db0")
-        assert nil == Veidrodelis.get(vdr_id(), 1, "flushall_db1")
-        assert nil == Veidrodelis.get(vdr_id(), 2, "flushall_db2")
+        assert {:ok, nil} == Veidrodelis.get(vdr_id(), 0, "flushall_db0")
+        assert {:ok, nil} == Veidrodelis.get(vdr_id(), 1, "flushall_db1")
+        assert {:ok, nil} == Veidrodelis.get(vdr_id(), 2, "flushall_db2")
 
         # Verify in Redis too
         assert nil == Redix.command!(redis, ["GET", "flushall_db0"])
@@ -628,8 +657,8 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       # Wait for replication
       assert_within 1000 do
-        assert "value" == Veidrodelis.get(vdr_id(), 0, "flushall_watch_0")
-        assert "value" == Veidrodelis.get(vdr_id(), 1, "flushall_watch_1")
+        assert {:ok, "value"} == Veidrodelis.get(vdr_id(), 0, "flushall_watch_0")
+        assert {:ok, "value"} == Veidrodelis.get(vdr_id(), 1, "flushall_watch_1")
       end
 
       # Watch keys in both databases
@@ -664,8 +693,8 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       # Wait for replication
       assert_within 1000 do
-        assert "from_db0" == Veidrodelis.get(vdr_id(), 0, "swap_key_a")
-        assert "from_db1" == Veidrodelis.get(vdr_id(), 1, "swap_key_b")
+        assert {:ok, "from_db0"} == Veidrodelis.get(vdr_id(), 0, "swap_key_a")
+        assert {:ok, "from_db1"} == Veidrodelis.get(vdr_id(), 1, "swap_key_b")
       end
 
       # Swap DB 0 and DB 1
@@ -673,13 +702,13 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       assert_within 1000 do
         # DB 0 now has DB 1's content
-        assert "from_db1" == Veidrodelis.get(vdr_id(), 0, "swap_key_b")
-        assert nil == Veidrodelis.get(vdr_id(), 0, "swap_key_a")
+        assert {:ok, "from_db1"} == Veidrodelis.get(vdr_id(), 0, "swap_key_b")
+        assert {:ok, nil} == Veidrodelis.get(vdr_id(), 0, "swap_key_a")
 
         # DB 1 now has DB 0's content
-        assert "from_db0" == Veidrodelis.get(vdr_id(), 1, "swap_key_a")
-        assert ["db0_item"] == Veidrodelis.lrange(vdr_id(), 1, "swap_list", 0, -1)
-        assert nil == Veidrodelis.get(vdr_id(), 1, "swap_key_b")
+        assert {:ok, "from_db0"} == Veidrodelis.get(vdr_id(), 1, "swap_key_a")
+        assert {:ok, ["db0_item"]} == Veidrodelis.lrange(vdr_id(), 1, "swap_list", 0, -1)
+        assert {:ok, nil} == Veidrodelis.get(vdr_id(), 1, "swap_key_b")
 
         # Verify in Redis
         assert "from_db1" == Redix.command!(redis, ["GET", "swap_key_b"])
@@ -701,8 +730,8 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       # Wait for replication
       assert_within 1000 do
-        assert "value0" == Veidrodelis.get(vdr_id(), 0, "swap_watch_0")
-        assert "value1" == Veidrodelis.get(vdr_id(), 1, "swap_watch_1")
+        assert {:ok, "value0"} == Veidrodelis.get(vdr_id(), 0, "swap_watch_0")
+        assert {:ok, "value1"} == Veidrodelis.get(vdr_id(), 1, "swap_watch_1")
       end
 
       # Watch keys in both databases
@@ -728,7 +757,7 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       # Wait for replication
       assert_within 1000 do
-        assert "in_db0" == Veidrodelis.get(vdr_id(), 0, "swap_only_0")
+        assert {:ok, "in_db0"} == Veidrodelis.get(vdr_id(), 0, "swap_only_0")
       end
 
       # Swap DB 0 and DB 3
@@ -736,10 +765,10 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
 
       assert_within 1000 do
         # DB 0 is now empty
-        assert nil == Veidrodelis.get(vdr_id(), 0, "swap_only_0")
+        assert {:ok, nil} == Veidrodelis.get(vdr_id(), 0, "swap_only_0")
 
         # DB 3 now has DB 0's content
-        assert "in_db0" == Veidrodelis.get(vdr_id(), 3, "swap_only_0")
+        assert {:ok, "in_db0"} == Veidrodelis.get(vdr_id(), 3, "swap_only_0")
       end
     end
   end

@@ -11,7 +11,6 @@ defmodule Vdr.TSProj do
 
   @behaviour Vdr.RedisStream.Callback
 
-
   @tx_key "__vdr_tx"
 
   defstruct [
@@ -412,7 +411,6 @@ defmodule Vdr.TSProj do
       {:del, keys} -> keys
       {:mset, pairs} -> Enum.map(pairs, fn {k, _v} -> k end)
       {:msetnx, pairs} -> Enum.map(pairs, fn {k, _v} -> k end)
-
       # Source/destination commands
       {:rpoplpush, src, dest} -> [src, dest]
       {:lmove, src, dest, _wherefrom, _whereto} -> [src, dest]
@@ -420,7 +418,6 @@ defmodule Vdr.TSProj do
       {:renamenx, old_key, new_key} -> [old_key, new_key]
       {:smove, src, dest, _member} -> [src, dest]
       {:copy, src, dest, _replace} -> [src, dest]
-
       # Store commands (affect destination + sources)
       {:sunionstore, dest, keys} -> [dest | keys]
       {:sinterstore, dest, keys} -> [dest | keys]
@@ -429,13 +426,11 @@ defmodule Vdr.TSProj do
       {:zinterstore, dest, keys, _weights, _aggregate} -> [dest | keys]
       {:zdiffstore, dest, keys} -> [dest | keys]
       {:zrangestore, dest, src, _min, _max, _opts} -> [dest, src]
-
       # Single key commands - extract first element as key
       {_cmd, key} when is_binary(key) -> [key]
       {_cmd, key, _} when is_binary(key) -> [key]
       {_cmd, key, _, _} when is_binary(key) -> [key]
       {_cmd, key, _, _, _} when is_binary(key) -> [key]
-
       # Catch-all for commands we don't track
       _ -> []
     end

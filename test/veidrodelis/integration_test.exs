@@ -53,10 +53,10 @@ defmodule Veidrodelis.IntegrationTest do
 
       new_commands =
         Enum.reduce(replica_commands, commands, fn %Vdr.RedisStream.ReplicaCommand{
-                                                      db: db,
-                                                      command: command
-                                                    },
-                                                    acc ->
+                                                     db: db,
+                                                     command: command
+                                                   },
+                                                   acc ->
           entry = {System.monotonic_time(), db, command}
           [entry | acc]
         end)
@@ -105,6 +105,7 @@ defmodule Veidrodelis.IntegrationTest do
     if db != 0 do
       Redix.command!(redis, ["SELECT", "#{db}"])
     end
+
     Redix.command!(redis, ["FLUSHALL"])
 
     # ===== String Commands =====
@@ -216,7 +217,17 @@ defmodule Veidrodelis.IntegrationTest do
     # BLMPOP (Redis 7.0.0+) - replicates as LPOP with count
     Redix.command!(redis, ["RPUSH", "blmpop_list1", "blmp1", "blmp2", "blmp3"])
     Redix.command!(redis, ["RPUSH", "blmpop_list2", "blmq1", "blmq2"])
-    Redix.command!(redis, ["BLMPOP", "0", "2", "blmpop_list1", "blmpop_list2", "LEFT", "COUNT", "2"])
+
+    Redix.command!(redis, [
+      "BLMPOP",
+      "0",
+      "2",
+      "blmpop_list1",
+      "blmpop_list2",
+      "LEFT",
+      "COUNT",
+      "2"
+    ])
 
     # ===== Set Commands =====
     Redix.command!(redis, ["SADD", "myset", "member1", "member2", "member3"])
@@ -290,7 +301,21 @@ defmodule Veidrodelis.IntegrationTest do
     Redix.command!(redis, ["ZDIFFSTORE", "zdiff_result", "2", "zdiff_a", "zdiff_b"])
 
     # ZRANGESTORE tests (Redis 6.2.0+)
-    Redix.command!(redis, ["ZADD", "zrangestore_src", "1", "a", "2", "b", "3", "c", "4", "d", "5", "e"])
+    Redix.command!(redis, [
+      "ZADD",
+      "zrangestore_src",
+      "1",
+      "a",
+      "2",
+      "b",
+      "3",
+      "c",
+      "4",
+      "d",
+      "5",
+      "e"
+    ])
+
     Redix.command!(redis, ["ZRANGESTORE", "zrangestore_dest", "zrangestore_src", "1", "3"])
 
     # ZMPOP tests (Redis 7.0.0+) - replicates as ZPOPMAX/ZPOPMIN on the key with members
@@ -310,7 +335,17 @@ defmodule Veidrodelis.IntegrationTest do
     # BZMPOP (Redis 7.0.0+) - replicates as ZMPOP (which in turn replicates as ZPOPMAX/ZPOPMIN)
     Redix.command!(redis, ["ZADD", "bzmpop_zset1", "1", "x", "2", "y", "3", "z"])
     Redix.command!(redis, ["ZADD", "bzmpop_zset2", "4", "p", "5", "q"])
-    Redix.command!(redis, ["BZMPOP", "0", "2", "bzmpop_zset1", "bzmpop_zset2", "MIN", "COUNT", "2"])
+
+    Redix.command!(redis, [
+      "BZMPOP",
+      "0",
+      "2",
+      "bzmpop_zset1",
+      "bzmpop_zset2",
+      "MIN",
+      "COUNT",
+      "2"
+    ])
 
     # ===== Hash Commands =====
     Redix.command!(redis, [
@@ -413,6 +448,7 @@ defmodule Veidrodelis.IntegrationTest do
     Redix.command!(redis, ["SET", "restore_source", "restore_value"])
     serialized = Redix.command!(redis, ["DUMP", "restore_source"])
     Logger.info("DUMP result for restore_source: #{inspect(serialized)}")
+
     # RESTORE format: RESTORE key ttl serialized-value [REPLACE] [ABSTTL] [IDLETIME seconds] [FREQ frequency]
     # TTL 0 means no expiration
     restore_result = Redix.command!(redis, ["RESTORE", "restore_dest", "0", serialized])
@@ -685,7 +721,10 @@ defmodule Veidrodelis.IntegrationTest do
            "Missing ZDIFFSTORE"
 
     # ZRANGESTORE
-    assert command_in_list({:zrangestore, "zrangestore_dest", "zrangestore_src", _, _, _}, commands),
+    assert command_in_list(
+             {:zrangestore, "zrangestore_dest", "zrangestore_src", _, _, _},
+             commands
+           ),
            "Missing ZRANGESTORE"
 
     # ZMPOP replicates as ZPOPMAX or ZPOPMIN (on the first key with members)
@@ -784,7 +823,11 @@ defmodule Veidrodelis.IntegrationTest do
 
   describe "low-level replica: comprehensive command replication" do
     @tag timeout: 30_000
-    test "replicates all command types from RDB and streaming", %{redis: redis, conn_opts: conn_opts, backend: backend} do
+    test "replicates all command types from RDB and streaming", %{
+      redis: redis,
+      conn_opts: conn_opts,
+      backend: backend
+    } do
       Logger.info("=== [Replica] Phase 1: Setting up diverse dataset in DB 0 ===")
       issue_diverse_commands(redis, 0, backend)
 
@@ -814,13 +857,15 @@ defmodule Veidrodelis.IntegrationTest do
       Logger.info("Received #{length(db0_commands)} commands from RDB")
 
       # Debug: log commands by type
-      cmd_types = Enum.frequencies_by(db0_commands, fn cmd -> 
-        case cmd do
-          {cmd_atom, _, _} when is_atom(cmd_atom) -> Atom.to_string(cmd_atom)
-          {cmd_atom, _} when is_atom(cmd_atom) -> Atom.to_string(cmd_atom)
-          _ -> "unknown"
-        end
-      end)
+      cmd_types =
+        Enum.frequencies_by(db0_commands, fn cmd ->
+          case cmd do
+            {cmd_atom, _, _} when is_atom(cmd_atom) -> Atom.to_string(cmd_atom)
+            {cmd_atom, _} when is_atom(cmd_atom) -> Atom.to_string(cmd_atom)
+            _ -> "unknown"
+          end
+        end)
+
       Logger.info("RDB commands by type: #{inspect(cmd_types)}")
 
       verify_rdb_commands(db0_commands)
@@ -841,20 +886,26 @@ defmodule Veidrodelis.IntegrationTest do
       db1_commands = CollectorCallback.commands_for_db(callback_state, 1)
 
       # Debug: Log RESTORE-related commands to see how they replicate
-      restore_commands = Enum.filter(db1_commands, fn cmd ->
-        cmd_str = inspect(cmd)
-        String.contains?(cmd_str, "restore")
-      end)
-      Logger.info("=== RESTORE-related commands (by string match): #{inspect(restore_commands, pretty: true)} ===")
+      restore_commands =
+        Enum.filter(db1_commands, fn cmd ->
+          cmd_str = inspect(cmd)
+          String.contains?(cmd_str, "restore")
+        end)
+
+      Logger.info(
+        "=== RESTORE-related commands (by string match): #{inspect(restore_commands, pretty: true)} ==="
+      )
 
       # Log all command types to see if RESTORE appears as something else
-      all_types = Enum.frequencies_by(db1_commands, fn cmd -> 
-        case cmd do
-          {cmd_atom, _, _} when is_atom(cmd_atom) -> cmd_atom
-          {cmd_atom, _} when is_atom(cmd_atom) -> cmd_atom
-          _ -> :unknown
-        end
-      end)
+      all_types =
+        Enum.frequencies_by(db1_commands, fn cmd ->
+          case cmd do
+            {cmd_atom, _, _} when is_atom(cmd_atom) -> cmd_atom
+            {cmd_atom, _} when is_atom(cmd_atom) -> cmd_atom
+            _ -> :unknown
+          end
+        end)
+
       Logger.info("=== All command types in streaming: #{inspect(all_types)} ===")
 
       verify_streaming_commands(db1_commands, backend)
@@ -867,7 +918,11 @@ defmodule Veidrodelis.IntegrationTest do
 
   describe "high-level veidrodelis: comprehensive data verification" do
     @tag timeout: 30_000
-    test "verifies all data types from RDB and streaming via query API", %{redis: redis, conn_opts: conn_opts, backend: backend} do
+    test "verifies all data types from RDB and streaming via query API", %{
+      redis: redis,
+      conn_opts: conn_opts,
+      backend: backend
+    } do
       Logger.info("=== [Veidrodelis] Phase 1: Setting up diverse dataset in DB 0 ===")
       issue_diverse_commands(redis, 0, backend)
 
@@ -894,115 +949,120 @@ defmodule Veidrodelis.IntegrationTest do
       Process.sleep(200)
 
       # String values
-      assert "simple_value" == Veidrodelis.get(@id, 0, "simple_key")
-      assert "mval1" == Veidrodelis.get(@id, 0, "mkey1")
-      assert "mval2" == Veidrodelis.get(@id, 0, "mkey2")
-      assert "initial_appended" == Veidrodelis.get(@id, 0, "append_key")
-      assert "rename_value" == Veidrodelis.get(@id, 0, "new_name")
-      assert "value" == Veidrodelis.get(@id, 0, "renamenx_new")
-      assert "will_expire" == Veidrodelis.get(@id, 0, "expire_key")
+      assert {:ok, "simple_value"} == Veidrodelis.get(@id, 0, "simple_key")
+      assert {:ok, "mval1"} == Veidrodelis.get(@id, 0, "mkey1")
+      assert {:ok, "mval2"} == Veidrodelis.get(@id, 0, "mkey2")
+      assert {:ok, "initial_appended"} == Veidrodelis.get(@id, 0, "append_key")
+      assert {:ok, "rename_value"} == Veidrodelis.get(@id, 0, "new_name")
+      assert {:ok, "value"} == Veidrodelis.get(@id, 0, "renamenx_new")
+      assert {:ok, "will_expire"} == Veidrodelis.get(@id, 0, "expire_key")
 
       # Deleted keys should not exist
-      assert nil == Veidrodelis.get(@id, 0, "delete_key1")
-      assert nil == Veidrodelis.get(@id, 0, "delete_key2")
-      assert nil == Veidrodelis.get(@id, 0, "old_name")
+      assert {:ok, nil} == Veidrodelis.get(@id, 0, "delete_key1")
+      assert {:ok, nil} == Veidrodelis.get(@id, 0, "delete_key2")
+      assert {:ok, nil} == Veidrodelis.get(@id, 0, "old_name")
 
       # List values
-      assert 4 == Veidrodelis.llen(@id, 0, "mylist")
-      assert ["elem0", "elem1", "elem2", "elem3"] == Veidrodelis.lrange(@id, 0, "mylist", 0, -1)
-      assert ["b", "c", "d"] == Veidrodelis.lrange(@id, 0, "trim_list", 0, -1)
-      assert ["x", "Y", "z"] == Veidrodelis.lrange(@id, 0, "set_list", 0, -1)
-      assert ["a", "b", "c"] == Veidrodelis.lrange(@id, 0, "insert_list", 0, -1)
+      assert {:ok, 4} == Veidrodelis.llen(@id, 0, "mylist")
+
+      assert {:ok, ["elem0", "elem1", "elem2", "elem3"]} ==
+               Veidrodelis.lrange(@id, 0, "mylist", 0, -1)
+
+      assert {:ok, ["b", "c", "d"]} == Veidrodelis.lrange(@id, 0, "trim_list", 0, -1)
+      assert {:ok, ["x", "Y", "z"]} == Veidrodelis.lrange(@id, 0, "set_list", 0, -1)
+      assert {:ok, ["a", "b", "c"]} == Veidrodelis.lrange(@id, 0, "insert_list", 0, -1)
 
       # After LPOP and RPOP, pop_list should have only "b"
-      assert ["b"] == Veidrodelis.lrange(@id, 0, "pop_list", 0, -1)
+      assert {:ok, ["b"]} == Veidrodelis.lrange(@id, 0, "pop_list", 0, -1)
 
       # Set values
-      assert 3 == Veidrodelis.scard(@id, 0, "myset")
-      members = Veidrodelis.smembers(@id, 0, "myset")
+      assert {:ok, 3} == Veidrodelis.scard(@id, 0, "myset")
+      {:ok, members} = Veidrodelis.smembers(@id, 0, "myset")
       assert "member1" in members
       assert "member2" in members
       assert "member3" in members
 
       # rem_set should have m1 and m3 (m2 was removed)
-      assert 2 == Veidrodelis.scard(@id, 0, "rem_set")
-      rem_members = Veidrodelis.smembers(@id, 0, "rem_set")
+      assert {:ok, 2} == Veidrodelis.scard(@id, 0, "rem_set")
+      {:ok, rem_members} = Veidrodelis.smembers(@id, 0, "rem_set")
       assert "m1" in rem_members
       assert "m3" in rem_members
       refute "m2" in rem_members
 
       # Set operations
-      inter_members = Veidrodelis.smembers(@id, 0, "set_inter")
+      {:ok, inter_members} = Veidrodelis.smembers(@id, 0, "set_inter")
       assert "2" in inter_members
       assert "3" in inter_members
-      assert 4 == Veidrodelis.scard(@id, 0, "set_union")
-      assert 1 == Veidrodelis.scard(@id, 0, "set_diff")
+      assert {:ok, 4} == Veidrodelis.scard(@id, 0, "set_union")
+      assert {:ok, 1} == Veidrodelis.scard(@id, 0, "set_diff")
 
       # Hash values
-      assert 3 == Veidrodelis.hlen(@id, 0, "myhash")
-      assert "value1" == Veidrodelis.hget(@id, 0, "myhash", "field1")
-      assert "value2" == Veidrodelis.hget(@id, 0, "myhash", "field2")
-      assert "value3" == Veidrodelis.hget(@id, 0, "myhash", "field3")
+      assert {:ok, 3} == Veidrodelis.hlen(@id, 0, "myhash")
+      assert {:ok, "value1"} == Veidrodelis.hget(@id, 0, "myhash", "field1")
+      assert {:ok, "value2"} == Veidrodelis.hget(@id, 0, "myhash", "field2")
+      assert {:ok, "value3"} == Veidrodelis.hget(@id, 0, "myhash", "field3")
 
       # hash_for_del should have only f1 (f2 was deleted)
-      assert 1 == Veidrodelis.hlen(@id, 0, "hash_for_del")
-      assert "v1" == Veidrodelis.hget(@id, 0, "hash_for_del", "f1")
-      assert nil == Veidrodelis.hget(@id, 0, "hash_for_del", "f2")
+      assert {:ok, 1} == Veidrodelis.hlen(@id, 0, "hash_for_del")
+      assert {:ok, "v1"} == Veidrodelis.hget(@id, 0, "hash_for_del", "f1")
+      assert {:ok, nil} == Veidrodelis.hget(@id, 0, "hash_for_del", "f2")
 
       # HMSET verification
-      assert 2 == Veidrodelis.hlen(@id, 0, "hmset_hash")
-      assert "v1" == Veidrodelis.hget(@id, 0, "hmset_hash", "f1")
-      assert "v2" == Veidrodelis.hget(@id, 0, "hmset_hash", "f2")
+      assert {:ok, 2} == Veidrodelis.hlen(@id, 0, "hmset_hash")
+      assert {:ok, "v1"} == Veidrodelis.hget(@id, 0, "hmset_hash", "f1")
+      assert {:ok, "v2"} == Veidrodelis.hget(@id, 0, "hmset_hash", "f2")
 
       # HSETNX verification
-      assert "value1" == Veidrodelis.hget(@id, 0, "hsetnx_hash", "existing")
-      assert "new_value" == Veidrodelis.hget(@id, 0, "hsetnx_hash", "new_field")
+      assert {:ok, "value1"} == Veidrodelis.hget(@id, 0, "hsetnx_hash", "existing")
+      assert {:ok, "new_value"} == Veidrodelis.hget(@id, 0, "hsetnx_hash", "new_field")
 
       # HINCRBY verification (10 + 5 = 15)
-      assert "15" == Veidrodelis.hget(@id, 0, "hincrby_hash", "counter")
-      assert "100" == Veidrodelis.hget(@id, 0, "hincrby_hash", "new_counter")
+      assert {:ok, "15"} == Veidrodelis.hget(@id, 0, "hincrby_hash", "counter")
+      assert {:ok, "100"} == Veidrodelis.hget(@id, 0, "hincrby_hash", "new_counter")
 
       # HINCRBYFLOAT verification (10.5 + 3.7 = 14.2)
-      score = Veidrodelis.hget(@id, 0, "hincrbyfloat_hash", "score")
+      {:ok, score} = Veidrodelis.hget(@id, 0, "hincrbyfloat_hash", "score")
       assert_in_delta String.to_float(score), 14.2, 0.0001
-      new_score = Veidrodelis.hget(@id, 0, "hincrbyfloat_hash", "new_score")
+      {:ok, new_score} = Veidrodelis.hget(@id, 0, "hincrbyfloat_hash", "new_score")
       assert_in_delta String.to_float(new_score), 42.3, 0.0001
 
       # Sorted set values
-      assert 3 == Veidrodelis.zcard(@id, 0, "myzset")
-      assert 1.0 == Veidrodelis.zscore(@id, 0, "myzset", "member1")
-      assert 2.5 == Veidrodelis.zscore(@id, 0, "myzset", "member2")
-      assert 3.7 == Veidrodelis.zscore(@id, 0, "myzset", "member3")
+      assert {:ok, 3} == Veidrodelis.zcard(@id, 0, "myzset")
+      assert {:ok, 1.0} == Veidrodelis.zscore(@id, 0, "myzset", "member1")
+      assert {:ok, 2.5} == Veidrodelis.zscore(@id, 0, "myzset", "member2")
+      assert {:ok, 3.7} == Veidrodelis.zscore(@id, 0, "myzset", "member3")
 
       # zset_for_rem should have x and z (y was removed)
-      assert 2 == Veidrodelis.zcard(@id, 0, "zset_for_rem")
-      assert 1.0 == Veidrodelis.zscore(@id, 0, "zset_for_rem", "x")
-      assert 3.0 == Veidrodelis.zscore(@id, 0, "zset_for_rem", "z")
-      assert nil == Veidrodelis.zscore(@id, 0, "zset_for_rem", "y")
+      assert {:ok, 2} == Veidrodelis.zcard(@id, 0, "zset_for_rem")
+      assert {:ok, 1.0} == Veidrodelis.zscore(@id, 0, "zset_for_rem", "x")
+      assert {:ok, 3.0} == Veidrodelis.zscore(@id, 0, "zset_for_rem", "z")
+      assert {:ok, nil} == Veidrodelis.zscore(@id, 0, "zset_for_rem", "y")
 
       # pop_zset should have only "b" after ZPOPMAX and ZPOPMIN
-      assert 1 == Veidrodelis.zcard(@id, 0, "pop_zset")
-      assert 2.0 == Veidrodelis.zscore(@id, 0, "pop_zset", "b")
+      assert {:ok, 1} == Veidrodelis.zcard(@id, 0, "pop_zset")
+      assert {:ok, 2.0} == Veidrodelis.zscore(@id, 0, "pop_zset", "b")
 
       # Verify set/zset operations created correct results
-      assert Veidrodelis.zcard(@id, 0, "zset_union") > 0
-      assert Veidrodelis.zcard(@id, 0, "zset_inter") > 0
+      {:ok, zcard_union} = Veidrodelis.zcard(@id, 0, "zset_union")
+      assert zcard_union > 0
+      {:ok, zcard_inter} = Veidrodelis.zcard(@id, 0, "zset_inter")
+      assert zcard_inter > 0
 
       # Verify ZINCRBY results (replicated as ZADD with final scores)
       # Test 1: existing key, existing member (10.0 + 5.5 = 15.5)
-      assert 15.5 == Veidrodelis.zscore(@id, 0, "zincrby_test", "counter")
+      assert {:ok, 15.5} == Veidrodelis.zscore(@id, 0, "zincrby_test", "counter")
 
       # Test 2: existing key, non-existing member (0 + 7.5 = 7.5)
-      assert 2 == Veidrodelis.zcard(@id, 0, "zincrby_test2")
-      assert 1.0 == Veidrodelis.zscore(@id, 0, "zincrby_test2", "existing")
-      assert 7.5 == Veidrodelis.zscore(@id, 0, "zincrby_test2", "new_member")
+      assert {:ok, 2} == Veidrodelis.zcard(@id, 0, "zincrby_test2")
+      assert {:ok, 1.0} == Veidrodelis.zscore(@id, 0, "zincrby_test2", "existing")
+      assert {:ok, 7.5} == Veidrodelis.zscore(@id, 0, "zincrby_test2", "new_member")
 
       # Test 3: non-existing key (creates key with member at score 42.0)
-      assert 1 == Veidrodelis.zcard(@id, 0, "zincrby_new_key")
-      assert 42.0 == Veidrodelis.zscore(@id, 0, "zincrby_new_key", "member1")
+      assert {:ok, 1} == Veidrodelis.zcard(@id, 0, "zincrby_new_key")
+      assert {:ok, 42.0} == Veidrodelis.zscore(@id, 0, "zincrby_new_key", "member1")
 
       # Test 4: negative delta (100.0 - 25.5 = 74.5)
-      assert 74.5 == Veidrodelis.zscore(@id, 0, "zincrby_decr", "score")
+      assert {:ok, 74.5} == Veidrodelis.zscore(@id, 0, "zincrby_decr", "score")
 
       Logger.info("=== [Veidrodelis] Phase 4: Issuing commands to DB 1 while streaming ===")
 
@@ -1010,44 +1070,46 @@ defmodule Veidrodelis.IntegrationTest do
 
       # Wait for streaming replication
       assert_within 3000 do
-        assert "simple_value" == Veidrodelis.get(@id, 1, "simple_key")
-        assert 4 == Veidrodelis.llen(@id, 1, "mylist")
-        assert 3 == Veidrodelis.scard(@id, 1, "myset")
-        assert 3 == Veidrodelis.hlen(@id, 1, "myhash")
-        assert 3 == Veidrodelis.zcard(@id, 1, "myzset")
+        assert {:ok, "simple_value"} == Veidrodelis.get(@id, 1, "simple_key")
+        assert {:ok, 4} == Veidrodelis.llen(@id, 1, "mylist")
+        assert {:ok, 3} == Veidrodelis.scard(@id, 1, "myset")
+        assert {:ok, 3} == Veidrodelis.hlen(@id, 1, "myhash")
+        assert {:ok, 3} == Veidrodelis.zcard(@id, 1, "myzset")
       end
 
       Logger.info("=== [Veidrodelis] Phase 5: Verifying streaming data via query API ===")
 
       # String values
-      assert "simple_value" == Veidrodelis.get(@id, 1, "simple_key")
-      assert "mval1" == Veidrodelis.get(@id, 1, "mkey1")
-      assert "initial_appended" == Veidrodelis.get(@id, 1, "append_key")
+      assert {:ok, "simple_value"} == Veidrodelis.get(@id, 1, "simple_key")
+      assert {:ok, "mval1"} == Veidrodelis.get(@id, 1, "mkey1")
+      assert {:ok, "initial_appended"} == Veidrodelis.get(@id, 1, "append_key")
 
       # List values
-      assert 4 == Veidrodelis.llen(@id, 1, "mylist")
-      assert ["elem0", "elem1", "elem2", "elem3"] == Veidrodelis.lrange(@id, 1, "mylist", 0, -1)
+      assert {:ok, 4} == Veidrodelis.llen(@id, 1, "mylist")
+
+      assert {:ok, ["elem0", "elem1", "elem2", "elem3"]} ==
+               Veidrodelis.lrange(@id, 1, "mylist", 0, -1)
 
       # Set values
-      assert 3 == Veidrodelis.scard(@id, 1, "myset")
-      members_db1 = Veidrodelis.smembers(@id, 1, "myset")
+      assert {:ok, 3} == Veidrodelis.scard(@id, 1, "myset")
+      {:ok, members_db1} = Veidrodelis.smembers(@id, 1, "myset")
       assert "member1" in members_db1
       assert "member2" in members_db1
       assert "member3" in members_db1
 
       # Hash values
-      assert 3 == Veidrodelis.hlen(@id, 1, "myhash")
-      assert "value1" == Veidrodelis.hget(@id, 1, "myhash", "field1")
+      assert {:ok, 3} == Veidrodelis.hlen(@id, 1, "myhash")
+      assert {:ok, "value1"} == Veidrodelis.hget(@id, 1, "myhash", "field1")
 
       # Sorted set values
-      assert 3 == Veidrodelis.zcard(@id, 1, "myzset")
-      assert 1.0 == Veidrodelis.zscore(@id, 1, "myzset", "member1")
+      assert {:ok, 3} == Veidrodelis.zcard(@id, 1, "myzset")
+      assert {:ok, 1.0} == Veidrodelis.zscore(@id, 1, "myzset", "member1")
 
       # Verify ZINCRBY results in DB 1 (streaming replication)
-      assert 15.5 == Veidrodelis.zscore(@id, 1, "zincrby_test", "counter")
-      assert 7.5 == Veidrodelis.zscore(@id, 1, "zincrby_test2", "new_member")
-      assert 42.0 == Veidrodelis.zscore(@id, 1, "zincrby_new_key", "member1")
-      assert 74.5 == Veidrodelis.zscore(@id, 1, "zincrby_decr", "score")
+      assert {:ok, 15.5} == Veidrodelis.zscore(@id, 1, "zincrby_test", "counter")
+      assert {:ok, 7.5} == Veidrodelis.zscore(@id, 1, "zincrby_test2", "new_member")
+      assert {:ok, 42.0} == Veidrodelis.zscore(@id, 1, "zincrby_new_key", "member1")
+      assert {:ok, 74.5} == Veidrodelis.zscore(@id, 1, "zincrby_decr", "score")
 
       Logger.info("=== [Veidrodelis] Test completed successfully ===")
 

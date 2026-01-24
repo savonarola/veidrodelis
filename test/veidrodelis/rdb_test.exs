@@ -1,7 +1,6 @@
 defmodule Vdr.RedisStream.RDBTest do
   use ExUnit.Case, async: true
 
-
   @moduledoc """
   Tests for RDB parsing with various Redis data types.
   """

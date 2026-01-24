@@ -25,10 +25,10 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
 
       new_commands =
         Enum.reduce(replica_commands, commands, fn %Vdr.RedisStream.ReplicaCommand{
-                                                      db: db,
-                                                      command: command
-                                                    },
-                                                    acc ->
+                                                     db: db,
+                                                     command: command
+                                                   },
+                                                   acc ->
           entry = {System.monotonic_time(), db, command}
           [entry | acc]
         end)

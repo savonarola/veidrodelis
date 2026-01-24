@@ -179,7 +179,7 @@ defmodule Mix.Tasks.Benchmark do
   end
 
   defp get_all_scenarios do
-      HashCommands.scenarios() ++
+    HashCommands.scenarios() ++
       LuaAggregate.scenarios() ++
       HgetAggregate.scenarios()
   end

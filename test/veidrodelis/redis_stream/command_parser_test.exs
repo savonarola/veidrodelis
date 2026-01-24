@@ -14,7 +14,8 @@ defmodule Vdr.RedisStream.CommandParserTest do
       # No numkeys parameter!
       result = CommandParser.parse(["SINTERSTORE", "dest", "key1", "key2", "key3"])
 
-      assert {:ok, {:sinterstore, "dest", ["key1", "key2", "key3"]}, ["dest", "key1", "key2", "key3"]} =
+      assert {:ok, {:sinterstore, "dest", ["key1", "key2", "key3"]},
+              ["dest", "key1", "key2", "key3"]} =
                result
     end
 
@@ -28,7 +29,8 @@ defmodule Vdr.RedisStream.CommandParserTest do
     test "SDIFFSTORE command - should include all keys" do
       result = CommandParser.parse(["SDIFFSTORE", "dest", "base", "sub1", "sub2"])
 
-      assert {:ok, {:sdiffstore, "dest", ["base", "sub1", "sub2"]}, ["dest", "base", "sub1", "sub2"]} =
+      assert {:ok, {:sdiffstore, "dest", ["base", "sub1", "sub2"]},
+              ["dest", "base", "sub1", "sub2"]} =
                result
     end
 
@@ -38,7 +40,8 @@ defmodule Vdr.RedisStream.CommandParserTest do
 
       # CommandParser currently doesn't handle numkeys, so this will fail
       # We'll fix this as part of the refactoring
-      assert {:ok, {:zunionstore, "dest", ["key1", "key2"], [1.0, 1.0], :sum}, ["dest", "key1", "key2"]} =
+      assert {:ok, {:zunionstore, "dest", ["key1", "key2"], [1.0, 1.0], :sum},
+              ["dest", "key1", "key2"]} =
                result
     end
 

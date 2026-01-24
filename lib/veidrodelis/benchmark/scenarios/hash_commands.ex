@@ -40,7 +40,13 @@ defmodule Vdr.Benchmark.Scenarios.HashCommands do
     key = "hash:#{key_num}"
     field = "field_#{:rand.uniform(100)}"
 
-    read_op = fn vdr_id -> Veidrodelis.hget(vdr_id, 0, key, field) end
+    read_op = fn vdr_id ->
+      case Veidrodelis.hget(vdr_id, 0, key, field) do
+        {:ok, value} -> value
+        {:error, _} = error -> error
+      end
+    end
+
     hit_check = fn result -> result != nil end
 
     {read_op, hit_check}

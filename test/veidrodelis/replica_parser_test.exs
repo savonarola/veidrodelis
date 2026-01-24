@@ -1,7 +1,6 @@
 defmodule Vdr.RedisStream.ParserTest do
   use ExUnit.Case, async: true
 
-
   @moduledoc """
   Smoke tests for Rust-based replica parser.
   These tests verify that NIFs are loaded and callable.

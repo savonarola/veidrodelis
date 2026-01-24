@@ -56,9 +56,14 @@ defmodule Vdr.RedisStream.CommandParser do
 
   # Numeric string commands
   def parse(["INCR", key]), do: {:ok, {:incr, key}, [key]}
-  def parse(["INCRBY", key, increment]), do: {:ok, {:incrby, key, String.to_integer(increment)}, [key]}
+
+  def parse(["INCRBY", key, increment]),
+    do: {:ok, {:incrby, key, String.to_integer(increment)}, [key]}
+
   def parse(["DECR", key]), do: {:ok, {:decr, key}, [key]}
-  def parse(["DECRBY", key, decrement]), do: {:ok, {:decrby, key, String.to_integer(decrement)}, [key]}
+
+  def parse(["DECRBY", key, decrement]),
+    do: {:ok, {:decrby, key, String.to_integer(decrement)}, [key]}
 
   # Conditional set commands
   def parse(["SETNX", key, value]), do: {:ok, {:setnx, key, value}, [key]}
@@ -110,14 +115,18 @@ defmodule Vdr.RedisStream.CommandParser do
   end
 
   def parse(["LMOVE", source_key, dest_key, wherefrom, whereto]) do
-    wherefrom = case String.upcase(wherefrom) do
-      "LEFT" -> :left
-      "RIGHT" -> :right
-    end
-    whereto = case String.upcase(whereto) do
-      "LEFT" -> :left
-      "RIGHT" -> :right
-    end
+    wherefrom =
+      case String.upcase(wherefrom) do
+        "LEFT" -> :left
+        "RIGHT" -> :right
+      end
+
+    whereto =
+      case String.upcase(whereto) do
+        "LEFT" -> :left
+        "RIGHT" -> :right
+      end
+
     {:ok, {:lmove, source_key, dest_key, wherefrom, whereto}, [source_key, dest_key]}
   end
 
@@ -286,7 +295,8 @@ defmodule Vdr.RedisStream.CommandParser do
 
   # Generic key commands
   def parse(["DEL" | keys]), do: {:ok, {:del, keys}, keys}
-  def parse(["UNLINK" | keys]), do: {:ok, {:del, keys}, keys}  # UNLINK is semantically equivalent to DEL
+  # UNLINK is semantically equivalent to DEL
+  def parse(["UNLINK" | keys]), do: {:ok, {:del, keys}, keys}
 
   # COPY source destination [DB destination-db] [REPLACE]
   def parse(["COPY", source, destination | options]) do
@@ -349,12 +359,15 @@ defmodule Vdr.RedisStream.CommandParser do
   # Unknown command - wrap in Generic tuple
   def parse(args) do
     require Logger
+
     if is_list(args) and length(args) > 0 do
       cmd = hd(args)
+
       if is_binary(cmd) and String.upcase(cmd) =~ ~r/HINCR/ do
         Logger.warning("HINCR command fell through to Generic: #{inspect(args)}")
       end
     end
+
     {:ok, {:generic, args}, []}
   end
 
@@ -491,6 +504,7 @@ defmodule Vdr.RedisStream.CommandParser do
       _ -> {nil, [arg | rest]}
     end
   end
+
   defp extract_hexpire_condition([]), do: {nil, []}
 
   defp extract_hexpire_fields(["FIELDS", _numfields | fields]), do: fields
@@ -513,6 +527,7 @@ defmodule Vdr.RedisStream.CommandParser do
       _ -> {nil, [arg | rest]}
     end
   end
+
   defp extract_hgetex_ttl_option([]), do: {nil, []}
 
   defp extract_hsetex_options([], nx_or_xx), do: {nx_or_xx, []}

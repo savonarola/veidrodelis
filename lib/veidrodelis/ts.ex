@@ -319,5 +319,4 @@ defmodule Vdr.TS do
           {:ok, [term()]} | {:error, term()}
   defp read_tx_commands(_storage, _db, _commands),
     do: :erlang.nif_error(:nif_not_loaded)
-
 end

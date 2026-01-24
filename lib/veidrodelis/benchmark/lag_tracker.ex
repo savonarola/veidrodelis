@@ -149,7 +149,7 @@ defmodule Vdr.Benchmark.LagTracker do
     try do
       # Get all entries from the lagmon list (db 0)
       # Use lrange to get all elements (0 to -1 means all)
-      entries = Veidrodelis.lrange(state.vdr_id, 0, state.tracker_key, 0, -1)
+      {:ok, entries} = Veidrodelis.lrange(state.vdr_id, 0, state.tracker_key, 0, -1)
       Logger.debug("fetch_lag_samples entries: #{inspect(entries)}")
 
       case entries do

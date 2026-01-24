@@ -28,7 +28,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["b", "a"]
         redis_list = Redix.command!(redis, ["LRANGE", "test_list", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "test_list", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "test_list", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -42,7 +42,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["a", "b"]
         redis_list = Redix.command!(redis, ["LRANGE", "test_list", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "test_list", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "test_list", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -56,7 +56,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["y", "z", "x"]
         redis_list = Redix.command!(redis, ["LRANGE", "rem_list", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "rem_list", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "rem_list", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -70,7 +70,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["a", "b", "c"]
         redis_list = Redix.command!(redis, ["LRANGE", "rem_all_list", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "rem_all_list", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "rem_all_list", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -84,7 +84,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["x", "y", "z"]
         redis_list = Redix.command!(redis, ["LRANGE", "rem_neg_list", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "rem_neg_list", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "rem_neg_list", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -98,7 +98,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["b", "c", "d"]
         redis_list = Redix.command!(redis, ["LRANGE", "trim_list", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "trim_list", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "trim_list", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -112,7 +112,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["c", "d", "e"]
         redis_list = Redix.command!(redis, ["LRANGE", "trim_neg_start", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "trim_neg_start", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "trim_neg_start", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -126,7 +126,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["b", "c", "d"]
         redis_list = Redix.command!(redis, ["LRANGE", "trim_neg_stop", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "trim_neg_stop", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "trim_neg_stop", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -140,7 +140,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["b", "c", "d"]
         redis_list = Redix.command!(redis, ["LRANGE", "trim_both_neg", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "trim_both_neg", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "trim_both_neg", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -154,7 +154,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["a", "b", "c"]
         redis_list = Redix.command!(redis, ["LRANGE", "insert_list", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "insert_list", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "insert_list", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -168,7 +168,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["a", "b", "X", "d"]
         redis_list = Redix.command!(redis, ["LRANGE", "set_list", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "set_list", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "set_list", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -182,7 +182,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["a", "b", "Y", "d"]
         redis_list = Redix.command!(redis, ["LRANGE", "set_neg_list", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "set_neg_list", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "set_neg_list", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -196,7 +196,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["a", "b", "Z"]
         redis_list = Redix.command!(redis, ["LRANGE", "set_last_list", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "set_last_list", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "set_last_list", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -214,8 +214,8 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
 
         redis_src = Redix.command!(redis, ["LRANGE", "src_list", "0", "-1"])
         redis_dest = Redix.command!(redis, ["LRANGE", "dest_list", "0", "-1"])
-        ts_src = Veidrodelis.lrange(vdr_id(), 0, "src_list", 0, -1)
-        ts_dest = Veidrodelis.lrange(vdr_id(), 0, "dest_list", 0, -1)
+        {:ok, ts_src} = Veidrodelis.lrange(vdr_id(), 0, "src_list", 0, -1)
+        {:ok, ts_dest} = Veidrodelis.lrange(vdr_id(), 0, "dest_list", 0, -1)
 
         assert expected_src == redis_src
         assert expected_src == ts_src
@@ -225,14 +225,16 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       end
     end
 
-    test "RPOPLPUSH with same source and destination (circular) replicates correctly", %{redis: redis} do
+    test "RPOPLPUSH with same source and destination (circular) replicates correctly", %{
+      redis: redis
+    } do
       Redix.command!(redis, ["RPUSH", "circular_list", "a", "b", "c"])
       Redix.command!(redis, ["RPOPLPUSH", "circular_list", "circular_list"])
 
       assert_within 1000 do
         expected = ["c", "a", "b"]
         redis_list = Redix.command!(redis, ["LRANGE", "circular_list", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "circular_list", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "circular_list", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
@@ -247,7 +249,7 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       assert_within 1000 do
         expected = ["c", "d", "a", "b"]
         redis_list = Redix.command!(redis, ["LRANGE", "rotate_list", "0", "-1"])
-        ts_list = Veidrodelis.lrange(vdr_id(), 0, "rotate_list", 0, -1)
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "rotate_list", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list

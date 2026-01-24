@@ -128,7 +128,8 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       rdb_header = "$#{byte_size(rdb_data)}\r\n"
 
       # Feed RDB
-      {:ok, commands1, parser, _flags} = Vdr.RedisStream.Parser.data(parser, rdb_header <> rdb_data)
+      {:ok, commands1, parser, _flags} =
+        Vdr.RedisStream.Parser.data(parser, rdb_header <> rdb_data)
 
       # Should have parsed commands from RDB
       assert length(commands1) > 0
@@ -170,7 +171,9 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       # Feed RDB first
       rdb_data = build_minimal_rdb()
       rdb_header = "$#{byte_size(rdb_data)}\r\n"
-      {:ok, _commands, parser, _flags} = Vdr.RedisStream.Parser.data(parser, rdb_header <> rdb_data)
+
+      {:ok, _commands, parser, _flags} =
+        Vdr.RedisStream.Parser.data(parser, rdb_header <> rdb_data)
 
       # Feed multiple RESP commands at once
       commands_data =

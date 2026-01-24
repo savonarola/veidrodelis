@@ -91,6 +91,7 @@ defmodule Vdr.TS.Watch do
 
       # Add to pid_to_keys
       db_key = {db, key}
+
       pid_to_keys =
         Map.update(watch.pid_to_keys, pid, MapSet.new([db_key]), fn keys ->
           MapSet.put(keys, db_key)
@@ -138,6 +139,7 @@ defmodule Vdr.TS.Watch do
         |> then(fn ktp ->
           if get_in(ktp, [db, key]) == :delete do
             new_db_map = Map.delete(ktp[db], key)
+
             if map_size(new_db_map) == 0 do
               Map.delete(ktp, db)
             else
@@ -150,6 +152,7 @@ defmodule Vdr.TS.Watch do
 
       # Remove from pid_to_keys
       db_key = {db, key}
+
       pid_to_keys =
         Map.update(watch.pid_to_keys, pid, MapSet.new(), fn keys ->
           new_keys = MapSet.delete(keys, db_key)
@@ -214,6 +217,7 @@ defmodule Vdr.TS.Watch do
         |> then(fn ktp ->
           if get_in(ktp, [db, key]) == :delete do
             new_db_map = Map.delete(ktp[db] || %{}, key)
+
             if map_size(new_db_map) == 0 do
               Map.delete(ktp, db)
             else

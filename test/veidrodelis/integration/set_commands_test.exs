@@ -30,9 +30,10 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         expected_card = 2
         expected_members = ["a", "c"]
         redis_card = Redix.command!(redis, ["SCARD", "srem_single"])
-        ts_card = Veidrodelis.scard(vdr_id(), 0, "srem_single")
+        {:ok, ts_card} = Veidrodelis.scard(vdr_id(), 0, "srem_single")
         redis_members = Redix.command!(redis, ["SMEMBERS", "srem_single"]) |> Enum.sort()
-        ts_members = Veidrodelis.smembers(vdr_id(), 0, "srem_single") |> Enum.sort()
+        {:ok, ts_members_tmp} = Veidrodelis.smembers(vdr_id(), 0, "srem_single")
+        ts_members = Enum.sort(ts_members_tmp)
 
         assert expected_card == redis_card
         assert expected_card == ts_card
@@ -49,9 +50,10 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         expected_card = 3
         expected_members = ["a", "c", "e"]
         redis_card = Redix.command!(redis, ["SCARD", "srem_multi"])
-        ts_card = Veidrodelis.scard(vdr_id(), 0, "srem_multi")
+        {:ok, ts_card} = Veidrodelis.scard(vdr_id(), 0, "srem_multi")
         redis_members = Redix.command!(redis, ["SMEMBERS", "srem_multi"]) |> Enum.sort()
-        ts_members = Veidrodelis.smembers(vdr_id(), 0, "srem_multi") |> Enum.sort()
+        {:ok, ts_members_tmp} = Veidrodelis.smembers(vdr_id(), 0, "srem_multi")
+        ts_members = Enum.sort(ts_members_tmp)
 
         assert expected_card == redis_card
         assert expected_card == ts_card
@@ -67,7 +69,7 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
       assert_within 1000 do
         expected_card = 3
         redis_card = Redix.command!(redis, ["SCARD", "srem_nonexist"])
-        ts_card = Veidrodelis.scard(vdr_id(), 0, "srem_nonexist")
+        {:ok, ts_card} = Veidrodelis.scard(vdr_id(), 0, "srem_nonexist")
 
         assert expected_card == redis_card
         assert expected_card == ts_card
@@ -80,7 +82,7 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
       assert_within 1000 do
         expected_card = 0
         redis_card = Redix.command!(redis, ["SCARD", "srem_nokey"])
-        ts_card = Veidrodelis.scard(vdr_id(), 0, "srem_nokey")
+        {:ok, ts_card} = Veidrodelis.scard(vdr_id(), 0, "srem_nokey")
 
         assert expected_card == redis_card
         assert expected_card == ts_card
@@ -94,7 +96,7 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
       assert_within 1000 do
         expected_card = 0
         redis_card = Redix.command!(redis, ["SCARD", "srem_all"])
-        ts_card = Veidrodelis.scard(vdr_id(), 0, "srem_all")
+        {:ok, ts_card} = Veidrodelis.scard(vdr_id(), 0, "srem_all")
 
         assert expected_card == redis_card
         assert expected_card == ts_card
@@ -110,9 +112,11 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         expected_src = ["a", "c"]
         expected_dst = ["b", "x", "y"]
         redis_src = Redix.command!(redis, ["SMEMBERS", "smove_src"]) |> Enum.sort()
-        ts_src = Veidrodelis.smembers(vdr_id(), 0, "smove_src") |> Enum.sort()
+        {:ok, ts_src_tmp} = Veidrodelis.smembers(vdr_id(), 0, "smove_src")
+        ts_src = Enum.sort(ts_src_tmp)
         redis_dst = Redix.command!(redis, ["SMEMBERS", "smove_dst"]) |> Enum.sort()
-        ts_dst = Veidrodelis.smembers(vdr_id(), 0, "smove_dst") |> Enum.sort()
+        {:ok, ts_dst_tmp} = Veidrodelis.smembers(vdr_id(), 0, "smove_dst")
+        ts_dst = Enum.sort(ts_dst_tmp)
 
         assert expected_src == redis_src
         assert expected_src == ts_src
@@ -129,9 +133,11 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         expected_src = ["b"]
         expected_dst = ["a"]
         redis_src = Redix.command!(redis, ["SMEMBERS", "smove_src2"]) |> Enum.sort()
-        ts_src = Veidrodelis.smembers(vdr_id(), 0, "smove_src2") |> Enum.sort()
+        {:ok, ts_src_tmp} = Veidrodelis.smembers(vdr_id(), 0, "smove_src2")
+        ts_src = Enum.sort(ts_src_tmp)
         redis_dst = Redix.command!(redis, ["SMEMBERS", "smove_dst2"]) |> Enum.sort()
-        ts_dst = Veidrodelis.smembers(vdr_id(), 0, "smove_dst2") |> Enum.sort()
+        {:ok, ts_dst_tmp} = Veidrodelis.smembers(vdr_id(), 0, "smove_dst2")
+        ts_dst = Enum.sort(ts_dst_tmp)
 
         assert expected_src == redis_src
         assert expected_src == ts_src
@@ -149,9 +155,11 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         expected_src = ["a", "b"]
         expected_dst = ["x"]
         redis_src = Redix.command!(redis, ["SMEMBERS", "smove_src3"]) |> Enum.sort()
-        ts_src = Veidrodelis.smembers(vdr_id(), 0, "smove_src3") |> Enum.sort()
+        {:ok, ts_src_tmp} = Veidrodelis.smembers(vdr_id(), 0, "smove_src3")
+        ts_src = Enum.sort(ts_src_tmp)
         redis_dst = Redix.command!(redis, ["SMEMBERS", "smove_dst3"]) |> Enum.sort()
-        ts_dst = Veidrodelis.smembers(vdr_id(), 0, "smove_dst3") |> Enum.sort()
+        {:ok, ts_dst_tmp} = Veidrodelis.smembers(vdr_id(), 0, "smove_dst3")
+        ts_dst = Enum.sort(ts_dst_tmp)
 
         assert expected_src == redis_src
         assert expected_src == ts_src
@@ -169,9 +177,10 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         expected_members = ["1", "2", "3", "4"]
         expected_card = 4
         redis_card = Redix.command!(redis, ["SCARD", "union_result"])
-        ts_card = Veidrodelis.scard(vdr_id(), 0, "union_result")
+        {:ok, ts_card} = Veidrodelis.scard(vdr_id(), 0, "union_result")
         redis_members = Redix.command!(redis, ["SMEMBERS", "union_result"]) |> Enum.sort()
-        ts_members = Veidrodelis.smembers(vdr_id(), 0, "union_result") |> Enum.sort()
+        {:ok, ts_members_tmp} = Veidrodelis.smembers(vdr_id(), 0, "union_result")
+        ts_members = Enum.sort(ts_members_tmp)
 
         assert expected_card == redis_card
         assert expected_card == ts_card
@@ -190,9 +199,10 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         expected_members = ["a", "b", "c", "d"]
         expected_card = 4
         redis_card = Redix.command!(redis, ["SCARD", "union_multi"])
-        ts_card = Veidrodelis.scard(vdr_id(), 0, "union_multi")
+        {:ok, ts_card} = Veidrodelis.scard(vdr_id(), 0, "union_multi")
         redis_members = Redix.command!(redis, ["SMEMBERS", "union_multi"]) |> Enum.sort()
-        ts_members = Veidrodelis.smembers(vdr_id(), 0, "union_multi") |> Enum.sort()
+        {:ok, ts_members_tmp} = Veidrodelis.smembers(vdr_id(), 0, "union_multi")
+        ts_members = Enum.sort(ts_members_tmp)
 
         assert expected_card == redis_card
         assert expected_card == ts_card
@@ -210,7 +220,8 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
       assert_within 1000 do
         expected_members = ["a", "b", "c"]
         redis_members = Redix.command!(redis, ["SMEMBERS", "union_overwrite"]) |> Enum.sort()
-        ts_members = Veidrodelis.smembers(vdr_id(), 0, "union_overwrite") |> Enum.sort()
+        {:ok, ts_members_tmp} = Veidrodelis.smembers(vdr_id(), 0, "union_overwrite")
+        ts_members = Enum.sort(ts_members_tmp)
 
         assert expected_members == redis_members
         assert expected_members == ts_members
@@ -226,9 +237,10 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         expected_members = ["2", "3"]
         expected_card = 2
         redis_card = Redix.command!(redis, ["SCARD", "inter_result"])
-        ts_card = Veidrodelis.scard(vdr_id(), 0, "inter_result")
+        {:ok, ts_card} = Veidrodelis.scard(vdr_id(), 0, "inter_result")
         redis_members = Redix.command!(redis, ["SMEMBERS", "inter_result"]) |> Enum.sort()
-        ts_members = Veidrodelis.smembers(vdr_id(), 0, "inter_result") |> Enum.sort()
+        {:ok, ts_members_tmp} = Veidrodelis.smembers(vdr_id(), 0, "inter_result")
+        ts_members = Enum.sort(ts_members_tmp)
 
         assert expected_card == redis_card
         assert expected_card == ts_card
@@ -247,9 +259,10 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         expected_members = ["c", "d"]
         expected_card = 2
         redis_card = Redix.command!(redis, ["SCARD", "inter_multi"])
-        ts_card = Veidrodelis.scard(vdr_id(), 0, "inter_multi")
+        {:ok, ts_card} = Veidrodelis.scard(vdr_id(), 0, "inter_multi")
         redis_members = Redix.command!(redis, ["SMEMBERS", "inter_multi"]) |> Enum.sort()
-        ts_members = Veidrodelis.smembers(vdr_id(), 0, "inter_multi") |> Enum.sort()
+        {:ok, ts_members_tmp} = Veidrodelis.smembers(vdr_id(), 0, "inter_multi")
+        ts_members = Enum.sort(ts_members_tmp)
 
         assert expected_card == redis_card
         assert expected_card == ts_card
@@ -266,7 +279,7 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
       assert_within 1000 do
         expected_card = 0
         redis_card = Redix.command!(redis, ["SCARD", "inter_empty"])
-        ts_card = Veidrodelis.scard(vdr_id(), 0, "inter_empty")
+        {:ok, ts_card} = Veidrodelis.scard(vdr_id(), 0, "inter_empty")
 
         assert expected_card == redis_card
         assert expected_card == ts_card
@@ -282,7 +295,8 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
       assert_within 1000 do
         expected_members = ["b", "c"]
         redis_members = Redix.command!(redis, ["SMEMBERS", "inter_overwrite"]) |> Enum.sort()
-        ts_members = Veidrodelis.smembers(vdr_id(), 0, "inter_overwrite") |> Enum.sort()
+        {:ok, ts_members_tmp} = Veidrodelis.smembers(vdr_id(), 0, "inter_overwrite")
+        ts_members = Enum.sort(ts_members_tmp)
 
         assert expected_members == redis_members
         assert expected_members == ts_members
@@ -298,9 +312,10 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         expected_members = ["1", "4"]
         expected_card = 2
         redis_card = Redix.command!(redis, ["SCARD", "diff_result"])
-        ts_card = Veidrodelis.scard(vdr_id(), 0, "diff_result")
+        {:ok, ts_card} = Veidrodelis.scard(vdr_id(), 0, "diff_result")
         redis_members = Redix.command!(redis, ["SMEMBERS", "diff_result"]) |> Enum.sort()
-        ts_members = Veidrodelis.smembers(vdr_id(), 0, "diff_result") |> Enum.sort()
+        {:ok, ts_members_tmp} = Veidrodelis.smembers(vdr_id(), 0, "diff_result")
+        ts_members = Enum.sort(ts_members_tmp)
 
         assert expected_card == redis_card
         assert expected_card == ts_card
@@ -319,9 +334,10 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         expected_members = ["a", "e"]
         expected_card = 2
         redis_card = Redix.command!(redis, ["SCARD", "diff_multi"])
-        ts_card = Veidrodelis.scard(vdr_id(), 0, "diff_multi")
+        {:ok, ts_card} = Veidrodelis.scard(vdr_id(), 0, "diff_multi")
         redis_members = Redix.command!(redis, ["SMEMBERS", "diff_multi"]) |> Enum.sort()
-        ts_members = Veidrodelis.smembers(vdr_id(), 0, "diff_multi") |> Enum.sort()
+        {:ok, ts_members_tmp} = Veidrodelis.smembers(vdr_id(), 0, "diff_multi")
+        ts_members = Enum.sort(ts_members_tmp)
 
         assert expected_card == redis_card
         assert expected_card == ts_card
@@ -338,7 +354,7 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
       assert_within 1000 do
         expected_card = 0
         redis_card = Redix.command!(redis, ["SCARD", "diff_empty"])
-        ts_card = Veidrodelis.scard(vdr_id(), 0, "diff_empty")
+        {:ok, ts_card} = Veidrodelis.scard(vdr_id(), 0, "diff_empty")
 
         assert expected_card == redis_card
         assert expected_card == ts_card
@@ -354,7 +370,8 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
       assert_within 1000 do
         expected_members = ["a", "b"]
         redis_members = Redix.command!(redis, ["SMEMBERS", "diff_overwrite"]) |> Enum.sort()
-        ts_members = Veidrodelis.smembers(vdr_id(), 0, "diff_overwrite") |> Enum.sort()
+        {:ok, ts_members_tmp} = Veidrodelis.smembers(vdr_id(), 0, "diff_overwrite")
+        ts_members = Enum.sort(ts_members_tmp)
 
         assert expected_members == redis_members
         assert expected_members == ts_members
@@ -366,7 +383,7 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
 
       assert_within 1000 do
         redis_is_member = Redix.command!(redis, ["SISMEMBER", "sismember_test", "b"])
-        ts_is_member = Veidrodelis.sismember(vdr_id(), 0, "sismember_test", "b")
+        {:ok, ts_is_member} = Veidrodelis.sismember(vdr_id(), 0, "sismember_test", "b")
 
         assert 1 == redis_is_member
         assert true == ts_is_member
@@ -378,7 +395,7 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
 
       assert_within 1000 do
         redis_is_member = Redix.command!(redis, ["SISMEMBER", "sismember_test2", "z"])
-        ts_is_member = Veidrodelis.sismember(vdr_id(), 0, "sismember_test2", "z")
+        {:ok, ts_is_member} = Veidrodelis.sismember(vdr_id(), 0, "sismember_test2", "z")
 
         assert 0 == redis_is_member
         assert false == ts_is_member
@@ -388,7 +405,7 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
     test "SISMEMBER returns false for non-existent key", %{redis: redis} do
       assert_within 1000 do
         redis_is_member = Redix.command!(redis, ["SISMEMBER", "sismember_nokey", "a"])
-        ts_is_member = Veidrodelis.sismember(vdr_id(), 0, "sismember_nokey", "a")
+        {:ok, ts_is_member} = Veidrodelis.sismember(vdr_id(), 0, "sismember_nokey", "a")
 
         assert 0 == redis_is_member
         assert false == ts_is_member
@@ -401,7 +418,7 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
 
       assert_within 1000 do
         redis_is_member = Redix.command!(redis, ["SISMEMBER", "sismember_srem", "b"])
-        ts_is_member = Veidrodelis.sismember(vdr_id(), 0, "sismember_srem", "b")
+        {:ok, ts_is_member} = Veidrodelis.sismember(vdr_id(), 0, "sismember_srem", "b")
 
         assert 0 == redis_is_member
         assert false == ts_is_member
@@ -415,9 +432,9 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
 
       assert_within 1000 do
         redis_is_member_src = Redix.command!(redis, ["SISMEMBER", "sismember_smove_src", "b"])
-        ts_is_member_src = Veidrodelis.sismember(vdr_id(), 0, "sismember_smove_src", "b")
+        {:ok, ts_is_member_src} = Veidrodelis.sismember(vdr_id(), 0, "sismember_smove_src", "b")
         redis_is_member_dst = Redix.command!(redis, ["SISMEMBER", "sismember_smove_dst", "b"])
-        ts_is_member_dst = Veidrodelis.sismember(vdr_id(), 0, "sismember_smove_dst", "b")
+        {:ok, ts_is_member_dst} = Veidrodelis.sismember(vdr_id(), 0, "sismember_smove_dst", "b")
 
         assert 0 == redis_is_member_src
         assert false == ts_is_member_src

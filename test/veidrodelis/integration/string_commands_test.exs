@@ -29,8 +29,8 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
         expected_k2 = "v2"
         redis_k1 = Redix.command!(redis, ["GET", "k1"])
         redis_k2 = Redix.command!(redis, ["GET", "k2"])
-        ts_k1 = Veidrodelis.get(vdr_id(), 0, "k1")
-        ts_k2 = Veidrodelis.get(vdr_id(), 0, "k2")
+        {:ok, ts_k1} = Veidrodelis.get(vdr_id(), 0, "k1")
+        {:ok, ts_k2} = Veidrodelis.get(vdr_id(), 0, "k2")
 
         assert expected_k1 == redis_k1
         assert expected_k1 == ts_k1
@@ -46,7 +46,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = "Hello World"
         redis_val = Redix.command!(redis, ["GET", "append_test"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "append_test")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "append_test")
 
         assert expected == redis_val
         assert expected == ts_val
@@ -61,8 +61,8 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
         expected = "rename_test"
         redis_new = Redix.command!(redis, ["GET", "new_key"])
         redis_old = Redix.command!(redis, ["GET", "old_key"])
-        ts_new = Veidrodelis.get(vdr_id(), 0, "new_key")
-        ts_old = Veidrodelis.get(vdr_id(), 0, "old_key")
+        {:ok, ts_new} = Veidrodelis.get(vdr_id(), 0, "new_key")
+        {:ok, ts_old} = Veidrodelis.get(vdr_id(), 0, "old_key")
 
         assert expected == redis_new
         assert expected == ts_new
@@ -78,7 +78,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = "test"
         redis_dst = Redix.command!(redis, ["GET", "renamenx_dst"])
-        ts_dst = Veidrodelis.get(vdr_id(), 0, "renamenx_dst")
+        {:ok, ts_dst} = Veidrodelis.get(vdr_id(), 0, "renamenx_dst")
 
         assert expected == redis_dst
         assert expected == ts_dst
@@ -96,14 +96,14 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
 
         # Key should no longer exist in DB 0
         redis_db0 = Redix.command!(redis, ["GET", "move_key"])
-        ts_db0 = Veidrodelis.get(vdr_id(), 0, "move_key")
+        {:ok, ts_db0} = Veidrodelis.get(vdr_id(), 0, "move_key")
         assert nil == redis_db0
         assert nil == ts_db0
 
         # Key should now exist in DB 1
         Redix.command!(redis, ["SELECT", "1"])
         redis_db1 = Redix.command!(redis, ["GET", "move_key"])
-        ts_db1 = Veidrodelis.get(vdr_id(), 1, "move_key")
+        {:ok, ts_db1} = Veidrodelis.get(vdr_id(), 1, "move_key")
         Redix.command!(redis, ["SELECT", "0"])
 
         assert expected == redis_db1
@@ -119,7 +119,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = "appended_content"
         redis_val = Redix.command!(redis, ["GET", "new_key"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "new_key")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "new_key")
 
         assert expected == redis_val
         assert expected == ts_val
@@ -133,7 +133,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = "Hello Redis"
         redis_val = Redix.command!(redis, ["GET", "range_key"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "range_key")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "range_key")
 
         assert expected == redis_val
         assert expected == ts_val
@@ -147,7 +147,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = <<0, 0, 0, 0, 0, "Hi"::binary>>
         redis_val = Redix.command!(redis, ["GET", "empty_range"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "empty_range")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "empty_range")
 
         assert expected == redis_val
         assert expected == ts_val
@@ -166,7 +166,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = "11"
         redis_val = Redix.command!(redis, ["GET", "counter"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "counter")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "counter")
 
         assert expected == redis_val
         assert expected == ts_val
@@ -180,7 +180,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = "1"
         redis_val = Redix.command!(redis, ["GET", "new_counter"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "new_counter")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "new_counter")
 
         assert expected == redis_val
         assert expected == ts_val
@@ -194,7 +194,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = "142"
         redis_val = Redix.command!(redis, ["GET", "incrby_key"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "incrby_key")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "incrby_key")
 
         assert expected == redis_val
         assert expected == ts_val
@@ -208,7 +208,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = "12.8"
         redis_val = Redix.command!(redis, ["GET", "float_key"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "float_key")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "float_key")
 
         assert expected == redis_val
         assert expected == ts_val
@@ -222,7 +222,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = "9"
         redis_val = Redix.command!(redis, ["GET", "decr_key"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "decr_key")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "decr_key")
 
         assert expected == redis_val
         assert expected == ts_val
@@ -236,7 +236,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = "70"
         redis_val = Redix.command!(redis, ["GET", "decrby_key"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "decrby_key")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "decrby_key")
 
         assert expected == redis_val
         assert expected == ts_val
@@ -250,7 +250,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = "new_value"
         redis_val = Redix.command!(redis, ["GET", "getset_key"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "getset_key")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "getset_key")
 
         assert expected == redis_val
         assert expected == ts_val
@@ -263,7 +263,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = "setnx_value"
         redis_val = Redix.command!(redis, ["GET", "setnx_key"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "setnx_key")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "setnx_key")
 
         assert expected == redis_val
         assert expected == ts_val
@@ -278,7 +278,7 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         expected = "original"
         redis_val = Redix.command!(redis, ["GET", "existing_key"])
-        ts_val = Veidrodelis.get(vdr_id(), 0, "existing_key")
+        {:ok, ts_val} = Veidrodelis.get(vdr_id(), 0, "existing_key")
 
         assert expected == redis_val
         assert expected == ts_val
@@ -292,8 +292,8 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         redis_val1 = Redix.command!(redis, ["GET", "msetnx1"])
         redis_val2 = Redix.command!(redis, ["GET", "msetnx2"])
-        ts_val1 = Veidrodelis.get(vdr_id(), 0, "msetnx1")
-        ts_val2 = Veidrodelis.get(vdr_id(), 0, "msetnx2")
+        {:ok, ts_val1} = Veidrodelis.get(vdr_id(), 0, "msetnx1")
+        {:ok, ts_val2} = Veidrodelis.get(vdr_id(), 0, "msetnx2")
 
         assert "val1" == redis_val1
         assert "val1" == ts_val1
@@ -310,8 +310,8 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       assert_within 1000 do
         redis_val1 = Redix.command!(redis, ["GET", "existing_msetnx"])
         redis_val2 = Redix.command!(redis, ["GET", "msetnx_new"])
-        ts_val1 = Veidrodelis.get(vdr_id(), 0, "existing_msetnx")
-        ts_val2 = Veidrodelis.get(vdr_id(), 0, "msetnx_new")
+        {:ok, ts_val1} = Veidrodelis.get(vdr_id(), 0, "existing_msetnx")
+        {:ok, ts_val2} = Veidrodelis.get(vdr_id(), 0, "msetnx_new")
 
         assert "exists" == redis_val1
         assert "exists" == ts_val1

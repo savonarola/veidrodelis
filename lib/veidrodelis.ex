@@ -196,7 +196,7 @@ defmodule Veidrodelis do
   """
   @spec get(instance_id(), db(), key()) :: binary() | nil | {:error, term()}
   def get(id, db, key) do
-    with_read_tx(id, db, {:get, key})
+    with_single_command_read_tx(id, db, {:get, key})
   end
 
   @doc """
@@ -204,7 +204,7 @@ defmodule Veidrodelis do
   """
   @spec llen(instance_id(), db(), key()) :: non_neg_integer() | {:error, term()}
   def llen(id, db, key) do
-    with_read_tx(id, db, {:llen, key})
+    with_single_command_read_tx(id, db, {:llen, key})
   end
 
   @doc """
@@ -212,7 +212,7 @@ defmodule Veidrodelis do
   """
   @spec lrange(instance_id(), db(), key(), integer(), integer()) :: [any()] | {:error, term()}
   def lrange(id, db, key, start_idx, stop_idx) do
-    with_read_tx(id, db, {:lrange, key, start_idx, stop_idx})
+    with_single_command_read_tx(id, db, {:lrange, key, start_idx, stop_idx})
   end
 
   @doc """
@@ -220,7 +220,7 @@ defmodule Veidrodelis do
   """
   @spec smembers(instance_id(), db(), key()) :: [any()] | {:error, term()}
   def smembers(id, db, key) do
-    with_read_tx(id, db, {:smembers, key})
+    with_single_command_read_tx(id, db, {:smembers, key})
   end
 
   @doc """
@@ -228,7 +228,7 @@ defmodule Veidrodelis do
   """
   @spec scard(instance_id(), db(), key()) :: non_neg_integer() | {:error, term()}
   def scard(id, db, key) do
-    with_read_tx(id, db, {:scard, key})
+    with_single_command_read_tx(id, db, {:scard, key})
   end
 
   @doc """
@@ -236,7 +236,7 @@ defmodule Veidrodelis do
   """
   @spec sismember(instance_id(), db(), key(), any()) :: boolean() | {:error, term()}
   def sismember(id, db, key, member) do
-    with_read_tx(id, db, {:sismember, key, member})
+    with_single_command_read_tx(id, db, {:sismember, key, member})
   end
 
   @doc """
@@ -252,7 +252,7 @@ defmodule Veidrodelis do
   """
   @spec sfirst(instance_id(), db(), key()) :: binary() | nil | {:error, term()}
   def sfirst(id, db, key) do
-    with_read_tx(id, db, {:sfirst, key})
+    with_single_command_read_tx(id, db, {:sfirst, key})
   end
 
   @doc """
@@ -268,7 +268,7 @@ defmodule Veidrodelis do
   """
   @spec slast(instance_id(), db(), key()) :: binary() | nil | {:error, term()}
   def slast(id, db, key) do
-    with_read_tx(id, db, {:slast, key})
+    with_single_command_read_tx(id, db, {:slast, key})
   end
 
   @doc """
@@ -284,7 +284,7 @@ defmodule Veidrodelis do
   """
   @spec snext(instance_id(), db(), key(), any()) :: binary() | nil | {:error, term()}
   def snext(id, db, key, member) do
-    with_read_tx(id, db, {:snext, key, member})
+    with_single_command_read_tx(id, db, {:snext, key, member})
   end
 
   @doc """
@@ -300,7 +300,7 @@ defmodule Veidrodelis do
   """
   @spec sprev(instance_id(), db(), key(), any()) :: binary() | nil | {:error, term()}
   def sprev(id, db, key, member) do
-    with_read_tx(id, db, {:sprev, key, member})
+    with_single_command_read_tx(id, db, {:sprev, key, member})
   end
 
   @doc """
@@ -308,7 +308,7 @@ defmodule Veidrodelis do
   """
   @spec hget(instance_id(), db(), key(), any()) :: any() | {:error, term()}
   def hget(id, db, key, field) do
-    with_read_tx(id, db, {:hget, key, field})
+    with_single_command_read_tx(id, db, {:hget, key, field})
   end
 
   @doc """
@@ -316,7 +316,7 @@ defmodule Veidrodelis do
   """
   @spec hmget(instance_id(), db(), key(), [any()]) :: [any()] | {:error, term()}
   def hmget(id, db, key, fields) do
-    with_read_tx(id, db, {:hmget, key, fields})
+    with_single_command_read_tx(id, db, {:hmget, key, fields})
   end
 
   @doc """
@@ -324,7 +324,7 @@ defmodule Veidrodelis do
   """
   @spec hgetall(instance_id(), db(), key()) :: [{any(), any()}] | {:error, term()}
   def hgetall(id, db, key) do
-    with_read_tx(id, db, {:hgetall, key})
+    with_single_command_read_tx(id, db, {:hgetall, key})
   end
 
   @doc """
@@ -332,7 +332,7 @@ defmodule Veidrodelis do
   """
   @spec hkeys(instance_id(), db(), key()) :: [any()] | {:error, term()}
   def hkeys(id, db, key) do
-    with_read_tx(id, db, {:hkeys, key})
+    with_single_command_read_tx(id, db, {:hkeys, key})
   end
 
   @doc """
@@ -340,7 +340,7 @@ defmodule Veidrodelis do
   """
   @spec hvals(instance_id(), db(), key()) :: [any()] | {:error, term()}
   def hvals(id, db, key) do
-    with_read_tx(id, db, {:hvals, key})
+    with_single_command_read_tx(id, db, {:hvals, key})
   end
 
   @doc """
@@ -348,7 +348,7 @@ defmodule Veidrodelis do
   """
   @spec hlen(instance_id(), db(), key()) :: non_neg_integer() | {:error, term()}
   def hlen(id, db, key) do
-    with_read_tx(id, db, {:hlen, key})
+    with_single_command_read_tx(id, db, {:hlen, key})
   end
 
   @doc """
@@ -360,7 +360,7 @@ defmodule Veidrodelis do
   @spec zrange(instance_id(), db(), key(), integer(), integer(), boolean()) ::
           [{any(), float()}] | [any()] | {:error, term()}
   def zrange(id, db, key, start_idx, stop_idx, with_scores \\ true) do
-    with_read_tx(id, db, {:zrange, key, start_idx, stop_idx, with_scores})
+    with_single_command_read_tx(id, db, {:zrange, key, start_idx, stop_idx, with_scores})
   end
 
   @doc """
@@ -368,7 +368,7 @@ defmodule Veidrodelis do
   """
   @spec zcard(instance_id(), db(), key()) :: non_neg_integer() | {:error, term()}
   def zcard(id, db, key) do
-    with_read_tx(id, db, {:zcard, key})
+    with_single_command_read_tx(id, db, {:zcard, key})
   end
 
   @doc """
@@ -376,7 +376,7 @@ defmodule Veidrodelis do
   """
   @spec zscore(instance_id(), db(), key(), any()) :: float() | nil | {:error, term()}
   def zscore(id, db, key, member) do
-    with_read_tx(id, db, {:zscore, key, member})
+    with_single_command_read_tx(id, db, {:zscore, key, member})
   end
 
   @doc """
@@ -397,7 +397,7 @@ defmodule Veidrodelis do
   @spec zrangebyscore(instance_id(), db(), key(), float(), float(), boolean()) ::
           [{any(), float()}] | [any()] | {:error, term()}
   def zrangebyscore(id, db, key, min, max, with_scores \\ true) do
-    with_read_tx(id, db, {:zrangebyscore, key, min, max, with_scores})
+    with_single_command_read_tx(id, db, {:zrangebyscore, key, min, max, with_scores})
   end
 
   @doc """
@@ -408,7 +408,7 @@ defmodule Veidrodelis do
   """
   @spec zrank(instance_id(), db(), key(), any()) :: non_neg_integer() | nil | {:error, term()}
   def zrank(id, db, key, member) do
-    with_read_tx(id, db, {:zrank, key, member})
+    with_single_command_read_tx(id, db, {:zrank, key, member})
   end
 
   @doc """
@@ -419,7 +419,7 @@ defmodule Veidrodelis do
   """
   @spec zrevrank(instance_id(), db(), key(), any()) :: non_neg_integer() | nil | {:error, term()}
   def zrevrank(id, db, key, member) do
-    with_read_tx(id, db, {:zrevrank, key, member})
+    with_single_command_read_tx(id, db, {:zrevrank, key, member})
   end
 
   @doc """
@@ -543,13 +543,13 @@ defmodule Veidrodelis do
   end
 
   # Helper for single read command - checks ready flag and calls Vdr.TS.read_tx directly
-  defp with_read_tx(id, db, command) do
+  defp with_single_command_read_tx(id, db, command) do
     case Vdr.Registry.lookup(id) do
       {:ok, %Vdr.Handle{handle_state: %{ready: ready, ts_storage: ts_storage}}} ->
         if ready do
           case Vdr.TS.read_tx(ts_storage, db, [command]) do
-            {:ok, [{:ok, result}]} -> result
-            {:ok, [result]} -> result
+            {:ok, [{:ok, _} = result]} -> result
+            {:ok, [{:error, _} = error]} -> error
             {:error, _} = error -> error
           end
         else

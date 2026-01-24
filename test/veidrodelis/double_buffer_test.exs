@@ -64,8 +64,8 @@ defmodule Veidrodelis.DoubleBufferTest do
       end
 
       # Should now be ready and have the data
-      assert "initial_value" == Veidrodelis.get(@test_id, 0, "initial_key")
-      assert nil == Veidrodelis.get(@test_id, 0, "nonexistent")
+      assert {:ok, "initial_value"} == Veidrodelis.get(@test_id, 0, "initial_key")
+      assert {:ok, nil} == Veidrodelis.get(@test_id, 0, "nonexistent")
 
       Veidrodelis.stop(pid)
     end
@@ -92,21 +92,21 @@ defmodule Veidrodelis.DoubleBufferTest do
       end
 
       # Verify all data types
-      assert "value1" == Veidrodelis.get(@test_id, 0, "string_key")
-      assert ["a", "b", "c"] == Veidrodelis.lrange(@test_id, 0, "list_key", 0, -1)
-      assert 3 == Veidrodelis.llen(@test_id, 0, "list_key")
+      assert {:ok, "value1"} == Veidrodelis.get(@test_id, 0, "string_key")
+      assert {:ok, ["a", "b", "c"]} == Veidrodelis.lrange(@test_id, 0, "list_key", 0, -1)
+      assert {:ok, 3} == Veidrodelis.llen(@test_id, 0, "list_key")
 
-      members = Veidrodelis.smembers(@test_id, 0, "set_key")
+      {:ok, members} = Veidrodelis.smembers(@test_id, 0, "set_key")
       assert "x" in members
       assert "y" in members
       assert "z" in members
-      assert 3 == Veidrodelis.scard(@test_id, 0, "set_key")
+      assert {:ok, 3} == Veidrodelis.scard(@test_id, 0, "set_key")
 
-      assert "val1" == Veidrodelis.hget(@test_id, 0, "hash_key", "field1")
-      assert "val2" == Veidrodelis.hget(@test_id, 0, "hash_key", "field2")
-      assert 2 == Veidrodelis.hlen(@test_id, 0, "hash_key")
+      assert {:ok, "val1"} == Veidrodelis.hget(@test_id, 0, "hash_key", "field1")
+      assert {:ok, "val2"} == Veidrodelis.hget(@test_id, 0, "hash_key", "field2")
+      assert {:ok, 2} == Veidrodelis.hlen(@test_id, 0, "hash_key")
 
-      assert 2 == Veidrodelis.zcard(@test_id, 0, "zset_key")
+      assert {:ok, 2} == Veidrodelis.zcard(@test_id, 0, "zset_key")
 
       Veidrodelis.stop(pid)
     end
@@ -130,7 +130,7 @@ defmodule Veidrodelis.DoubleBufferTest do
         assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
-      assert "value1" == Veidrodelis.get(@test_id, 0, "key1")
+      assert {:ok, "value1"} == Veidrodelis.get(@test_id, 0, "key1")
 
       # Add new data (will be streamed)
       Redix.command!(redis, ["SET", "key2", "value2"])
@@ -138,11 +138,11 @@ defmodule Veidrodelis.DoubleBufferTest do
 
       # Wait for data to arrive
       assert_within 1000 do
-        assert "value2" == Veidrodelis.get(@test_id, 0, "key2")
+        assert {:ok, "value2"} == Veidrodelis.get(@test_id, 0, "key2")
       end
 
       assert_within 1000 do
-        assert "value3" == Veidrodelis.get(@test_id, 0, "key3")
+        assert {:ok, "value3"} == Veidrodelis.get(@test_id, 0, "key3")
       end
 
       Veidrodelis.stop(pid)
@@ -164,13 +164,13 @@ defmodule Veidrodelis.DoubleBufferTest do
         assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
-      assert "initial" == Veidrodelis.get(@test_id, 0, "update_key")
+      assert {:ok, "initial"} == Veidrodelis.get(@test_id, 0, "update_key")
 
       # Update the key
       Redix.command!(redis, ["SET", "update_key", "updated"])
 
       assert_within 1000 do
-        assert "updated" == Veidrodelis.get(@test_id, 0, "update_key")
+        assert {:ok, "updated"} == Veidrodelis.get(@test_id, 0, "update_key")
       end
 
       Veidrodelis.stop(pid)
@@ -197,9 +197,9 @@ defmodule Veidrodelis.DoubleBufferTest do
       end
 
       # All keys should be present (atomic swap completed)
-      assert "value1" == Veidrodelis.get(@test_id, 0, "key1")
-      assert "value2" == Veidrodelis.get(@test_id, 0, "key2")
-      assert "value3" == Veidrodelis.get(@test_id, 0, "key3")
+      assert {:ok, "value1"} == Veidrodelis.get(@test_id, 0, "key1")
+      assert {:ok, "value2"} == Veidrodelis.get(@test_id, 0, "key2")
+      assert {:ok, "value3"} == Veidrodelis.get(@test_id, 0, "key3")
 
       Veidrodelis.stop(pid)
     end
@@ -224,7 +224,7 @@ defmodule Veidrodelis.DoubleBufferTest do
 
       # Verify all keys are present
       for i <- 1..10 do
-        assert "value#{i}" == Veidrodelis.get(@test_id, 0, "key#{i}")
+        assert {:ok, "value#{i}"} == Veidrodelis.get(@test_id, 0, "key#{i}")
       end
 
       Veidrodelis.stop(pid)
@@ -254,7 +254,7 @@ defmodule Veidrodelis.DoubleBufferTest do
       end
 
       # Now should be ready
-      assert "value1" == Veidrodelis.get(@test_id, 0, "key1")
+      assert {:ok, "value1"} == Veidrodelis.get(@test_id, 0, "key1")
 
       Veidrodelis.stop(pid)
     end
@@ -274,10 +274,10 @@ defmodule Veidrodelis.DoubleBufferTest do
       end
 
       # Existing key returns value
-      assert "value" == Veidrodelis.get(@test_id, 0, "exists")
+      assert {:ok, "value"} == Veidrodelis.get(@test_id, 0, "exists")
 
       # Missing key returns nil
-      assert nil == Veidrodelis.get(@test_id, 0, "missing")
+      assert {:ok, nil} == Veidrodelis.get(@test_id, 0, "missing")
 
       Veidrodelis.stop(pid)
     end
@@ -299,10 +299,10 @@ defmodule Veidrodelis.DoubleBufferTest do
       end
 
       # Test various list operations
-      assert 5 == Veidrodelis.llen(@test_id, 0, "mylist")
-      assert ["a", "b", "c", "d", "e"] == Veidrodelis.lrange(@test_id, 0, "mylist", 0, -1)
-      assert ["a", "b", "c"] == Veidrodelis.lrange(@test_id, 0, "mylist", 0, 2)
-      assert ["d", "e"] == Veidrodelis.lrange(@test_id, 0, "mylist", -2, -1)
+      assert {:ok, 5} == Veidrodelis.llen(@test_id, 0, "mylist")
+      assert {:ok, ["a", "b", "c", "d", "e"]} == Veidrodelis.lrange(@test_id, 0, "mylist", 0, -1)
+      assert {:ok, ["a", "b", "c"]} == Veidrodelis.lrange(@test_id, 0, "mylist", 0, 2)
+      assert {:ok, ["d", "e"]} == Veidrodelis.lrange(@test_id, 0, "mylist", -2, -1)
 
       Veidrodelis.stop(pid)
     end
@@ -322,16 +322,16 @@ defmodule Veidrodelis.DoubleBufferTest do
       end
 
       # Test various hash operations
-      assert 3 == Veidrodelis.hlen(@test_id, 0, "myhash")
-      assert "v1" == Veidrodelis.hget(@test_id, 0, "myhash", "f1")
-      assert "v2" == Veidrodelis.hget(@test_id, 0, "myhash", "f2")
+      assert {:ok, 3} == Veidrodelis.hlen(@test_id, 0, "myhash")
+      assert {:ok, "v1"} == Veidrodelis.hget(@test_id, 0, "myhash", "f1")
+      assert {:ok, "v2"} == Veidrodelis.hget(@test_id, 0, "myhash", "f2")
 
-      keys = Veidrodelis.hkeys(@test_id, 0, "myhash")
+      {:ok, keys} = Veidrodelis.hkeys(@test_id, 0, "myhash")
       assert "f1" in keys
       assert "f2" in keys
       assert "f3" in keys
 
-      vals = Veidrodelis.hvals(@test_id, 0, "myhash")
+      {:ok, vals} = Veidrodelis.hvals(@test_id, 0, "myhash")
       assert "v1" in vals
       assert "v2" in vals
       assert "v3" in vals
@@ -353,8 +353,8 @@ defmodule Veidrodelis.DoubleBufferTest do
         assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
-      assert 3 == Veidrodelis.scard(@test_id, 0, "myset")
-      members = Veidrodelis.smembers(@test_id, 0, "myset")
+      assert {:ok, 3} == Veidrodelis.scard(@test_id, 0, "myset")
+      {:ok, members} = Veidrodelis.smembers(@test_id, 0, "myset")
       assert "m1" in members
       assert "m2" in members
       assert "m3" in members
@@ -376,8 +376,8 @@ defmodule Veidrodelis.DoubleBufferTest do
         assert :streaming == Veidrodelis.get_replication_state(pid)
       end
 
-      assert 3 == Veidrodelis.zcard(@test_id, 0, "myzset")
-      assert 2.0 == Veidrodelis.zscore(@test_id, 0, "myzset", "two")
+      assert {:ok, 3} == Veidrodelis.zcard(@test_id, 0, "myzset")
+      assert {:ok, 2.0} == Veidrodelis.zscore(@test_id, 0, "myzset", "two")
 
       Veidrodelis.stop(pid)
     end

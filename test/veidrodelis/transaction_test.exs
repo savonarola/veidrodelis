@@ -40,11 +40,11 @@ defmodule Veidrodelis.TransactionTest do
 
       # Verify
       assert_within 2000 do
-        assert "ts_value1" == Veidrodelis.get(@id, 0, "ts_key1")
-        assert "ts_value2" == Veidrodelis.get(@id, 0, "ts_key2")
+        assert {:ok, "ts_value1"} == Veidrodelis.get(@id, 0, "ts_key1")
+        assert {:ok, "ts_value2"} == Veidrodelis.get(@id, 0, "ts_key2")
       end
 
-      assert nil == Veidrodelis.get(@id, 0, "__vdr_tx")
+      assert {:ok, nil} == Veidrodelis.get(@id, 0, "__vdr_tx")
 
       Veidrodelis.stop(vdr)
     end
@@ -69,15 +69,15 @@ defmodule Veidrodelis.TransactionTest do
 
       # Verify
       assert_within 3000 do
-        assert "ts_value" == Veidrodelis.get(@id, 0, "ts_str")
-        assert 2 == Veidrodelis.llen(@id, 0, "ts_list")
-        assert 2 == Veidrodelis.scard(@id, 0, "ts_set")
-        assert 1 == Veidrodelis.hlen(@id, 0, "ts_hash")
-        assert 1 == Veidrodelis.zcard(@id, 0, "ts_zset")
+        assert {:ok, "ts_value"} == Veidrodelis.get(@id, 0, "ts_str")
+        assert {:ok, 2} == Veidrodelis.llen(@id, 0, "ts_list")
+        assert {:ok, 2} == Veidrodelis.scard(@id, 0, "ts_set")
+        assert {:ok, 1} == Veidrodelis.hlen(@id, 0, "ts_hash")
+        assert {:ok, 1} == Veidrodelis.zcard(@id, 0, "ts_zset")
       end
 
-      assert ["elem1", "elem2"] == Veidrodelis.lrange(@id, 0, "ts_list", 0, -1)
-      assert "value1" == Veidrodelis.hget(@id, 0, "ts_hash", "field1")
+      assert {:ok, ["elem1", "elem2"]} == Veidrodelis.lrange(@id, 0, "ts_list", 0, -1)
+      assert {:ok, "value1"} == Veidrodelis.hget(@id, 0, "ts_hash", "field1")
 
       Veidrodelis.stop(vdr)
     end

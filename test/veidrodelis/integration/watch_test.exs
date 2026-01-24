@@ -43,7 +43,7 @@ defmodule Veidrodelis.Integration.WatchTest do
 
       # Wait for replication
       assert_within 1000 do
-        assert "initial" == Veidrodelis.get(vdr_id(), 0, "test:del")
+        assert {:ok, "initial"} == Veidrodelis.get(vdr_id(), 0, "test:del")
       end
 
       # Subscribe to key
@@ -400,7 +400,7 @@ defmodule Veidrodelis.Integration.WatchTest do
 
       # Wait for replication
       assert_within 1000 do
-        assert "value" == Veidrodelis.get(vdr_id(), 0, "rename:old")
+        assert {:ok, "value"} == Veidrodelis.get(vdr_id(), 0, "rename:old")
       end
 
       # Watch both old and new keys
@@ -412,7 +412,7 @@ defmodule Veidrodelis.Integration.WatchTest do
 
       # Wait for RENAME to be replicated
       assert_within 1000 do
-        assert "value" == Veidrodelis.get(vdr_id(), 0, "rename:new")
+        assert {:ok, "value"} == Veidrodelis.get(vdr_id(), 0, "rename:new")
       end
 
       # Both watchers should receive notification (order doesn't matter)
@@ -427,15 +427,16 @@ defmodule Veidrodelis.Integration.WatchTest do
 
       notifications =
         notifications ++
-          (receive do
-             {ref, msg} when ref in [ref_old, ref_new] ->
-               [{ref, msg}]
-           after
-             100 -> []
-           end)
+          receive do
+            {ref, msg} when ref in [ref_old, ref_new] ->
+              [{ref, msg}]
+          after
+            100 -> []
+          end
 
       # Verify we got both notifications
-      assert length(notifications) == 2, "Expected 2 notifications, got #{length(notifications)}: #{inspect(notifications)}"
+      assert length(notifications) == 2,
+             "Expected 2 notifications, got #{length(notifications)}: #{inspect(notifications)}"
 
       # Check that both refs are present
       refs = Enum.map(notifications, fn {ref, _} -> ref end)
@@ -457,7 +458,7 @@ defmodule Veidrodelis.Integration.WatchTest do
 
       # Wait for replication
       assert_within 1000 do
-        assert 1 == Veidrodelis.llen(vdr_id(), 0, "rpoplpush:src")
+        assert {:ok, 1} == Veidrodelis.llen(vdr_id(), 0, "rpoplpush:src")
       end
 
       # Watch both source and destination

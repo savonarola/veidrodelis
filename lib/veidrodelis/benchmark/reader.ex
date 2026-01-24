@@ -225,6 +225,7 @@ defmodule Vdr.Benchmark.Reader do
   defp read_many(_vdr_id, _read_op, 0, results) do
     Enum.reverse(results)
   end
+
   defp read_many(vdr_id, read_op, batch_size, results) do
     result = read_op.(vdr_id)
     read_many(vdr_id, read_op, batch_size - 1, [result | results])
@@ -246,7 +247,10 @@ defmodule Vdr.Benchmark.Reader do
     # Calculate total hits/misses
     raw_samples = :ets.tab2list(state.samples_ets)
     total_hits = Enum.reduce(raw_samples, 0, fn {_, _, _, hits, _}, acc -> acc + hits end)
-    total_sampled = Enum.reduce(raw_samples, 0, fn {_, _, _, _, batch_size}, acc -> acc + batch_size end)
+
+    total_sampled =
+      Enum.reduce(raw_samples, 0, fn {_, _, _, _, batch_size}, acc -> acc + batch_size end)
+
     total_misses = total_sampled - total_hits
 
     tps =

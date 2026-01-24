@@ -157,7 +157,6 @@ defmodule Vdr.Benchmark.ScenarioRunner do
     end
   end
 
-
   defp run_commands(_command_fn, redis_conn, _batch_left, 0, commands) do
     Redix.pipeline!(redis_conn, commands)
     :ok
@@ -169,7 +168,9 @@ defmodule Vdr.Benchmark.ScenarioRunner do
   end
 
   defp run_commands(command_fn, redis_conn, batch_left, total_left, commands) do
-    run_commands(command_fn, redis_conn, batch_left - 1, total_left - 1, [command_fn.() | commands])
+    run_commands(command_fn, redis_conn, batch_left - 1, total_left - 1, [
+      command_fn.() | commands
+    ])
   end
 
   @doc """
