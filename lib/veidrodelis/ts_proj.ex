@@ -211,17 +211,6 @@ defmodule Vdr.TSProj do
             {:reply, {:error, reason}, state}
         end
 
-      # Read operations - check if ready
-      {:get, db, key} ->
-        if not state.ready do
-          {:reply, {:error, :not_ready}, state}
-        else
-          case Vdr.TS.read_tx(state.ts_storage, db, [{:get, key}]) do
-            {:ok, [result]} -> {:reply, {:ok, result}, state}
-            {:error, _} = error -> {:reply, error, state}
-          end
-        end
-
       _ ->
         {:reply, {:error, :not_implemented}, state}
     end
