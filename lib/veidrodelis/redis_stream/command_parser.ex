@@ -1,101 +1,98 @@
 defmodule Vdr.RedisStream.CommandParser do
   @moduledoc """
-  Parses Redis replication stream commands (as RESP arrays) into Command structs.
+  Parses Redis replication stream commands (as RESP arrays) into command tuples.
 
   This parser is specifically designed for Redis replication streams and handles
   all commands that can appear during replication when only strings, sets, hashes,
   zsets, and lists are used.
+
+  Commands are parsed directly into tuple format for efficient processing.
   """
 
-  alias Vdr.RedisStream.Command, as: RedisCommand
-
   @doc """
-  Parse a Redis command represented as a list of binary arguments into a Command struct.
+  Parse a Redis command represented as a list of binary arguments into a command tuple.
 
-  Returns `{:ok, command}` for all commands. Unknown commands are wrapped in a `Generic` struct.
+  Returns `{:ok, command_tuple, affected_keys}` for all commands. Unknown commands return a generic tuple.
 
   ## Examples
 
       iex> parse(["SET", "key", "value"])
-      {:ok, %RedisCommand.Set{key: "key", value: "value"}}
+      {:ok, {:set, "key", "value"}, ["key"]}
 
       iex> parse(["SADD", "myset", "m1", "m2"])
-      {:ok, %RedisCommand.SAdd{key: "myset", members: ["m1", "m2"]}}
+      {:ok, {:sadd, "myset", ["m1", "m2"]}, ["myset"]}
 
       iex> parse(["UNKNOWN", "arg"])
-      {:ok, %RedisCommand.Generic{args: ["UNKNOWN", "arg"]}}
+      {:ok, {:generic, ["UNKNOWN", "arg"]}, []}
   """
-  @spec parse([binary()]) :: {:ok, RedisCommand.t()}
+  @spec parse([binary()]) :: {:ok, tuple(), [binary()]}
   # SET with options (Redis 8.x replicates INCRBYFLOAT, SETEX, PSETEX as SET with options)
   # SET key value [KEEPTTL | PXAT timestamp]
   def parse(["SET", key, value | options]) when length(options) > 0 do
     # For now, we ignore the options and just use the key-value
     # KEEPTTL means keep existing TTL, PXAT means expire at timestamp
     # Since we don't implement expiration yet, we can ignore these
-    {:ok, %RedisCommand.Set{key: key, value: value}}
+    {:ok, {:set, key, value}, [key]}
   end
 
-  def parse(["SET", key, value]), do: {:ok, %RedisCommand.Set{key: key, value: value}}
+  def parse(["SET", key, value]), do: {:ok, {:set, key, value}, [key]}
 
   def parse(["MSET" | args]) do
     pairs = parse_pairs(args)
-    {:ok, %RedisCommand.MSet{pairs: pairs}}
+    keys = Enum.map(pairs, fn {k, _v} -> k end)
+    {:ok, {:mset, pairs}, keys}
   end
 
-  def parse(["APPEND", key, value]), do: {:ok, %RedisCommand.Append{key: key, value: value}}
+  def parse(["APPEND", key, value]), do: {:ok, {:append, key, value}, [key]}
 
   def parse(["SETRANGE", key, offset, value]) do
-    {:ok, %RedisCommand.SetRange{key: key, offset: String.to_integer(offset), value: value}}
+    {:ok, {:setrange, key, String.to_integer(offset), value}, [key]}
   end
 
   def parse(["SETBIT", key, offset, value]) do
     bit_value = String.to_integer(value)
-    {:ok, %RedisCommand.SetBit{key: key, offset: String.to_integer(offset), value: bit_value}}
+    {:ok, {:setbit, key, String.to_integer(offset), bit_value}, [key]}
   end
 
   # Numeric string commands
-  def parse(["INCR", key]), do: {:ok, %RedisCommand.Incr{key: key}}
-  def parse(["INCRBY", key, increment]), do: {:ok, %RedisCommand.IncrBy{key: key, increment: String.to_integer(increment)}}
-  def parse(["DECR", key]), do: {:ok, %RedisCommand.Decr{key: key}}
-  def parse(["DECRBY", key, decrement]), do: {:ok, %RedisCommand.DecrBy{key: key, decrement: String.to_integer(decrement)}}
+  def parse(["INCR", key]), do: {:ok, {:incr, key}, [key]}
+  def parse(["INCRBY", key, increment]), do: {:ok, {:incrby, key, String.to_integer(increment)}, [key]}
+  def parse(["DECR", key]), do: {:ok, {:decr, key}, [key]}
+  def parse(["DECRBY", key, decrement]), do: {:ok, {:decrby, key, String.to_integer(decrement)}, [key]}
 
   # Conditional set commands
-  def parse(["SETNX", key, value]), do: {:ok, %RedisCommand.SetNX{key: key, value: value}}
+  def parse(["SETNX", key, value]), do: {:ok, {:setnx, key, value}, [key]}
 
   def parse(["MSETNX" | args]) do
     pairs = parse_pairs(args)
-    {:ok, %RedisCommand.MSetNX{pairs: pairs}}
+    keys = Enum.map(pairs, fn {k, _v} -> k end)
+    {:ok, {:msetnx, pairs}, keys}
   end
 
   # Get-and-modify commands
-  def parse(["GETSET", key, value]), do: {:ok, %RedisCommand.GetSet{key: key, value: value}}
-  def parse(["GETDEL", key]), do: {:ok, %RedisCommand.GetDel{key: key}}
+  def parse(["GETSET", key, value]), do: {:ok, {:getset, key, value}, [key]}
+  def parse(["GETDEL", key]), do: {:ok, {:getdel, key}, [key]}
 
   # List commands
-  def parse(["LPUSH", key | values]), do: {:ok, %RedisCommand.LPush{key: key, values: values}}
-  def parse(["RPUSH", key | values]), do: {:ok, %RedisCommand.RPush{key: key, values: values}}
-  def parse(["LPUSHX", key | values]), do: {:ok, %RedisCommand.LPushX{key: key, values: values}}
-  def parse(["RPUSHX", key | values]), do: {:ok, %RedisCommand.RPushX{key: key, values: values}}
-  def parse(["LPOP", key]), do: {:ok, %RedisCommand.LPop{key: key}}
-  def parse(["LPOP", key, count]), do: {:ok, %RedisCommand.LPop{key: key, count: String.to_integer(count)}}
-  def parse(["RPOP", key]), do: {:ok, %RedisCommand.RPop{key: key}}
-  def parse(["RPOP", key, count]), do: {:ok, %RedisCommand.RPop{key: key, count: String.to_integer(count)}}
+  def parse(["LPUSH", key | values]), do: {:ok, {:lpush, key, values}, [key]}
+  def parse(["RPUSH", key | values]), do: {:ok, {:rpush, key, values}, [key]}
+  def parse(["LPUSHX", key | values]), do: {:ok, {:lpushx, key, values}, [key]}
+  def parse(["RPUSHX", key | values]), do: {:ok, {:rpushx, key, values}, [key]}
+  def parse(["LPOP", key]), do: {:ok, {:lpop, key}, [key]}
+  def parse(["LPOP", key, count]), do: {:ok, {:lpop_count, key, String.to_integer(count)}, [key]}
+  def parse(["RPOP", key]), do: {:ok, {:rpop, key}, [key]}
+  def parse(["RPOP", key, count]), do: {:ok, {:rpop_count, key, String.to_integer(count)}, [key]}
 
   def parse(["LREM", key, count, value]) do
-    {:ok, %RedisCommand.LRem{key: key, count: String.to_integer(count), value: value}}
+    {:ok, {:lrem, key, String.to_integer(count), value}, [key]}
   end
 
   def parse(["LTRIM", key, start, stop]) do
-    {:ok,
-     %RedisCommand.LTrim{
-       key: key,
-       start: String.to_integer(start),
-       stop: String.to_integer(stop)
-     }}
+    {:ok, {:ltrim, key, String.to_integer(start), String.to_integer(stop)}, [key]}
   end
 
   def parse(["LSET", key, index, value]) do
-    {:ok, %RedisCommand.LSet{key: key, index: String.to_integer(index), value: value}}
+    {:ok, {:lset, key, String.to_integer(index), value}, [key]}
   end
 
   def parse(["LINSERT", key, before_after, pivot, element]) do
@@ -105,93 +102,100 @@ defmodule Vdr.RedisStream.CommandParser do
         "AFTER" -> :after
       end
 
-    {:ok, %RedisCommand.LInsert{key: key, before_after: ba, pivot: pivot, element: element}}
+    {:ok, {:linsert, key, ba, pivot, element}, [key]}
   end
 
   def parse(["RPOPLPUSH", source, destination]) do
-    {:ok, %RedisCommand.RPopLPush{source: source, destination: destination}}
+    {:ok, {:rpoplpush, source, destination}, [source, destination]}
   end
 
-  def parse(["LMOVE", source, destination, wherefrom, whereto]) do
-    wherefrom_atom = case String.upcase(wherefrom) do
+  def parse(["LMOVE", source_key, dest_key, wherefrom, whereto]) do
+    wherefrom = case String.upcase(wherefrom) do
       "LEFT" -> :left
       "RIGHT" -> :right
     end
-    whereto_atom = case String.upcase(whereto) do
+    whereto = case String.upcase(whereto) do
       "LEFT" -> :left
       "RIGHT" -> :right
     end
-    {:ok, %RedisCommand.LMove{source: source, destination: destination, wherefrom: wherefrom_atom, whereto: whereto_atom}}
+    {:ok, {:lmove, source_key, dest_key, wherefrom, whereto}, [source_key, dest_key]}
   end
 
   # Set commands
-  def parse(["SADD", key | members]), do: {:ok, %RedisCommand.SAdd{key: key, members: members}}
-  def parse(["SREM", key | members]), do: {:ok, %RedisCommand.SRem{key: key, members: members}}
+  def parse(["SADD", key | members]), do: {:ok, {:sadd, key, members}, [key]}
+  def parse(["SREM", key | members]), do: {:ok, {:srem, key, members}, [key]}
 
-  def parse(["SMOVE", source, destination, member]) do
-    {:ok, %RedisCommand.SMove{source: source, destination: destination, member: member}}
+  def parse(["SMOVE", source_key, dest_key, member]) do
+    {:ok, {:smove, source_key, dest_key, member}, [source_key, dest_key]}
   end
 
-  def parse(["SINTERSTORE", destination | keys]) do
-    {:ok, %RedisCommand.SInterStore{destination: destination, keys: keys}}
+  def parse(["SINTERSTORE", dest_key | source_keys]) do
+    {:ok, {:sinterstore, dest_key, source_keys}, [dest_key | source_keys]}
   end
 
-  def parse(["SUNIONSTORE", destination | keys]) do
-    {:ok, %RedisCommand.SUnionStore{destination: destination, keys: keys}}
+  def parse(["SUNIONSTORE", dest_key | source_keys]) do
+    {:ok, {:sunionstore, dest_key, source_keys}, [dest_key | source_keys]}
   end
 
-  def parse(["SDIFFSTORE", destination | keys]) do
-    {:ok, %RedisCommand.SDiffStore{destination: destination, keys: keys}}
+  def parse(["SDIFFSTORE", dest_key | source_keys]) do
+    {:ok, {:sdiffstore, dest_key, source_keys}, [dest_key | source_keys]}
   end
 
   # Sorted set commands
   def parse(["ZADD", key | args]) do
     {options, members} = parse_zadd_args(args)
-    {:ok, %RedisCommand.ZAdd{key: key, members: members, options: options}}
+    {:ok, {:zadd, key, members, options}, [key]}
   end
 
   def parse(["ZINCRBY", key, increment, member]) do
-    {:ok, %RedisCommand.ZIncrBy{key: key, increment: parse_float(increment), member: member}}
+    {:ok, {:zincrby, key, parse_float(increment), member}, [key]}
   end
 
-  def parse(["ZREM", key | members]), do: {:ok, %RedisCommand.ZRem{key: key, members: members}}
+  def parse(["ZREM", key | members]), do: {:ok, {:zrem, key, members}, [key]}
 
   def parse(["ZPOPMAX", key]) do
-    {:ok, %RedisCommand.ZPopMax{key: key, count: 1}}
+    {:ok, {:zpopmax, key, 1}, [key]}
   end
 
   def parse(["ZPOPMAX", key, count]) do
-    {:ok, %RedisCommand.ZPopMax{key: key, count: String.to_integer(count)}}
+    {:ok, {:zpopmax, key, String.to_integer(count)}, [key]}
   end
 
   def parse(["ZPOPMIN", key]) do
-    {:ok, %RedisCommand.ZPopMin{key: key, count: 1}}
+    {:ok, {:zpopmin, key, 1}, [key]}
   end
 
   def parse(["ZPOPMIN", key, count]) do
-    {:ok, %RedisCommand.ZPopMin{key: key, count: String.to_integer(count)}}
+    {:ok, {:zpopmin, key, String.to_integer(count)}, [key]}
   end
 
   def parse(["ZREMRANGEBYRANK", key, start, stop]) do
-    {:ok,
-     %RedisCommand.ZRemRangeByRank{
-       key: key,
-       start: String.to_integer(start),
-       stop: String.to_integer(stop)
-     }}
+    {:ok, {:zremrangebyrank, key, String.to_integer(start), String.to_integer(stop)}, [key]}
   end
 
-  def parse(["ZREMRANGEBYSCORE", key, min, max]) do
-    {:ok, %RedisCommand.ZRemRangeByScore{key: key, min: min, max: max}}
+  def parse(["ZREMRANGEBYSCORE", key, min_str, max_str]) do
+    # Parse min and max as floats (they come as strings from Redis)
+    # Handle exclusive ranges like "(1.0" - the "(" prefix indicates exclusivity
+    # Convert to Bound tuples: :unbounded | {:included, score} | {:excluded, score}
+    min_bound = parse_score_bound(min_str)
+    max_bound = parse_score_bound(max_str)
+    {:ok, {:zremrangebyscore, key, min_bound, max_bound}, [key]}
   end
 
-  def parse(["ZREMRANGEBYLEX", key, min, max]) do
-    {:ok, %RedisCommand.ZRemRangeByLex{key: key, min: min, max: max}}
+  def parse(["ZREMRANGEBYLEX", key, min_str, max_str]) do
+    # Parse lexicographic bounds
+    # Syntax: - (min unbounded), + (max unbounded), [value (inclusive), (value (exclusive)
+    min_bound = parse_lex_bound(min_str)
+    max_bound = parse_lex_bound(max_str)
+    {:ok, {:zremrangebylex, key, min_bound, max_bound}, [key]}
   end
 
-  def parse(["ZRANGESTORE", destination, source, min, max | options]) do
-    # Parse ZRANGESTORE dst src min max [BYSCORE|BYLEX] [REV] [LIMIT offset count]
-    {:ok, %RedisCommand.ZRangeStore{destination: destination, source: source, min: min, max: max, options: options}}
+  def parse(["ZRANGESTORE", dest_key, source_key, min_str, max_str | options]) do
+    # ZRANGESTORE supports BYSCORE, BYLEX, REV, and LIMIT options
+    # Pass min/max as strings so Rust can parse them based on the mode
+    # Convert options list to uppercase strings
+    opts = (options || []) |> Enum.map(&String.upcase/1)
+    {:ok, {:zrangestore, dest_key, source_key, min_str, max_str, opts}, [dest_key, source_key]}
   end
 
   def parse(["ZUNIONSTORE", destination, _numkeys | rest]) do
@@ -204,73 +208,73 @@ defmodule Vdr.RedisStream.CommandParser do
     parse_zstore_command(destination, rest, :inter)
   end
 
-  def parse(["ZDIFFSTORE", destination, _numkeys | keys]) do
+  def parse(["ZDIFFSTORE", dest_key, _numkeys | source_keys]) do
     # Parse ZDIFFSTORE destination numkeys key [key ...]
-    {:ok, %RedisCommand.ZDiffStore{destination: destination, keys: keys}}
+    {:ok, {:zdiffstore, dest_key, source_keys}, [dest_key | source_keys]}
   end
 
   # Hash commands
   def parse(["HSET", key | args]) do
     fields = parse_pairs(args)
-    {:ok, %RedisCommand.HSet{key: key, fields: fields}}
+    {:ok, {:hmset, key, fields}, [key]}
   end
 
   def parse(["HMSET", key | args]) do
     fields = parse_pairs(args)
-    {:ok, %RedisCommand.HMSet{key: key, fields: fields}}
+    {:ok, {:hmset, key, fields}, [key]}
   end
 
   def parse(["HSETNX", key, field, value]) do
-    {:ok, %RedisCommand.HSetNX{key: key, field: field, value: value}}
+    {:ok, {:hsetnx, key, field, value}, [key]}
   end
 
   def parse(["HINCRBY", key, field, increment]) do
-    {:ok, %RedisCommand.HIncrBy{key: key, field: field, increment: String.to_integer(increment)}}
+    {:ok, {:hincrby, key, field, String.to_integer(increment)}, [key]}
   end
 
   def parse(["HINCRBYFLOAT", key, field, increment]) do
     require Logger
     Logger.debug("Parsing HINCRBYFLOAT: key=#{key}, field=#{field}, increment=#{increment}")
-    {:ok, %RedisCommand.HIncrByFloat{key: key, field: field, increment: parse_float(increment)}}
+    {:ok, {:hincrbyfloat, key, field, parse_float(increment)}, [key]}
   end
 
-  def parse(["HDEL", key | fields]), do: {:ok, %RedisCommand.HDel{key: key, fields: fields}}
+  def parse(["HDEL", key | fields]), do: {:ok, {:hdel, key, fields}, [key]}
 
   # HGETEX key [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | PERSIST] FIELDS numfields field [field ...]
   def parse(["HGETEX", key | rest]) do
     {ttl_option, fields} = parse_hgetex_args(rest)
-    {:ok, %RedisCommand.HGetEX{key: key, ttl_option: ttl_option, fields: fields}}
+    {:ok, {:hgetex, key, ttl_option, fields}, [key]}
   end
 
   # Hash field expiration commands (Redis 7.4.0+)
   # HEXPIRE key seconds [NX | XX | GT | LT] FIELDS numfields field [field ...]
   def parse(["HEXPIRE", key, seconds | rest]) do
     {condition, fields} = parse_hexpire_args(rest)
-    {:ok, %RedisCommand.HExpire{key: key, seconds: String.to_integer(seconds), condition: condition, fields: fields}}
+    {:ok, {:hexpire, key, String.to_integer(seconds), condition, fields}, [key]}
   end
 
   # HEXPIREAT key unix-time-seconds [NX | XX | GT | LT] FIELDS numfields field [field ...]
   def parse(["HEXPIREAT", key, timestamp | rest]) do
     {condition, fields} = parse_hexpire_args(rest)
-    {:ok, %RedisCommand.HExpireAt{key: key, timestamp: String.to_integer(timestamp), condition: condition, fields: fields}}
+    {:ok, {:hexpireat, key, String.to_integer(timestamp), condition, fields}, [key]}
   end
 
   # HPEXPIRE key milliseconds [NX | XX | GT | LT] FIELDS numfields field [field ...]
   def parse(["HPEXPIRE", key, milliseconds | rest]) do
     {condition, fields} = parse_hexpire_args(rest)
-    {:ok, %RedisCommand.HPExpire{key: key, milliseconds: String.to_integer(milliseconds), condition: condition, fields: fields}}
+    {:ok, {:hpexpire, key, String.to_integer(milliseconds), condition, fields}, [key]}
   end
 
   # HPEXPIREAT key unix-time-milliseconds [NX | XX | GT | LT] FIELDS numfields field [field ...]
   def parse(["HPEXPIREAT", key, timestamp_ms | rest]) do
     {condition, fields} = parse_hexpire_args(rest)
-    {:ok, %RedisCommand.HPExpireAt{key: key, timestamp_ms: String.to_integer(timestamp_ms), condition: condition, fields: fields}}
+    {:ok, {:hpexpireat, key, String.to_integer(timestamp_ms), condition, fields}, [key]}
   end
 
   # HPERSIST key FIELDS numfields field [field ...]
   def parse(["HPERSIST", key | rest]) do
     {_condition, fields} = parse_hexpire_args(rest)
-    {:ok, %RedisCommand.HPersist{key: key, fields: fields}}
+    {:ok, {:hpersist, key, fields}, [key]}
   end
 
   # HSETEX - extended HSET with options (used in replication for HINCRBYFLOAT)
@@ -281,68 +285,68 @@ defmodule Vdr.RedisStream.CommandParser do
   end
 
   # Generic key commands
-  def parse(["DEL" | keys]), do: {:ok, %RedisCommand.Del{keys: keys}}
-  def parse(["UNLINK" | keys]), do: {:ok, %RedisCommand.Unlink{keys: keys}}
+  def parse(["DEL" | keys]), do: {:ok, {:del, keys}, keys}
+  def parse(["UNLINK" | keys]), do: {:ok, {:del, keys}, keys}  # UNLINK is semantically equivalent to DEL
 
   # COPY source destination [DB destination-db] [REPLACE]
   def parse(["COPY", source, destination | options]) do
     replace = "REPLACE" in Enum.map(options, &String.upcase/1)
-    {:ok, %RedisCommand.Copy{source: source, destination: destination, replace: replace}}
+    {:ok, {:copy, source, destination, replace}, [source, destination]}
   end
 
-  def parse(["RENAME", key, newkey]) do
-    {:ok, %RedisCommand.Rename{key: key, newkey: newkey}}
+  def parse(["RENAME", old_key, new_key]) do
+    {:ok, {:rename, old_key, new_key}, [old_key, new_key]}
   end
 
-  def parse(["RENAMENX", key, newkey]) do
-    {:ok, %RedisCommand.RenameNX{key: key, newkey: newkey}}
+  def parse(["RENAMENX", old_key, new_key]) do
+    {:ok, {:renamenx, old_key, new_key}, [old_key, new_key]}
   end
 
-  def parse(["MOVE", key, db]) do
-    {:ok, %RedisCommand.Move{key: key, db: String.to_integer(db)}}
+  def parse(["MOVE", key, target_db]) do
+    {:ok, {:move_key, key, String.to_integer(target_db)}, [key]}
   end
 
   def parse(["PEXPIREAT", key, timestamp_ms]) do
-    {:ok, %RedisCommand.PExpireAt{key: key, timestamp_ms: String.to_integer(timestamp_ms)}}
+    {:ok, {:pexpireat, key, String.to_integer(timestamp_ms)}, [key]}
   end
 
   # EXPIRE/PEXPIRE/EXPIREAT are replicated as PEXPIREAT, but we parse them if they appear
   def parse(["EXPIRE", key, seconds | _options]) do
     timestamp_ms = (System.os_time(:second) + String.to_integer(seconds)) * 1000
-    {:ok, %RedisCommand.PExpireAt{key: key, timestamp_ms: timestamp_ms}}
+    {:ok, {:pexpireat, key, timestamp_ms}, [key]}
   end
 
   def parse(["PEXPIRE", key, milliseconds | _options]) do
     timestamp_ms = System.os_time(:millisecond) + String.to_integer(milliseconds)
-    {:ok, %RedisCommand.PExpireAt{key: key, timestamp_ms: timestamp_ms}}
+    {:ok, {:pexpireat, key, timestamp_ms}, [key]}
   end
 
   def parse(["EXPIREAT", key, timestamp | _options]) do
     timestamp_ms = String.to_integer(timestamp) * 1000
-    {:ok, %RedisCommand.PExpireAt{key: key, timestamp_ms: timestamp_ms}}
+    {:ok, {:pexpireat, key, timestamp_ms}, [key]}
   end
 
   def parse(["PERSIST", key]) do
-    {:ok, %RedisCommand.Persist{key: key}}
+    {:ok, {:persist, key}, [key]}
   end
 
   # Server commands
   # FLUSHALL [ASYNC|SYNC]
   def parse(["FLUSHALL" | _options]) do
-    {:ok, %RedisCommand.FlushAll{}}
+    {:ok, {:flushall}, []}
   end
 
   # FLUSHDB [ASYNC|SYNC]
   def parse(["FLUSHDB" | _options]) do
-    {:ok, %RedisCommand.FlushDB{}}
+    {:ok, {:flushdb}, []}
   end
 
   # SWAPDB db1 db2
   def parse(["SWAPDB", db1, db2]) do
-    {:ok, %RedisCommand.SwapDB{db1: String.to_integer(db1), db2: String.to_integer(db2)}}
+    {:ok, {:swapdb, String.to_integer(db1), String.to_integer(db2)}, []}
   end
 
-  # Unknown command - wrap in Generic
+  # Unknown command - wrap in Generic tuple
   def parse(args) do
     require Logger
     if is_list(args) and length(args) > 0 do
@@ -351,7 +355,7 @@ defmodule Vdr.RedisStream.CommandParser do
         Logger.warning("HINCR command fell through to Generic: #{inspect(args)}")
       end
     end
-    {:ok, %RedisCommand.Generic{args: args}}
+    {:ok, {:generic, args}, []}
   end
 
   # Helper functions
@@ -406,8 +410,8 @@ defmodule Vdr.RedisStream.CommandParser do
     end
   end
 
-  defp parse_zstore_command(destination, args, type) do
-    {keys, rest} = Enum.split_while(args, &(&1 not in ["WEIGHTS", "AGGREGATE"]))
+  defp parse_zstore_command(dest_key, args, type) do
+    {source_keys, rest} = Enum.split_while(args, &(&1 not in ["WEIGHTS", "AGGREGATE"]))
 
     {weights, rest} =
       case rest do
@@ -433,26 +437,21 @@ defmodule Vdr.RedisStream.CommandParser do
           nil
       end
 
+    # Default weights to 1.0 for each key if not provided
+    weights_list = weights || Enum.map(source_keys, fn _ -> 1.0 end)
+    # Default aggregate to :sum if not provided
+    aggregate_atom = aggregate || :sum
+
     command =
       case type do
         :union ->
-          %RedisCommand.ZUnionStore{
-            destination: destination,
-            keys: keys,
-            weights: weights,
-            aggregate: aggregate
-          }
+          {:zunionstore, dest_key, source_keys, weights_list, aggregate_atom}
 
         :inter ->
-          %RedisCommand.ZInterStore{
-            destination: destination,
-            keys: keys,
-            weights: weights,
-            aggregate: aggregate
-          }
+          {:zinterstore, dest_key, source_keys, weights_list, aggregate_atom}
       end
 
-    {:ok, command}
+    {:ok, command, [dest_key | source_keys]}
   end
 
   defp parse_hsetex(key, args) do
@@ -463,11 +462,11 @@ defmodule Vdr.RedisStream.CommandParser do
     case rest do
       ["FIELDS", _numfields | field_value_args] ->
         fields = parse_pairs(field_value_args)
-        {:ok, %RedisCommand.HSetEX{key: key, nx_xx_option: nx_or_xx, fields: fields}}
+        {:ok, {:hsetex, key, nx_or_xx, fields}, [key]}
 
       _ ->
         # Malformed HSETEX, treat as generic
-        {:ok, %RedisCommand.Generic{args: ["HSETEX", key | args]}}
+        {:ok, {:generic, ["HSETEX", key | args]}, []}
     end
   end
 
@@ -530,6 +529,70 @@ defmodule Vdr.RedisStream.CommandParser do
       "PXAT" -> extract_hsetex_options(Enum.drop(rest, 1), nx_or_xx)
       # Not an option, return remaining args
       _ -> {nx_or_xx, all_args}
+    end
+  end
+
+  # Helper to parse score strings to floats (handles "-inf", "+inf", etc.)
+  defp parse_score_to_float(str) when is_binary(str) do
+    case str do
+      "-inf" ->
+        :neg_infinity
+
+      "+inf" ->
+        :infinity
+
+      "inf" ->
+        :infinity
+
+      str ->
+        case Float.parse(str) do
+          {float, _} -> float
+          :error -> String.to_integer(str) * 1.0
+        end
+    end
+  end
+
+  # Parse score bound from string to Bound tuple
+  # Returns: :unbounded | {:included, score} | {:excluded, score}
+  defp parse_score_bound(str) do
+    cond do
+      # Check for exclusive prefix "("
+      String.starts_with?(str, "(") ->
+        score_str = String.slice(str, 1..-1//1)
+        score = parse_score_to_float(score_str)
+        {:excluded, score}
+
+      # Otherwise inclusive
+      true ->
+        score = parse_score_to_float(str)
+
+        if score == :neg_infinity or score == :infinity do
+          :unbounded
+        else
+          {:included, score}
+        end
+    end
+  end
+
+  # Parse lexicographic bound from string to Bound tuple
+  # Returns: :unbounded | {:included, value} | {:excluded, value}
+  # Syntax: - (unbounded min), + (unbounded max), [value (inclusive), (value (exclusive)
+  defp parse_lex_bound(str) do
+    cond do
+      str == "-" or str == "+" ->
+        :unbounded
+
+      String.starts_with?(str, "[") ->
+        value = String.slice(str, 1..-1//1)
+        {:included, value}
+
+      String.starts_with?(str, "(") ->
+        value = String.slice(str, 1..-1//1)
+        {:excluded, value}
+
+      # Default to inclusive if no prefix
+      true ->
+        {:included, str}
     end
   end
 end

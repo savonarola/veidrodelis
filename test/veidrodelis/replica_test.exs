@@ -2,7 +2,6 @@ defmodule Veidrodelis.ReplicaTest do
   use ExUnit.Case, async: false
 
   alias Vdr.RedisStream.Replica
-  alias Vdr.RedisStream.Command, as: RedisCommand
   use CommandMatchers
   require Logger
 
@@ -126,16 +125,16 @@ defmodule Veidrodelis.ReplicaTest do
         Logger.debug("Commands: #{inspect(commands)}")
 
         # Verify we received commands from RDB
-        assert command_in_list(%RedisCommand.Set{key: "key1", value: "value1"}, commands)
-        assert command_in_list(%RedisCommand.Set{key: "key2", value: "value2"}, commands)
-        assert command_in_list(%RedisCommand.RPush{key: "mylist"}, commands)
-        assert command_in_list(%RedisCommand.SAdd{key: "myset"}, commands)
-        assert command_in_list(%RedisCommand.ZAdd{key: "myzset"}, commands)
-        assert command_in_list(%RedisCommand.HSet{key: "myhash"}, commands)
-        assert command_in_list(%RedisCommand.Set{key: "key3", value: "value3"}, commands)
-        assert command_in_list(%RedisCommand.RPush{key: "mylist"}, commands)
-        assert command_in_list(%RedisCommand.SAdd{key: "myset"}, commands)
-        assert command_in_list(%RedisCommand.Del{keys: ["key3"]}, commands)
+        assert command_in_list({:set, "key1", "value1"}, commands)
+        assert command_in_list({:set, "key2", "value2"}, commands)
+        assert command_in_list({:rpush, "mylist", _}, commands)
+        assert command_in_list({:sadd, "myset", _}, commands)
+        assert command_in_list({:zadd, "myzset", _, _}, commands)
+        assert command_in_list({:hmset, "myhash", _}, commands)
+        assert command_in_list({:set, "key3", "value3"}, commands)
+        assert command_in_list({:rpush, "mylist", _}, commands)
+        assert command_in_list({:sadd, "myset", _}, commands)
+        assert command_in_list({:del, ["key3"]}, commands)
       end
 
       Replica.stop(replica)
@@ -218,10 +217,10 @@ defmodule Veidrodelis.ReplicaTest do
       end
 
       callback_state = Replica.get_callback_state(replica)
-      commands = filter_commands(%RedisCommand.Set{}, CollectorCallback.commands(callback_state))
+      commands = filter_commands({:set, _, _}, CollectorCallback.commands(callback_state))
 
       assert length(commands) >= 1
-      assert command_in_list(%RedisCommand.Set{key: "testkey", value: "testvalue"}, commands)
+      assert command_in_list({:set, "testkey", "testvalue"}, commands)
 
       Replica.stop(replica)
     end
@@ -245,14 +244,14 @@ defmodule Veidrodelis.ReplicaTest do
       callback_state = Replica.get_callback_state(replica)
       commands = CollectorCallback.commands(callback_state)
 
-      rpush_commands = filter_commands(%RedisCommand.RPush{}, commands)
+      rpush_commands = filter_commands({:rpush, "testlist", _}, commands)
 
       # Should have 1 RPUSH command with all 3 items
       assert length(rpush_commands) >= 1
 
       # Verify all items are present in the command
-      assert command_in_list(%RedisCommand.RPush{key: "testlist", values: values}, commands)
-      [%RedisCommand.RPush{values: values}] = rpush_commands
+      assert command_in_list({:rpush, "testlist", values}, commands)
+      [{:rpush, "testlist", values}] = rpush_commands
       assert "item1" in values and "item2" in values and "item3" in values
 
       Replica.stop(replica)
@@ -276,12 +275,12 @@ defmodule Veidrodelis.ReplicaTest do
 
       assert_within 1500 do
         commands = CollectorCallback.commands(Replica.get_callback_state(replica))
-        command_in_list(%RedisCommand.SAdd{key: "testset"}, commands)
+        command_in_list({:sadd, "testset", _}, commands)
       end
 
       callback_state = Replica.get_callback_state(replica)
       commands = CollectorCallback.commands(callback_state)
-      [%RedisCommand.SAdd{members: members}] = filter_commands(%RedisCommand.SAdd{}, commands)
+      [{:sadd, "testset", members}] = filter_commands({:sadd, "testset", _}, commands)
       assert "member1" in members and "member2" in members
 
       Replica.stop(replica)
@@ -309,14 +308,14 @@ defmodule Veidrodelis.ReplicaTest do
           |> Replica.get_callback_state()
           |> CollectorCallback.commands()
 
-        command_in_list(%RedisCommand.ZAdd{key: "testzset"}, commands)
+        command_in_list({:zadd, "testzset", _, _}, commands)
       end
 
       state = Replica.get_callback_state(replica)
       commands = CollectorCallback.commands(state)
-      zadd_commands = filter_commands(%RedisCommand.ZAdd{}, commands)
+      zadd_commands = filter_commands({:zadd, "testzset", _, _}, commands)
 
-      [%RedisCommand.ZAdd{members: members}] = zadd_commands
+      [{:zadd, "testzset", members, _opts}] = zadd_commands
 
       assert {1.0, "member1"} in members
       assert {2.5, "member2"} in members
@@ -343,14 +342,14 @@ defmodule Veidrodelis.ReplicaTest do
       callback_state = Replica.get_callback_state(replica)
       commands = CollectorCallback.commands(callback_state)
 
-      hset_commands = filter_commands(%RedisCommand.HSet{}, commands)
+      hset_commands = filter_commands({:hmset, "testhash", _}, commands)
 
       # Should have 1 HSET command with both fields
       assert length(hset_commands) >= 1
 
       # Verify both fields are present in the command
-      assert command_in_list(%RedisCommand.HSet{key: "testhash", fields: fields}, commands)
-      [%RedisCommand.HSet{fields: fields}] = hset_commands
+      assert command_in_list({:hmset, "testhash", fields}, commands)
+      [{:hmset, "testhash", fields}] = hset_commands
       assert {"field1", "value1"} in fields and {"field2", "value2"} in fields
 
       Replica.stop(replica)
@@ -383,8 +382,8 @@ defmodule Veidrodelis.ReplicaTest do
       commands = CollectorCallback.commands(callback_state)
 
       # Should have both SET and PEXPIREAT commands
-      set_commands = filter_commands(%RedisCommand.Set{key: "expirekey"}, commands)
-      expire_commands = filter_commands(%RedisCommand.PExpireAt{key: "expirekey"}, commands)
+      set_commands = filter_commands({:set, "expirekey", _}, commands)
+      expire_commands = filter_commands({:pexpireat, "expirekey", _}, commands)
 
       assert length(set_commands) >= 1
       assert length(expire_commands) >= 1
@@ -419,8 +418,8 @@ defmodule Veidrodelis.ReplicaTest do
       commands = CollectorCallback.commands(callback_state)
 
       # Find commands and their databases
-      db0_commands = filter_commands(%RedisCommand.Set{key: "db0key"}, commands)
-      db1_commands = filter_commands(%RedisCommand.Set{key: "db1key"}, commands)
+      db0_commands = filter_commands({:set, "db0key", _}, commands)
+      db1_commands = filter_commands({:set, "db1key", _}, commands)
 
       assert length(db0_commands) >= 1
       assert length(db1_commands) >= 1
@@ -463,16 +462,16 @@ defmodule Veidrodelis.ReplicaTest do
         commands = CollectorCallback.commands(callback_state)
 
         assert command_in_list(
-                 %RedisCommand.Set{key: "streamkey1", value: "streamvalue1"},
+                 {:set, "streamkey1", "streamvalue1"},
                  commands
                )
 
         assert command_in_list(
-                 %RedisCommand.Set{key: "streamkey2", value: "streamvalue2"},
+                 {:set, "streamkey2", "streamvalue2"},
                  commands
                )
 
-        assert command_in_list(%RedisCommand.RPush{key: "streamlist"}, commands)
+        assert command_in_list({:rpush, "streamlist", _}, commands)
       end
 
       Replica.stop(replica)
@@ -512,7 +511,7 @@ defmodule Veidrodelis.ReplicaTest do
       commands = CollectorCallback.commands(callback_state)
 
       # Verify we received the SET command
-      assert command_in_list(%RedisCommand.Set{key: "authkey", value: "authvalue"}, commands)
+      assert command_in_list({:set, "authkey", "authvalue"}, commands)
 
       Replica.stop(replica)
 
@@ -559,7 +558,7 @@ defmodule Veidrodelis.ReplicaTest do
       commands = CollectorCallback.commands(callback_state)
 
       # Verify we received the SET command
-      assert command_in_list(%RedisCommand.Set{key: "aclkey", value: "aclvalue"}, commands)
+      assert command_in_list({:set, "aclkey", "aclvalue"}, commands)
 
       Replica.stop(replica)
 

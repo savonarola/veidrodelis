@@ -1,7 +1,6 @@
 defmodule Vdr.RedisStream.RDBTest do
   use ExUnit.Case, async: true
 
-  alias Vdr.RedisStream.Command, as: RedisCommand
 
   @moduledoc """
   Tests for RDB parsing with various Redis data types.
@@ -17,40 +16,40 @@ defmodule Vdr.RedisStream.RDBTest do
     end)
   end
 
-  defp process_command(%RedisCommand.Set{key: key, value: value}, state, db) do
+  defp process_command({:set, key, value}, state, db) do
     strings = Map.get(state, :strings, [])
     Map.put(state, :strings, [{db, key, value} | strings])
   end
 
-  defp process_command(%RedisCommand.RPush{key: key, values: values}, state, db) do
+  defp process_command({:rpush, key, values}, state, db) do
     lists = Map.get(state, :lists, [])
     # Expand each value into a separate entry
     new_entries = Enum.map(values, fn value -> {db, key, value} end)
     Map.put(state, :lists, new_entries ++ lists)
   end
 
-  defp process_command(%RedisCommand.SAdd{key: key, members: members}, state, db) do
+  defp process_command({:sadd, key, members}, state, db) do
     sets = Map.get(state, :sets, [])
     # Expand each member into a separate entry
     new_entries = Enum.map(members, fn member -> {db, key, member} end)
     Map.put(state, :sets, new_entries ++ sets)
   end
 
-  defp process_command(%RedisCommand.ZAdd{key: key, members: members}, state, db) do
+  defp process_command({:zadd, key, members, _opts}, state, db) do
     zsets = Map.get(state, :zsets, [])
     # Expand each score/member pair into a separate entry
     new_entries = Enum.map(members, fn {score, member} -> {db, key, member, score} end)
     Map.put(state, :zsets, new_entries ++ zsets)
   end
 
-  defp process_command(%RedisCommand.HSet{key: key, fields: fields}, state, db) do
+  defp process_command({:hmset, key, fields}, state, db) do
     hashes = Map.get(state, :hashes, [])
     # Expand each field/value pair into a separate entry
     new_entries = Enum.map(fields, fn {field, value} -> {db, key, field, value} end)
     Map.put(state, :hashes, new_entries ++ hashes)
   end
 
-  defp process_command(%RedisCommand.PExpireAt{}, state, _db) do
+  defp process_command({:pexpireat, _, _}, state, _db) do
     # For testing, we just ignore expire commands
     state
   end

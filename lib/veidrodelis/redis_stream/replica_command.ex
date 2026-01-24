@@ -4,18 +4,17 @@ defmodule Vdr.RedisStream.ReplicaCommand do
 
   This struct encapsulates all information about a command being processed
   during replication, including the database number, the parsed command,
-  the raw generic command, and a context map for filters and callbacks.
+  the raw generic command, affected keys, and a context map for filters and callbacks.
   """
-
-  alias Vdr.RedisStream.Command, as: RedisCommand
 
   @type t :: %__MODULE__{
           db: non_neg_integer(),
-          command: RedisCommand.t(),
-          raw_command: RedisCommand.Generic.t(),
+          command: tuple(),
+          raw_command: tuple(),
+          affected_keys: [binary()],
           context: map()
         }
 
-  @enforce_keys [:db, :command, :raw_command]
-  defstruct [:db, :command, :raw_command, context: %{}]
+  @enforce_keys [:db, :command, :raw_command, :affected_keys]
+  defstruct [:db, :command, :raw_command, :affected_keys, context: %{}]
 end

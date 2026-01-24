@@ -1,8 +1,6 @@
 defmodule Vdr.RedisStream.ParserIntegrationTest do
   use ExUnit.Case, async: true
 
-  alias Vdr.RedisStream.Command, as: RedisCommand
-
   @moduledoc """
   Integration tests for replica parser with realistic data.
   Tests the full flow: RDB header -> RDB snapshot -> Command streaming
@@ -22,7 +20,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       {:ok, commands, _parser, _flags} = Vdr.RedisStream.Parser.data(parser, cmd)
 
       assert length(commands) == 1
-      assert match?([{0, %RedisCommand.Set{key: "key1", value: "value1"}, _raw}], commands)
+      assert match?([{0, {:set, "key1", "value1"}, _raw, _affected_keys}], commands)
     end
 
     test "parses two SET commands in streaming mode" do
@@ -44,7 +42,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       assert length(commands) == 2
 
       assert match?(
-               [{0, %RedisCommand.Set{key: "key1"}, _}, {0, %RedisCommand.Set{key: "key2"}, _}],
+               [{0, {:set, "key1", _}, _, _}, {0, {:set, "key2", _}, _, _}],
                commands
              )
     end
@@ -66,7 +64,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       assert length(commands) == 1
 
       assert match?(
-               [{0, %RedisCommand.RPush{key: "mylist", values: ["item1", "item2"]}, _}],
+               [{0, {:rpush, "mylist", ["item1", "item2"]}, _, _}],
                commands
              )
     end
@@ -138,7 +136,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       # Verify we got SET commands from RDB
       set_commands =
         Enum.filter(commands1, fn
-          {_db, %RedisCommand.Set{}, _raw} -> true
+          {_db, {:set, _, _}, _raw, _affected_keys} -> true
           _ -> false
         end)
 
@@ -151,7 +149,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
 
       # Should have parsed the SET command from stream
       assert length(commands2) == 1
-      assert match?([{0, %RedisCommand.Set{key: "key1", value: "value1"}, _}], commands2)
+      assert match?([{0, {:set, "key1", "value1"}, _, _}], commands2)
 
       assert is_reference(parser)
     end
@@ -186,11 +184,11 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       assert length(commands) == 3
 
       # Verify command types
-      assert match?({0, %RedisCommand.Set{key: "key1", value: "value1"}, _}, Enum.at(commands, 0))
-      assert match?({0, %RedisCommand.Set{key: "key2", value: "value2"}, _}, Enum.at(commands, 1))
+      assert match?({0, {:set, "key1", "value1"}, _, _}, Enum.at(commands, 0))
+      assert match?({0, {:set, "key2", "value2"}, _, _}, Enum.at(commands, 1))
 
       assert match?(
-               {0, %RedisCommand.RPush{key: "mylist", values: ["item1", "item2"]}, _},
+               {0, {:rpush, "mylist", ["item1", "item2"]}, _, _},
                Enum.at(commands, 2)
              )
 
@@ -214,7 +212,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
 
       # Should only have SET command, SELECT filtered out
       assert length(commands) == 1
-      assert match?([{3, %RedisCommand.Set{key: "key1", value: "value1"}, _}], commands)
+      assert match?([{3, {:set, "key1", "value1"}, _, _}], commands)
 
       assert is_reference(parser)
     end
@@ -238,7 +236,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
 
       # Should only have SET command
       assert length(commands) == 1
-      assert match?([{0, %RedisCommand.Set{}, _}], commands)
+      assert match?([{0, {:set, _, _}, _, _}], commands)
 
       # Flags should indicate PING and REPLCONF GETACK were received
       assert flags.ping == true
@@ -285,7 +283,7 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
       # Should still parse correctly
       set_commands =
         Enum.filter(all_commands, fn
-          {_db, %RedisCommand.Set{}, _raw} -> true
+          {_db, {:set, _, _}, _raw, _affected_keys} -> true
           _ -> false
         end)
 

@@ -32,7 +32,7 @@ defmodule Veidrodelis.Integration.WatchTest do
 
       # Expect notification
       assert_receive {^ref, %Vdr.WatchEvent.Update{command: cmd, db: 0}}, 2000
-      assert %Vdr.RedisStream.Command.Set{key: "test:key", value: "value1"} = cmd
+      assert {:set, "test:key", "value1"} = cmd
     end
 
     test "receives Update notification for DEL command", %{redis: redis} do
@@ -54,7 +54,7 @@ defmodule Veidrodelis.Integration.WatchTest do
 
       # Expect notification
       assert_receive {^ref, %Vdr.WatchEvent.Update{command: cmd, db: 0}}, 2000
-      assert %Vdr.RedisStream.Command.Del{keys: ["test:del"]} = cmd
+      assert {:del, ["test:del"]} = cmd
     end
 
     test "receives Update notification for LPUSH command", %{redis: redis} do
@@ -68,7 +68,7 @@ defmodule Veidrodelis.Integration.WatchTest do
 
       # Expect notification
       assert_receive {^ref, %Vdr.WatchEvent.Update{command: cmd, db: 0}}, 2000
-      assert %Vdr.RedisStream.Command.LPush{key: "test:list", values: ["item1"]} = cmd
+      assert {:lpush, "test:list", ["item1"]} = cmd
     end
 
     test "receives Update notification for HSET command", %{redis: redis} do
@@ -82,7 +82,7 @@ defmodule Veidrodelis.Integration.WatchTest do
 
       # Expect notification
       assert_receive {^ref, %Vdr.WatchEvent.Update{command: cmd, db: 0}}, 2000
-      assert %Vdr.RedisStream.Command.HSet{key: "test:hash", fields: [{"field1", "value1"}]} = cmd
+      assert {:hmset, "test:hash", [{"field1", "value1"}]} = cmd
     end
 
     test "receives Update notification for SADD command", %{redis: redis} do
@@ -96,7 +96,7 @@ defmodule Veidrodelis.Integration.WatchTest do
 
       # Expect notification
       assert_receive {^ref, %Vdr.WatchEvent.Update{command: cmd, db: 0}}, 2000
-      assert %Vdr.RedisStream.Command.SAdd{key: "test:set", members: ["member1"]} = cmd
+      assert {:sadd, "test:set", ["member1"]} = cmd
     end
 
     test "receives Update notification for ZADD command", %{redis: redis} do
@@ -110,7 +110,7 @@ defmodule Veidrodelis.Integration.WatchTest do
 
       # Expect notification
       assert_receive {^ref, %Vdr.WatchEvent.Update{command: cmd, db: 0}}, 2000
-      assert %Vdr.RedisStream.Command.ZAdd{key: "test:zset"} = cmd
+      assert {:zadd, "test:zset", [{1.0, "member1"}], []} = cmd
     end
 
     test "does not receive notification for unwatched key", %{redis: redis} do
@@ -139,8 +139,8 @@ defmodule Veidrodelis.Integration.WatchTest do
       Redix.command!(redis, ["SET", "key2", "value2"])
 
       # Expect both notifications
-      assert_receive {^ref1, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.Set{key: "key1"}}}, 2000
-      assert_receive {^ref2, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.Set{key: "key2"}}}, 2000
+      assert_receive {^ref1, %Vdr.WatchEvent.Update{command: {:set, "key1", _}}}, 2000
+      assert_receive {^ref2, %Vdr.WatchEvent.Update{command: {:set, "key2", _}}}, 2000
     end
 
     test "multiple watchers receive notification for same key", %{redis: redis} do
@@ -296,8 +296,8 @@ defmodule Veidrodelis.Integration.WatchTest do
       Redix.command!(redis, ["DEL", "__vdr_tx"])
 
       # Both notifications should arrive (order matters)
-      assert_receive {^ref1, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.Set{key: "tx:key1"}}}, 2000
-      assert_receive {^ref2, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.Set{key: "tx:key2"}}}, 2000
+      assert_receive {^ref1, %Vdr.WatchEvent.Update{command: {:set, "tx:key1", _}}}, 2000
+      assert_receive {^ref2, %Vdr.WatchEvent.Update{command: {:set, "tx:key2", _}}}, 2000
     end
 
     test "notifications sent in order for transaction", %{redis: redis} do
@@ -314,9 +314,9 @@ defmodule Veidrodelis.Integration.WatchTest do
       Redix.command!(redis, ["DEL", "__vdr_tx"])
 
       # Receive notifications in order
-      assert_receive {^ref, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.Set{value: "first"}}}, 2000
-      assert_receive {^ref, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.Set{value: "second"}}}, 2000
-      assert_receive {^ref, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.Set{value: "third"}}}, 2000
+      assert_receive {^ref, %Vdr.WatchEvent.Update{command: {:set, _, "first"}}}, 2000
+      assert_receive {^ref, %Vdr.WatchEvent.Update{command: {:set, _, "second"}}}, 2000
+      assert_receive {^ref, %Vdr.WatchEvent.Update{command: {:set, _, "third"}}}, 2000
     end
   end
 
@@ -387,8 +387,8 @@ defmodule Veidrodelis.Integration.WatchTest do
       Redix.command!(redis, ["MSET", "mset:k1", "v1", "mset:k2", "v2"])
 
       # Both watchers should receive notification
-      assert_receive {^ref1, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.MSet{}}}, 2000
-      assert_receive {^ref2, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.MSet{}}}, 2000
+      assert_receive {^ref1, %Vdr.WatchEvent.Update{command: {:mset, _}}}, 2000
+      assert_receive {^ref2, %Vdr.WatchEvent.Update{command: {:mset, _}}}, 2000
     end
 
     test "receives notifications for source and destination in RENAME", %{redis: redis} do
@@ -444,7 +444,7 @@ defmodule Veidrodelis.Integration.WatchTest do
 
       # Check that both are Rename commands
       Enum.each(notifications, fn {_ref, %Vdr.WatchEvent.Update{command: cmd, db: 0}} ->
-        assert %Vdr.RedisStream.Command.Rename{} = cmd
+        assert {:rename, _, _} = cmd
       end)
     end
 
@@ -468,8 +468,8 @@ defmodule Veidrodelis.Integration.WatchTest do
       Redix.command!(redis, ["RPOPLPUSH", "rpoplpush:src", "rpoplpush:dst"])
 
       # Both watchers should receive notification
-      assert_receive {^ref_src, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.RPopLPush{}}}, 2000
-      assert_receive {^ref_dst, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.RPopLPush{}}}, 2000
+      assert_receive {^ref_src, %Vdr.WatchEvent.Update{command: {:rpoplpush, _, _}}}, 2000
+      assert_receive {^ref_dst, %Vdr.WatchEvent.Update{command: {:rpoplpush, _, _}}}, 2000
     end
   end
 

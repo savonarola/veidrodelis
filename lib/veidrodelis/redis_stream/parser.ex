@@ -45,7 +45,6 @@ defmodule Vdr.RedisStream.Parser do
       # For normal use cases, use Vdr.RedisStream.Replica instead.
   """
 
-  alias Vdr.RedisStream.Command, as: RedisCommand
   alias Vdr.RedisStream.CommandParser
 
   @doc """
@@ -109,10 +108,11 @@ defmodule Vdr.RedisStream.Parser do
     * `{:finished, commands}` - Parser finished (connection closed), returns final commands
     * `{:error, reason}` - Parsing failed
 
-  Commands are tuples: `{db, command_struct, raw_command}` where:
+  Commands are tuples: `{db, command_tuple, raw_command, affected_keys}` where:
   - `db` is the database number
-  - `command_struct` is a parsed `Vdr.RedisStream.Command.*` struct
-  - `raw_command` is the raw `Vdr.RedisStream.Command.Generic` representation
+  - `command_tuple` is a parsed command tuple (e.g., `{:set, key, value}`)
+  - `raw_command` is the raw command tuple `{:generic, args}` for logging/debugging
+  - `affected_keys` is a list of keys affected by this command
 
   The flags map contains:
   - `:ping` - `true` if a PING command was encountered during this chunk processing
@@ -157,7 +157,6 @@ defmodule Vdr.RedisStream.Parser do
     end
   end
 
-  # Convert raw Rust commands to Elixir Command structs
   defp convert_commands(raw_commands) do
     Enum.map(raw_commands, &convert_command/1)
   end
@@ -165,11 +164,11 @@ defmodule Vdr.RedisStream.Parser do
   defp convert_command({db, name, args})
        when is_integer(db) and is_binary(name) and is_list(args) do
     # Delegate to CommandParser for parsing
-    {:ok, command} = CommandParser.parse([name | args])
+    {:ok, command, affected_keys} = CommandParser.parse([name | args])
 
-    # Always create the raw generic command from original args
-    raw_command = %RedisCommand.Generic{args: [name | args]}
+    # Always create the raw generic command tuple from original args
+    raw_command = [name | args]
 
-    {db, command, raw_command}
+    {db, command, raw_command, affected_keys}
   end
 end

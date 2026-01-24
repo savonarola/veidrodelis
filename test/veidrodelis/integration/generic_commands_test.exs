@@ -567,7 +567,7 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
       Redix.command!(redis, ["FLUSHDB"])
 
       # DB 0 watcher should receive notification
-      assert_receive {^ref_db0, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.FlushDB{}, db: 0}}, 2000
+      assert_receive {^ref_db0, %Vdr.WatchEvent.Update{command: {:flushdb}, db: 0}}, 2000
 
       # DB 1 watcher should NOT receive notification
       refute_receive {^ref_db1, _}, 500
@@ -640,8 +640,8 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
       Redix.command!(redis, ["FLUSHALL"])
 
       # Both watchers should receive notifications
-      assert_receive {^ref_db0, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.FlushAll{}}}, 2000
-      assert_receive {^ref_db1, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.FlushAll{}}}, 2000
+      assert_receive {^ref_db0, %Vdr.WatchEvent.Update{command: {:flushall}}}, 2000
+      assert_receive {^ref_db1, %Vdr.WatchEvent.Update{command: {:flushall}}}, 2000
     end
   end
 
@@ -713,8 +713,8 @@ defmodule Veidrodelis.Integration.GenericCommandsTest do
       Redix.command!(redis, ["SWAPDB", "0", "1"])
 
       # Both watchers should receive notifications
-      assert_receive {^ref_db0, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.SwapDB{db1: 0, db2: 1}}}, 2000
-      assert_receive {^ref_db1, %Vdr.WatchEvent.Update{command: %Vdr.RedisStream.Command.SwapDB{db1: 0, db2: 1}}}, 2000
+      assert_receive {^ref_db0, %Vdr.WatchEvent.Update{command: {:swapdb, 0, 1}}}, 2000
+      assert_receive {^ref_db1, %Vdr.WatchEvent.Update{command: {:swapdb, 0, 1}}}, 2000
     end
 
     test "SWAPDB with one empty database", %{redis: redis} do

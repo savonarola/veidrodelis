@@ -4,7 +4,6 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
   @moduletag :slow
 
   alias Vdr.RedisStream.Replica
-  alias Vdr.RedisStream.Command, as: RedisCommand
   alias Veidrodelis.Test.Toxiproxy
   use CommandMatchers
 
@@ -132,7 +131,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       commands = CollectorCallback.commands(callback_state)
 
       assert command_in_list(
-               %RedisCommand.Set{key: "before_disconnect", value: "value1"},
+               {:set, "before_disconnect", "value1"},
                commands
              )
 
@@ -161,7 +160,7 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       assert_within 2000 do
         callback_state = Replica.get_callback_state(replica)
         commands = CollectorCallback.commands(callback_state)
-        command_in_list(%RedisCommand.Set{key: "after_reconnect", value: "value2"}, commands)
+        command_in_list({:set, "after_reconnect", "value2"}, commands)
       end
 
       Replica.stop(replica)
@@ -313,15 +312,15 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
       assert_within 2000 do
         callback_state = Replica.get_callback_state(replica)
         commands = CollectorCallback.commands(callback_state)
-        command_in_list(%RedisCommand.Set{key: "after_outage"}, commands)
+        command_in_list({:set, "after_outage", _}, commands)
       end
 
       # Verify we received both commands
       callback_state = Replica.get_callback_state(replica)
       commands = CollectorCallback.commands(callback_state)
 
-      assert command_in_list(%RedisCommand.Set{key: "before_outage", value: "value1"}, commands)
-      assert command_in_list(%RedisCommand.Set{key: "after_outage", value: "value2"}, commands)
+      assert command_in_list({:set, "before_outage", "value1"}, commands)
+      assert command_in_list({:set, "after_outage", "value2"}, commands)
 
       Replica.stop(replica)
     end

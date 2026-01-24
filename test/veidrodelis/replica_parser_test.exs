@@ -1,7 +1,6 @@
 defmodule Vdr.RedisStream.ParserTest do
   use ExUnit.Case, async: true
 
-  alias Vdr.RedisStream.Command, as: RedisCommand
 
   @moduledoc """
   Smoke tests for Rust-based replica parser.
@@ -129,11 +128,11 @@ defmodule Vdr.RedisStream.ParserTest do
           # Check if any SET commands were returned
           set_commands =
             Enum.filter(commands, fn
-              {_db, %RedisCommand.Set{}, _raw} -> true
+              {_db, {:set, _, _}, _raw, _affected_keys} -> true
               _ -> false
             end)
 
-          Enum.each(set_commands, fn {db, %RedisCommand.Set{key: key, value: value}, _raw} ->
+          Enum.each(set_commands, fn {db, {:set, key, value}, _raw, _affected_keys} ->
             assert is_integer(db)
             assert is_binary(key)
             assert is_binary(value)

@@ -11,8 +11,6 @@ defmodule Vdr.TSProj do
 
   @behaviour Vdr.RedisStream.Callback
 
-  alias Vdr.RedisStream.Command
-  alias Command, as: RedisCommand
 
   @tx_key "__vdr_tx"
 
@@ -131,7 +129,7 @@ defmodule Vdr.TSProj do
 
   # Transaction start: SET __vdr_tx
   defp process_single_command(
-         %Vdr.RedisStream.ReplicaCommand{db: db, command: %RedisCommand.Set{key: @tx_key} = cmd},
+         %Vdr.RedisStream.ReplicaCommand{db: db, command: {:set, @tx_key, _value} = cmd},
          %__MODULE__{} = state
        ) do
     # Flush any buffered commands before starting the transaction
@@ -142,7 +140,7 @@ defmodule Vdr.TSProj do
 
   # Transaction end: DEL __vdr_tx
   defp process_single_command(
-         %Vdr.RedisStream.ReplicaCommand{db: db, command: %RedisCommand.Del{keys: keys} = cmd},
+         %Vdr.RedisStream.ReplicaCommand{db: db, command: {:del, keys} = cmd},
          %__MODULE__{} = state
        ) do
     if @tx_key in keys do
@@ -166,54 +164,51 @@ defmodule Vdr.TSProj do
   end
 
   @impl Vdr.RedisStream.Callback
-  def handle_call(%__MODULE__{} = state, message) do
-    case message do
-      # Watch subscription
-      {:watch, pid, db, key, ref} ->
-        case Vdr.TS.Watch.add(state.watch, pid, db, key, ref) do
-          {:ok, new_watch} ->
-            # Monitor the process if not already monitored
-            new_monitors =
-              if Map.has_key?(state.monitors, pid) do
-                state.monitors
-              else
-                monitor_ref = Process.monitor(pid)
-                Map.put(state.monitors, pid, monitor_ref)
-              end
+  def handle_call(%__MODULE__{} = state, {:watch, pid, db, key, ref}) do
+    case Vdr.TS.Watch.add(state.watch, pid, db, key, ref) do
+      {:ok, new_watch} ->
+        # Monitor the process if not already monitored
+        new_monitors =
+          if Map.has_key?(state.monitors, pid) do
+            state.monitors
+          else
+            monitor_ref = Process.monitor(pid)
+            Map.put(state.monitors, pid, monitor_ref)
+          end
 
-            new_state = %{state | watch: new_watch, monitors: new_monitors}
-            {:reply, :ok, new_state}
+        new_state = %{state | watch: new_watch, monitors: new_monitors}
+        {:reply, :ok, new_state}
 
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
-
-      # Watch unsubscription
-      {:unwatch, pid, db, key} ->
-        case Vdr.TS.Watch.delete(state.watch, pid, db, key) do
-          {:ok, new_watch, 0} ->
-            # Last watch for this pid - demonitor
-            case Map.get(state.monitors, pid) do
-              nil -> :ok
-              monitor_ref -> Process.demonitor(monitor_ref, [:flush])
-            end
-
-            new_monitors = Map.delete(state.monitors, pid)
-            new_state = %{state | watch: new_watch, monitors: new_monitors}
-            {:reply, :ok, new_state}
-
-          {:ok, new_watch, _remaining} ->
-            # Pid still has other watches - keep monitoring
-            new_state = %{state | watch: new_watch}
-            {:reply, :ok, new_state}
-
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
-        end
-
-      _ ->
-        {:reply, {:error, :not_implemented}, state}
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
     end
+  end
+
+  def handle_call(%__MODULE__{} = state, {:unwatch, pid, db, key}) do
+    case Vdr.TS.Watch.delete(state.watch, pid, db, key) do
+      {:ok, new_watch, 0} ->
+        # Last watch for this pid - demonitor
+        case Map.get(state.monitors, pid) do
+          nil -> :ok
+          monitor_ref -> Process.demonitor(monitor_ref, [:flush])
+        end
+
+        new_monitors = Map.delete(state.monitors, pid)
+        new_state = %{state | watch: new_watch, monitors: new_monitors}
+        {:reply, :ok, new_state}
+
+      {:ok, new_watch, _remaining} ->
+        # Pid still has other watches - keep monitoring
+        new_state = %{state | watch: new_watch}
+        {:reply, :ok, new_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  def handle_call(%__MODULE__{} = state, _message) do
+    {:reply, {:error, :not_implemented}, state}
   end
 
   @impl Vdr.RedisStream.Callback
@@ -362,394 +357,13 @@ defmodule Vdr.TSProj do
     Vdr.TS.lua_load(ts_storage, script)
   end
 
-  # Convert RedisCommand to tuple format for NIF
-  defp convert_command(db, %RedisCommand.Set{key: key, value: value}) do
-    {db, {:set, key, value}}
-  end
-
-  defp convert_command(db, %RedisCommand.Del{keys: keys}) do
-    {db, {:del, keys}}
-  end
-
-  defp convert_command(db, %RedisCommand.Unlink{keys: keys}) do
-    # UNLINK is semantically equivalent to DEL for our purposes
-    {db, {:del, keys}}
-  end
-
-  defp convert_command(db, %RedisCommand.Copy{
-         source: source,
-         destination: destination,
-         replace: replace
-       }) do
-    {db, {:copy, source, destination, replace}}
-  end
-
-  defp convert_command(db, %RedisCommand.SAdd{key: key, members: members}) do
-    {db, {:sadd, key, members}}
-  end
-
-  defp convert_command(db, %RedisCommand.SRem{key: key, members: members}) do
-    {db, {:srem, key, members}}
-  end
-
-  defp convert_command(db, %RedisCommand.SMove{
-         source: source_key,
-         destination: dest_key,
-         member: member
-       }) do
-    {db, {:smove, source_key, dest_key, member}}
-  end
-
-  defp convert_command(db, %RedisCommand.SUnionStore{destination: dest_key, keys: source_keys}) do
-    {db, {:sunionstore, dest_key, source_keys}}
-  end
-
-  defp convert_command(db, %RedisCommand.SInterStore{destination: dest_key, keys: source_keys}) do
-    {db, {:sinterstore, dest_key, source_keys}}
-  end
-
-  defp convert_command(db, %RedisCommand.SDiffStore{destination: dest_key, keys: source_keys}) do
-    {db, {:sdiffstore, dest_key, source_keys}}
-  end
-
-  defp convert_command(db, %RedisCommand.LPush{key: key, values: values}) do
-    {db, {:lpush, key, values}}
-  end
-
-  defp convert_command(db, %RedisCommand.RPush{key: key, values: values}) do
-    {db, {:rpush, key, values}}
-  end
-
-  defp convert_command(db, %RedisCommand.LPushX{key: key, values: values}) do
-    {db, {:lpushx, key, values}}
-  end
-
-  defp convert_command(db, %RedisCommand.RPushX{key: key, values: values}) do
-    {db, {:rpushx, key, values}}
-  end
-
-  defp convert_command(db, %RedisCommand.LPop{key: key, count: nil}) do
-    {db, {:lpop, key}}
-  end
-
-  defp convert_command(db, %RedisCommand.LPop{key: key, count: count}) do
-    {db, {:lpop_count, key, count}}
-  end
-
-  defp convert_command(db, %RedisCommand.RPop{key: key, count: nil}) do
-    {db, {:rpop, key}}
-  end
-
-  defp convert_command(db, %RedisCommand.RPop{key: key, count: count}) do
-    {db, {:rpop_count, key, count}}
-  end
-
-  defp convert_command(db, %RedisCommand.LSet{key: key, index: index, value: value}) do
-    {db, {:lset, key, index, value}}
-  end
-
-  defp convert_command(db, %RedisCommand.RPopLPush{source: source_key, destination: dest_key}) do
-    {db, {:rpoplpush, source_key, dest_key}}
-  end
-
-  defp convert_command(db, %RedisCommand.LMove{
-         source: source_key,
-         destination: dest_key,
-         wherefrom: wherefrom,
-         whereto: whereto
-       }) do
-    {db, {:lmove, source_key, dest_key, wherefrom, whereto}}
-  end
-
-  defp convert_command(db, %RedisCommand.HSet{key: key, fields: fields}) do
-    {db, {:hmset, key, fields}}
-  end
-
-  defp convert_command(db, %RedisCommand.HDel{key: key, fields: fields}) do
-    {db, {:hdel, key, fields}}
-  end
-
-  defp convert_command(db, %RedisCommand.HMSet{key: key, fields: fields}) do
-    {db, {:hmset, key, fields}}
-  end
-
-  defp convert_command(db, %RedisCommand.HSetNX{key: key, field: field, value: value}) do
-    {db, {:hsetnx, key, field, value}}
-  end
-
-  defp convert_command(db, %RedisCommand.HIncrBy{key: key, field: field, increment: increment}) do
-    {db, {:hincrby, key, field, increment}}
-  end
-
-  defp convert_command(db, %RedisCommand.HIncrByFloat{
-         key: key,
-         field: field,
-         increment: increment
-       }) do
-    {db, {:hincrbyfloat, key, field, increment}}
-  end
-
-  defp convert_command(db, %RedisCommand.HSetEX{
-         key: key,
-         nx_xx_option: nx_xx_option,
-         fields: fields
-       }) do
-    {db, {:hsetex, key, nx_xx_option, fields}}
-  end
-
-  defp convert_command(db, %RedisCommand.ZAdd{key: key, members: members, options: options}) do
-    {db, {:zadd, key, members, options}}
-  end
-
-  defp convert_command(db, %RedisCommand.ZIncrBy{key: key, increment: increment, member: member}) do
-    {db, {:zincrby, key, increment, member}}
-  end
-
-  defp convert_command(db, %RedisCommand.ZRem{key: key, members: members}) do
-    {db, {:zrem, key, members}}
-  end
-
-  defp convert_command(db, %RedisCommand.MSet{pairs: pairs}) do
-    {db, {:mset, pairs}}
-  end
-
-  defp convert_command(db, %RedisCommand.Append{key: key, value: value}) do
-    {db, {:append, key, value}}
-  end
-
-  defp convert_command(db, %RedisCommand.SetRange{key: key, offset: offset, value: value}) do
-    {db, {:setrange, key, offset, value}}
-  end
-
-  defp convert_command(db, %RedisCommand.Incr{key: key}) do
-    {db, {:incr, key}}
-  end
-
-  defp convert_command(db, %RedisCommand.IncrBy{key: key, increment: increment}) do
-    {db, {:incrby, key, increment}}
-  end
-
-  defp convert_command(db, %RedisCommand.Decr{key: key}) do
-    {db, {:decr, key}}
-  end
-
-  defp convert_command(db, %RedisCommand.DecrBy{key: key, decrement: decrement}) do
-    {db, {:decrby, key, decrement}}
-  end
-
-  defp convert_command(db, %RedisCommand.SetNX{key: key, value: value}) do
-    {db, {:setnx, key, value}}
-  end
-
-  defp convert_command(db, %RedisCommand.MSetNX{pairs: pairs}) do
-    {db, {:msetnx, pairs}}
-  end
-
-  defp convert_command(db, %RedisCommand.GetSet{key: key, value: value}) do
-    {db, {:getset, key, value}}
-  end
-
-  defp convert_command(db, %RedisCommand.GetDel{key: key}) do
-    {db, {:getdel, key}}
-  end
-
-  defp convert_command(db, %RedisCommand.Rename{key: old_key, newkey: new_key}) do
-    {db, {:rename, old_key, new_key}}
-  end
-
-  defp convert_command(db, %RedisCommand.RenameNX{key: old_key, newkey: new_key}) do
-    {db, {:renamenx, old_key, new_key}}
-  end
-
-  defp convert_command(db, %RedisCommand.Move{key: key, db: target_db}) do
-    {db, {:move_key, key, target_db}}
-  end
-
-  defp convert_command(db, %RedisCommand.Persist{key: key}) do
-    {db, {:persist, key}}
-  end
-
-  defp convert_command(db, %RedisCommand.PExpireAt{key: key, timestamp_ms: timestamp_ms}) do
-    {db, {:pexpireat, key, timestamp_ms}}
-  end
-
-  defp convert_command(db, %RedisCommand.LRem{key: key, count: count, value: value}) do
-    {db, {:lrem, key, count, value}}
-  end
-
-  defp convert_command(db, %RedisCommand.LTrim{key: key, start: start, stop: stop}) do
-    {db, {:ltrim, key, start, stop}}
-  end
-
-  defp convert_command(db, %RedisCommand.LInsert{
-         key: key,
-         before_after: before_after,
-         pivot: pivot,
-         element: element
-       }) do
-    {db, {:linsert, key, before_after, pivot, element}}
-  end
-
-  defp convert_command(db, %RedisCommand.ZPopMax{key: key, count: count}) do
-    {db, {:zpopmax, key, count}}
-  end
-
-  defp convert_command(db, %RedisCommand.ZPopMin{key: key, count: count}) do
-    {db, {:zpopmin, key, count}}
-  end
-
-  defp convert_command(db, %RedisCommand.ZRemRangeByRank{key: key, start: start, stop: stop}) do
-    {db, {:zremrangebyrank, key, start, stop}}
-  end
-
-  defp convert_command(db, %RedisCommand.ZRemRangeByScore{key: key, min: min_str, max: max_str}) do
-    # Parse min and max as floats (they come as strings from Redis)
-    # Handle exclusive ranges like "(1.0" - the "(" prefix indicates exclusivity
-    # Convert to Bound tuples: :unbounded | {:included, score} | {:excluded, score}
-    min_bound = parse_score_bound(min_str)
-    max_bound = parse_score_bound(max_str)
-    {db, {:zremrangebyscore, key, min_bound, max_bound}}
-  end
-
-  defp convert_command(db, %RedisCommand.ZRemRangeByLex{key: key, min: min_str, max: max_str}) do
-    # Parse lexicographic bounds
-    # Syntax: - (min unbounded), + (max unbounded), [value (inclusive), (value (exclusive)
-    min_bound = parse_lex_bound(min_str)
-    max_bound = parse_lex_bound(max_str)
-    {db, {:zremrangebylex, key, min_bound, max_bound}}
-  end
-
-  defp convert_command(db, %RedisCommand.ZUnionStore{
-         destination: dest_key,
-         keys: source_keys,
-         weights: weights,
-         aggregate: aggregate
-       }) do
-    # Default weights to 1.0 for each key if not provided
-    weights_list = weights || Enum.map(source_keys, fn _ -> 1.0 end)
-    # Default aggregate to :sum if not provided
-    aggregate_atom = aggregate || :sum
-    {db, {:zunionstore, dest_key, source_keys, weights_list, aggregate_atom}}
-  end
-
-  defp convert_command(db, %RedisCommand.ZInterStore{
-         destination: dest_key,
-         keys: source_keys,
-         weights: weights,
-         aggregate: aggregate
-       }) do
-    # Default weights to 1.0 for each key if not provided
-    weights_list = weights || Enum.map(source_keys, fn _ -> 1.0 end)
-    # Default aggregate to :sum if not provided
-    aggregate_atom = aggregate || :sum
-    {db, {:zinterstore, dest_key, source_keys, weights_list, aggregate_atom}}
-  end
-
-  defp convert_command(db, %RedisCommand.ZDiffStore{
-         destination: dest_key,
-         keys: source_keys
-       }) do
-    {db, {:zdiffstore, dest_key, source_keys}}
-  end
-
-  defp convert_command(db, %RedisCommand.ZRangeStore{
-         destination: dest_key,
-         source: source_key,
-         min: min_str,
-         max: max_str,
-         options: options
-       }) do
-    # ZRANGESTORE supports BYSCORE, BYLEX, REV, and LIMIT options
-    # Pass min/max as strings so Rust can parse them based on the mode
-    # Convert options list to uppercase strings
-    opts = (options || []) |> Enum.map(&String.upcase/1)
-    {db, {:zrangestore, dest_key, source_key, min_str, max_str, opts}}
-  end
-
-  # Server commands
-  defp convert_command(_db, %RedisCommand.FlushAll{}) do
-    # db is ignored - flushall clears all databases
-    {0, {:flushall}}
-  end
-
-  defp convert_command(db, %RedisCommand.FlushDB{}) do
-    # Clear the specific database
-    {db, {:flushdb}}
-  end
-
-  defp convert_command(_db, %RedisCommand.SwapDB{db1: db1, db2: db2}) do
-    # db is ignored - swapdb uses explicit db1 and db2
-    {0, {:swapdb, db1, db2}}
-  end
-
-  # Ignore all other commands
-  defp convert_command(_db, _command) do
-    nil
-  end
-
-  # Helper to parse score strings to floats (handles "-inf", "+inf", etc.)
-  defp parse_score_to_float(str) when is_binary(str) do
-    case str do
-      "-inf" ->
-        :neg_infinity
-
-      "+inf" ->
-        :infinity
-
-      "inf" ->
-        :infinity
-
-      str ->
-        case Float.parse(str) do
-          {float, _} -> float
-          :error -> String.to_integer(str) * 1.0
-        end
-    end
-  end
-
-  # Parse score bound from string to Bound tuple
-  # Returns: :unbounded | {:included, score} | {:excluded, score}
-  defp parse_score_bound(str) do
-    cond do
-      # Check for exclusive prefix "("
-      String.starts_with?(str, "(") ->
-        score_str = String.slice(str, 1..-1//1)
-        score = parse_score_to_float(score_str)
-        {:excluded, score}
-
-      # Otherwise inclusive
-      true ->
-        score = parse_score_to_float(str)
-
-        if score == :neg_infinity or score == :infinity do
-          :unbounded
-        else
-          {:included, score}
-        end
-    end
-  end
-
-  # Parse lexicographic bound from string to Bound tuple
-  # Returns: :unbounded | {:included, value} | {:excluded, value}
-  # Syntax: - (unbounded min), + (unbounded max), [value (inclusive), (value (exclusive)
-  defp parse_lex_bound(str) do
-    cond do
-      str == "-" or str == "+" ->
-        :unbounded
-
-      String.starts_with?(str, "[") ->
-        value = String.slice(str, 1..-1//1)
-        {:included, value}
-
-      String.starts_with?(str, "(") ->
-        value = String.slice(str, 1..-1//1)
-        {:excluded, value}
-
-      # Default to inclusive if no prefix
-      true ->
-        {:included, str}
-    end
-  end
+  # Convert command tuple to final format for NIF
+  # Commands are already in tuple format from CommandParser, just wrap with db
+  defp convert_command(_db, {:flushall}), do: {0, {:flushall}}
+  defp convert_command(_db, {:swapdb, db1, db2}), do: {0, {:swapdb, db1, db2}}
+  defp convert_command(_db, {:generic, _args}), do: nil
+  defp convert_command(db, command) when is_tuple(command), do: {db, command}
+  defp convert_command(_db, _command), do: nil
 
   # Transaction helper functions
 
@@ -780,78 +394,60 @@ defmodule Vdr.TSProj do
     end
 
     # Notify watchers for each command (in order)
+    # Note: commands here are {db, command} tuples from tx_buffer
+    # We need to get affected_keys for notification
     Enum.each(commands, fn {db, cmd} ->
-      notify_watchers(state, db, cmd)
+      # Extract affected keys for notification (commands in buffer don't have affected_keys)
+      affected_keys = extract_affected_keys_for_notification(cmd)
+      notify_watchers(state, db, cmd, affected_keys)
     end)
 
     %{state | tx_buffer: []}
   end
 
-  # Extract all keys affected by a command for watch notifications
-  defp extract_affected_keys(command) do
+  # Extract affected keys for watch notifications (for commands from tx_buffer)
+  defp extract_affected_keys_for_notification(command) do
     case command do
       # Multiple keys
-      %RedisCommand.Del{keys: keys} ->
-        keys
+      {:del, keys} -> keys
+      {:mset, pairs} -> Enum.map(pairs, fn {k, _v} -> k end)
+      {:msetnx, pairs} -> Enum.map(pairs, fn {k, _v} -> k end)
 
-      %RedisCommand.MSet{pairs: pairs} ->
-        Enum.map(pairs, fn {k, _v} -> k end)
-
-      # Source/destination commands (must come before single key pattern)
-      %RedisCommand.RPopLPush{source: src, destination: dest} ->
-        [src, dest]
-
-      %RedisCommand.LMove{source: src, destination: dest} ->
-        [src, dest]
-
-      %RedisCommand.Rename{key: old_key, newkey: new_key} ->
-        [old_key, new_key]
-
-      %RedisCommand.RenameNX{key: old_key, newkey: new_key} ->
-        [old_key, new_key]
-
-      %RedisCommand.SMove{source: src, destination: dest} ->
-        [src, dest]
+      # Source/destination commands
+      {:rpoplpush, src, dest} -> [src, dest]
+      {:lmove, src, dest, _wherefrom, _whereto} -> [src, dest]
+      {:rename, old_key, new_key} -> [old_key, new_key]
+      {:renamenx, old_key, new_key} -> [old_key, new_key]
+      {:smove, src, dest, _member} -> [src, dest]
+      {:copy, src, dest, _replace} -> [src, dest]
 
       # Store commands (affect destination + sources)
-      %RedisCommand.SUnionStore{destination: dest, keys: keys} ->
-        [dest | keys]
+      {:sunionstore, dest, keys} -> [dest | keys]
+      {:sinterstore, dest, keys} -> [dest | keys]
+      {:sdiffstore, dest, keys} -> [dest | keys]
+      {:zunionstore, dest, keys, _weights, _aggregate} -> [dest | keys]
+      {:zinterstore, dest, keys, _weights, _aggregate} -> [dest | keys]
+      {:zdiffstore, dest, keys} -> [dest | keys]
+      {:zrangestore, dest, src, _min, _max, _opts} -> [dest, src]
 
-      %RedisCommand.SInterStore{destination: dest, keys: keys} ->
-        [dest | keys]
-
-      %RedisCommand.SDiffStore{destination: dest, keys: keys} ->
-        [dest | keys]
-
-      %RedisCommand.ZUnionStore{destination: dest, keys: keys} ->
-        [dest | keys]
-
-      %RedisCommand.ZInterStore{destination: dest, keys: keys} ->
-        [dest | keys]
-
-      %RedisCommand.ZDiffStore{destination: dest, keys: keys} ->
-        [dest | keys]
-
-      %RedisCommand.ZRangeStore{destination: dest, source: src} ->
-        [dest, src]
-
-      # Single key commands (must come after multi-key patterns)
-      %{key: key} when is_binary(key) ->
-        [key]
+      # Single key commands - extract first element as key
+      {_cmd, key} when is_binary(key) -> [key]
+      {_cmd, key, _} when is_binary(key) -> [key]
+      {_cmd, key, _, _} when is_binary(key) -> [key]
+      {_cmd, key, _, _, _} when is_binary(key) -> [key]
 
       # Catch-all for commands we don't track
-      _ ->
-        []
+      _ -> []
     end
   end
 
   # Notify all watchers of a command
-  defp notify_watchers(state, db, command) do
+  defp notify_watchers(state, db, command, affected_keys) do
     # Only notify in streaming mode (not during RDB transfer)
     if state.ready do
       case command do
         # FLUSHALL affects all databases - notify all watchers
-        %RedisCommand.FlushAll{} ->
+        {:flushall} ->
           state.watch
           |> Vdr.TS.Watch.all_watchers()
           |> Enum.each(fn {pid, ref} ->
@@ -859,7 +455,7 @@ defmodule Vdr.TSProj do
           end)
 
         # FLUSHDB affects a specific database - notify all watchers in that db
-        %RedisCommand.FlushDB{} ->
+        {:flushdb} ->
           state.watch
           |> Vdr.TS.Watch.lookup_by_db(db)
           |> Enum.each(fn {ref, pid} ->
@@ -867,7 +463,7 @@ defmodule Vdr.TSProj do
           end)
 
         # SWAPDB affects two databases - notify watchers in both
-        %RedisCommand.SwapDB{db1: db1, db2: db2} ->
+        {:swapdb, db1, db2} ->
           db1_watchers = Vdr.TS.Watch.lookup_by_db(state.watch, db1)
           db2_watchers = Vdr.TS.Watch.lookup_by_db(state.watch, db2)
 
@@ -880,9 +476,7 @@ defmodule Vdr.TSProj do
 
         # Regular key-based commands
         _ ->
-          keys = extract_affected_keys(command)
-
-          Enum.each(keys, fn key ->
+          Enum.each(affected_keys, fn key ->
             state.watch
             |> Vdr.TS.Watch.lookup(db, key)
             |> Enum.each(fn {ref, pid} ->

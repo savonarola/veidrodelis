@@ -11,7 +11,6 @@ defmodule Vdr.Benchmark.LagTracker do
   use GenServer
 
   alias Vdr.RedisStream.CommandFilter
-  alias Vdr.RedisStream.Command, as: RedisCommand
 
   require Logger
 
@@ -43,13 +42,13 @@ defmodule Vdr.Benchmark.LagTracker do
     %CommandFilter{
       pre_handle: fn replica_command ->
         case replica_command.command do
-          %RedisCommand.LPush{key: "lagmon", values: values} ->
+          {:lpush, "lagmon", values} ->
             receive_time = integer_to_binary(System.system_time(:microsecond))
 
             modified_values =
               Enum.map(values, fn value -> <<value::binary, "-", receive_time::binary>> end)
 
-            modified_command = %RedisCommand.LPush{key: "lagmon", values: modified_values}
+            modified_command = {:lpush, "lagmon", modified_values}
 
             {:ok, %{replica_command | command: modified_command}}
 

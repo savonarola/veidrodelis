@@ -911,11 +911,12 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   defp process_commands(commands, state) do
-    replica_commands = for {db, command, raw_command} <- commands do
+    replica_commands = for {db, command, raw_command, affected_keys} <- commands do
       %Vdr.RedisStream.ReplicaCommand{
         db: db,
         command: command,
         raw_command: raw_command,
+        affected_keys: affected_keys,
         context: %{}
       }
     end

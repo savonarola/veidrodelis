@@ -1,7 +1,7 @@
 defmodule Vdr.RedisStream.RDB do
   @moduledoc false
 
-  alias Vdr.RedisStream.Command, as: RedisCommand
+  alias Vdr.RedisStream.CommandParser
 
   @doc """
   Create a new streaming RDB parser.
@@ -80,70 +80,8 @@ defmodule Vdr.RedisStream.RDB do
 
   defp convert_command({db, name, args})
        when is_integer(db) and is_binary(name) and is_list(args) do
-    command =
-      case name do
-        # String commands
-        "SET" when length(args) >= 2 ->
-          [key, value | _rest] = args
-          %RedisCommand.Set{key: key, value: value}
-
-        "RPUSH" ->
-          [key | values] = args
-          %RedisCommand.RPush{key: key, values: values}
-
-        "SADD" ->
-          [key | members] = args
-          %RedisCommand.SAdd{key: key, members: members}
-
-        "ZADD" ->
-          [key | score_member_pairs] = args
-          members = parse_zadd_args(score_member_pairs, [])
-          %RedisCommand.ZAdd{key: key, members: members}
-
-        "HSET" ->
-          [key | field_value_pairs] = args
-          fields = parse_hset_args(field_value_pairs, [])
-          %RedisCommand.HSet{key: key, fields: fields}
-
-        "PEXPIREAT" ->
-          [key | [expire_ms]] = args
-          %RedisCommand.PExpireAt{key: key, timestamp_ms: expire_ms}
-      end
-
+    # Delegate to CommandParser for parsing
+    {:ok, command, _affected_keys} = CommandParser.parse([name | args])
     {db, command}
-  end
-
-  # Parse ZADD arguments: [score, member, score, member, ...]
-  defp parse_zadd_args([], acc), do: Enum.reverse(acc)
-
-  defp parse_zadd_args([score_bin, member | rest], acc) do
-    score = parse_float(score_bin)
-    parse_zadd_args(rest, [{score, member} | acc])
-  end
-
-  # Parse HSET arguments: [field, value, field, value, ...]
-  defp parse_hset_args([], acc), do: Enum.reverse(acc)
-
-  defp parse_hset_args([field, value | rest], acc) do
-    parse_hset_args(rest, [{field, value} | acc])
-  end
-
-  defp parse_float("inf"), do: :pos_inf
-  defp parse_float("+inf"), do: :pos_inf
-  defp parse_float("-inf"), do: :neg_inf
-  defp parse_float("nan"), do: :nan
-
-  defp parse_float(bin) when is_binary(bin) do
-    case Float.parse(bin) do
-      {float, _} ->
-        float
-
-      :error ->
-        # Try as integer
-        case Integer.parse(bin) do
-          {int, _} -> int * 1.0
-          :error -> 0.0
-        end
-    end
   end
 end
