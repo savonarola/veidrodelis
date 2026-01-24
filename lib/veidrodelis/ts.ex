@@ -67,46 +67,6 @@ defmodule Vdr.TS do
   def create(), do: :erlang.nif_error(:nif_not_loaded)
 
   @doc """
-  Retrieves a binary value by key from a specific database.
-
-  Returns the stored binary, or `nil` if the key doesn't exist.
-
-  ## Examples
-
-      storage = Vdr.TS.create()
-      Vdr.TS.tx(storage, [{0, {:set, "key", "value"}}])
-
-      Vdr.TS.get(storage, 0, "key")
-      #=> "value"
-
-      Vdr.TS.get(storage, 0, "missing")
-      #=> nil
-
-      # Different databases are isolated
-      Vdr.TS.tx(storage, [{0, {:set, "key", "value0"}}])
-      Vdr.TS.tx(storage, [{1, {:set, "key", "value1"}}])
-      Vdr.TS.get(storage, 0, "key")
-      #=> "value0"
-      Vdr.TS.get(storage, 1, "key")
-      #=> "value1"
-
-      # Binary data is preserved exactly
-      data = <<0, 1, 2, 255, 254, 253>>
-      Vdr.TS.tx(storage, [{0, {:set, "binary", data}}])
-      Vdr.TS.get(storage, 0, "binary")
-      #=> <<0, 1, 2, 255, 254, 253>>
-  """
-  @spec get(reference(), non_neg_integer(), binary()) :: binary() | nil
-  def get(storage, db, key) do
-    [result] = tx(storage, [{db, {:get, key}}])
-
-    case result do
-      {:ok, value} -> value
-      {:error, _} -> nil
-    end
-  end
-
-  @doc """
   Destroys a storage instance, clearing all data.
 
   This clears the key-value map, freeing all stored binary data.
@@ -214,6 +174,41 @@ defmodule Vdr.TS do
   @spec tx(reference(), [tuple()]) :: [term()]
   def tx(_storage, _commands), do: :erlang.nif_error(:nif_not_loaded)
 
+  @doc """
+  Retrieves a binary value by key from a specific database.
+
+  Returns the stored binary, or `nil` if the key doesn't exist.
+
+  ## Examples
+
+      storage = Vdr.TS.create()
+      Vdr.TS.tx(storage, [{0, {:set, "key", "value"}}])
+
+      Vdr.TS.get(storage, 0, "key")
+      #=> "value"
+
+      Vdr.TS.get(storage, 0, "missing")
+      #=> nil
+
+      # Different databases are isolated
+      Vdr.TS.tx(storage, [{0, {:set, "key", "value0"}}])
+      Vdr.TS.tx(storage, [{1, {:set, "key", "value1"}}])
+      Vdr.TS.get(storage, 0, "key")
+      #=> "value0"
+      Vdr.TS.get(storage, 1, "key")
+      #=> "value1"
+
+      # Binary data is preserved exactly
+      data = <<0, 1, 2, 255, 254, 253>>
+      Vdr.TS.tx(storage, [{0, {:set, "binary", data}}])
+      Vdr.TS.get(storage, 0, "binary")
+      #=> <<0, 1, 2, 255, 254, 253>>
+  """
+  @spec get(reference(), non_neg_integer(), binary()) :: binary() | nil
+  def get(storage, db, key) do
+    read_tx_command(storage, db, {:get, key})
+  end
+
   # Set operations (read-only)
 
   @doc """
@@ -234,8 +229,7 @@ defmodule Vdr.TS do
   @spec smembers(reference(), non_neg_integer(), binary()) ::
           {:ok, [binary()]} | {:error, :wrong_type}
   def smembers(storage, db, key) do
-    [result] = tx(storage, [{db, {:smembers, key}}])
-    result
+    read_tx_command(storage, db, {:smembers, key})
   end
 
   @doc """
@@ -254,8 +248,7 @@ defmodule Vdr.TS do
   @spec sismember(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, boolean()} | {:error, :wrong_type}
   def sismember(storage, db, key, member) do
-    [result] = tx(storage, [{db, {:sismember, key, member}}])
-    result
+    read_tx_command(storage, db, {:sismember, key, member})
   end
 
   @doc """
@@ -275,8 +268,7 @@ defmodule Vdr.TS do
   @spec scard(reference(), non_neg_integer(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
   def scard(storage, db, key) do
-    [result] = tx(storage, [{db, {:scard, key}}])
-    result
+    read_tx_command(storage, db, {:scard, key})
   end
 
   @doc """
@@ -295,8 +287,7 @@ defmodule Vdr.TS do
   @spec sfirst(reference(), non_neg_integer(), binary()) ::
           {:ok, binary() | nil} | {:error, :wrong_type}
   def sfirst(storage, db, key) do
-    [result] = tx(storage, [{db, {:sfirst, key}}])
-    result
+    read_tx_command(storage, db, {:sfirst, key})
   end
 
   @doc """
@@ -315,8 +306,7 @@ defmodule Vdr.TS do
   @spec slast(reference(), non_neg_integer(), binary()) ::
           {:ok, binary() | nil} | {:error, :wrong_type}
   def slast(storage, db, key) do
-    [result] = tx(storage, [{db, {:slast, key}}])
-    result
+    read_tx_command(storage, db, {:slast, key})
   end
 
   @doc """
@@ -335,8 +325,7 @@ defmodule Vdr.TS do
   @spec snext(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, binary() | nil} | {:error, :wrong_type}
   def snext(storage, db, key, member) do
-    [result] = tx(storage, [{db, {:snext, key, member}}])
-    result
+    read_tx_command(storage, db, {:snext, key, member})
   end
 
   @doc """
@@ -355,8 +344,7 @@ defmodule Vdr.TS do
   @spec sprev(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, binary() | nil} | {:error, :wrong_type}
   def sprev(storage, db, key, member) do
-    [result] = tx(storage, [{db, {:sprev, key, member}}])
-    result
+    read_tx_command(storage, db, {:sprev, key, member})
   end
 
   @doc """
@@ -375,8 +363,7 @@ defmodule Vdr.TS do
   @spec smismember(reference(), non_neg_integer(), binary(), [binary()]) ::
           {:ok, [boolean()]} | {:error, :wrong_type}
   def smismember(storage, db, key, members) do
-    [result] = tx(storage, [{db, {:smismember, key, members}}])
-    result
+    read_tx_command(storage, db, {:smismember, key, members})
   end
 
   @doc """
@@ -408,8 +395,7 @@ defmodule Vdr.TS do
   @spec srandmember(reference(), non_neg_integer(), binary(), integer()) ::
           {:ok, [binary()]} | {:error, :wrong_type}
   def srandmember(storage, db, key, count) do
-    [result] = tx(storage, [{db, {:srandmember, key, count}}])
-    result
+    read_tx_command(storage, db, {:srandmember, key, count})
   end
 
   @doc """
@@ -433,8 +419,7 @@ defmodule Vdr.TS do
   @spec sunion(reference(), non_neg_integer(), [binary()]) ::
           {:ok, [binary()]} | {:error, :wrong_type}
   def sunion(storage, db, keys) do
-    [result] = tx(storage, [{db, {:sunion, keys}}])
-    result
+    read_tx_command(storage, db, {:sunion, keys})
   end
 
   @doc """
@@ -458,8 +443,7 @@ defmodule Vdr.TS do
   @spec sinter(reference(), non_neg_integer(), [binary()]) ::
           {:ok, [binary()]} | {:error, :wrong_type}
   def sinter(storage, db, keys) do
-    [result] = tx(storage, [{db, {:sinter, keys}}])
-    result
+    read_tx_command(storage, db, {:sinter, keys})
   end
 
   @doc """
@@ -484,8 +468,7 @@ defmodule Vdr.TS do
   @spec sdiff(reference(), non_neg_integer(), [binary()]) ::
           {:ok, [binary()]} | {:error, :wrong_type}
   def sdiff(storage, db, keys) do
-    [result] = tx(storage, [{db, {:sdiff, keys}}])
-    result
+    read_tx_command(storage, db, {:sdiff, keys})
   end
 
   @doc """
@@ -509,8 +492,7 @@ defmodule Vdr.TS do
   @spec sintercard(reference(), non_neg_integer(), [binary()]) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
   def sintercard(storage, db, keys) do
-    [result] = tx(storage, [{db, {:sintercard, keys}}])
-    result
+    read_tx_command(storage, db, {:sintercard, keys})
   end
 
   # List operations (read-only)
@@ -532,8 +514,7 @@ defmodule Vdr.TS do
   @spec llen(reference(), non_neg_integer(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
   def llen(storage, db, key) do
-    [result] = tx(storage, [{db, {:llen, key}}])
-    result
+    read_tx_command(storage, db, {:llen, key})
   end
 
   @doc """
@@ -555,8 +536,7 @@ defmodule Vdr.TS do
   @spec lrange(reference(), non_neg_integer(), binary(), integer(), integer()) ::
           {:ok, [binary()]} | {:error, :wrong_type}
   def lrange(storage, db, key, start, stop) do
-    [result] = tx(storage, [{db, {:lrange, key, start, stop}}])
-    result
+    read_tx_command(storage, db, {:lrange, key, start, stop})
   end
 
   # Hash operations (read-only)
@@ -577,8 +557,7 @@ defmodule Vdr.TS do
   @spec hget(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, binary() | nil} | {:error, :wrong_type}
   def hget(storage, db, key, field) do
-    [result] = tx(storage, [{db, {:hget, key, field}}])
-    result
+    read_tx_command(storage, db, {:hget, key, field})
   end
 
   @doc """
@@ -596,8 +575,7 @@ defmodule Vdr.TS do
   @spec hmget(reference(), non_neg_integer(), binary(), [binary()]) ::
           {:ok, [binary() | nil]} | {:error, :wrong_type}
   def hmget(storage, db, key, fields) do
-    [result] = tx(storage, [{db, {:hmget, key, fields}}])
-    result
+    read_tx_command(storage, db, {:hmget, key, fields})
   end
 
   @doc """
@@ -616,8 +594,7 @@ defmodule Vdr.TS do
   @spec hgetall(reference(), non_neg_integer(), binary()) ::
           {:ok, [{binary(), binary()}]} | {:error, :wrong_type}
   def hgetall(storage, db, key) do
-    [result] = tx(storage, [{db, {:hgetall, key}}])
-    result
+    read_tx_command(storage, db, {:hgetall, key})
   end
 
   @doc """
@@ -635,8 +612,7 @@ defmodule Vdr.TS do
   @spec hkeys(reference(), non_neg_integer(), binary()) ::
           {:ok, [binary()]} | {:error, :wrong_type}
   def hkeys(storage, db, key) do
-    [result] = tx(storage, [{db, {:hkeys, key}}])
-    result
+    read_tx_command(storage, db, {:hkeys, key})
   end
 
   @doc """
@@ -655,8 +631,7 @@ defmodule Vdr.TS do
   @spec hvals(reference(), non_neg_integer(), binary()) ::
           {:ok, [binary()]} | {:error, :wrong_type}
   def hvals(storage, db, key) do
-    [result] = tx(storage, [{db, {:hvals, key}}])
-    result
+    read_tx_command(storage, db, {:hvals, key})
   end
 
   @doc """
@@ -675,8 +650,7 @@ defmodule Vdr.TS do
   @spec hlen(reference(), non_neg_integer(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
   def hlen(storage, db, key) do
-    [result] = tx(storage, [{db, {:hlen, key}}])
-    result
+    read_tx_command(storage, db, {:hlen, key})
   end
 
   @doc """
@@ -695,8 +669,7 @@ defmodule Vdr.TS do
   @spec hexists(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, boolean()} | {:error, :wrong_type}
   def hexists(storage, db, key, field) do
-    [result] = tx(storage, [{db, {:hexists, key, field}}])
-    result
+    read_tx_command(storage, db, {:hexists, key, field})
   end
 
   @doc """
@@ -715,8 +688,7 @@ defmodule Vdr.TS do
   @spec hfirst(reference(), non_neg_integer(), binary()) ::
           {:ok, {binary(), binary()} | nil} | {:error, :wrong_type}
   def hfirst(storage, db, key) do
-    [result] = tx(storage, [{db, {:hfirst, key}}])
-    result
+    read_tx_command(storage, db, {:hfirst, key})
   end
 
   @doc """
@@ -735,8 +707,7 @@ defmodule Vdr.TS do
   @spec hlast(reference(), non_neg_integer(), binary()) ::
           {:ok, {binary(), binary()} | nil} | {:error, :wrong_type}
   def hlast(storage, db, key) do
-    [result] = tx(storage, [{db, {:hlast, key}}])
-    result
+    read_tx_command(storage, db, {:hlast, key})
   end
 
   @doc """
@@ -755,8 +726,7 @@ defmodule Vdr.TS do
   @spec hnext(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, {binary(), binary()} | nil} | {:error, :wrong_type}
   def hnext(storage, db, key, field) do
-    [result] = tx(storage, [{db, {:hnext, key, field}}])
-    result
+    read_tx_command(storage, db, {:hnext, key, field})
   end
 
   @doc """
@@ -775,8 +745,7 @@ defmodule Vdr.TS do
   @spec hprev(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, {binary(), binary()} | nil} | {:error, :wrong_type}
   def hprev(storage, db, key, field) do
-    [result] = tx(storage, [{db, {:hprev, key, field}}])
-    result
+    read_tx_command(storage, db, {:hprev, key, field})
   end
 
   @doc """
@@ -796,8 +765,7 @@ defmodule Vdr.TS do
   @spec hstrlen(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
   def hstrlen(storage, db, key, field) do
-    [result] = tx(storage, [{db, {:hstrlen, key, field}}])
-    result
+    read_tx_command(storage, db, {:hstrlen, key, field})
   end
 
   @doc """
@@ -831,8 +799,7 @@ defmodule Vdr.TS do
   @spec hrandfield(reference(), non_neg_integer(), binary(), integer(), boolean()) ::
           {:ok, [binary()] | [{binary(), binary()}]} | {:error, :wrong_type}
   def hrandfield(storage, db, key, count, with_values) do
-    [result] = tx(storage, [{db, {:hrandfield, key, count, with_values}}])
-    result
+    read_tx_command(storage, db, {:hrandfield, key, count, with_values})
   end
 
   # Sorted set (zset) operations (read-only)
@@ -853,8 +820,7 @@ defmodule Vdr.TS do
   @spec zscore(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, float() | nil} | {:error, :wrong_type}
   def zscore(storage, db, key, member) do
-    [result] = tx(storage, [{db, {:zscore, key, member}}])
-    result
+    read_tx_command(storage, db, {:zscore, key, member})
   end
 
   @doc """
@@ -873,8 +839,7 @@ defmodule Vdr.TS do
   @spec zcard(reference(), non_neg_integer(), binary()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
   def zcard(storage, db, key) do
-    [result] = tx(storage, [{db, {:zcard, key}}])
-    result
+    read_tx_command(storage, db, {:zcard, key})
   end
 
   @doc """
@@ -897,22 +862,7 @@ defmodule Vdr.TS do
   @spec zrange(reference(), non_neg_integer(), binary(), integer(), integer(), boolean()) ::
           {:ok, [binary() | float()]} | {:error, :wrong_type}
   def zrange(storage, db, key, start, stop, with_scores) do
-    [result] = tx(storage, [{db, {:zrange, key, start, stop, with_scores}}])
-
-    case result do
-      {:ok, tuples} when with_scores ->
-        # Convert list of tuples to flat list: [{m1, s1}, {m2, s2}] -> [m1, s1, m2, s2]
-        flat_list =
-          Enum.flat_map(tuples, fn
-            {member, score} -> [member, score]
-            member -> [member]
-          end)
-
-        {:ok, flat_list}
-
-      other ->
-        other
-    end
+    read_tx_command(storage, db, {:zrange, key, start, stop, with_scores})
   end
 
   @doc """
@@ -934,8 +884,7 @@ defmodule Vdr.TS do
   @spec zrangebyscore(reference(), non_neg_integer(), binary(), float(), float(), boolean()) ::
           {:ok, [binary()] | [{binary(), float()}]} | {:error, :wrong_type}
   def zrangebyscore(storage, db, key, min, max, with_scores) do
-    [result] = tx(storage, [{db, {:zrangebyscore, key, min, max, with_scores}}])
-    result
+    read_tx_command(storage, db, {:zrangebyscore, key, min, max, with_scores})
   end
 
   @doc """
@@ -954,8 +903,7 @@ defmodule Vdr.TS do
   @spec zrank(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, non_neg_integer() | nil} | {:error, :wrong_type}
   def zrank(storage, db, key, member) do
-    [result] = tx(storage, [{db, {:zrank, key, member}}])
-    result
+    read_tx_command(storage, db, {:zrank, key, member})
   end
 
   @doc """
@@ -974,8 +922,7 @@ defmodule Vdr.TS do
   @spec zrevrank(reference(), non_neg_integer(), binary(), binary()) ::
           {:ok, non_neg_integer() | nil} | {:error, :wrong_type}
   def zrevrank(storage, db, key, member) do
-    [result] = tx(storage, [{db, {:zrevrank, key, member}}])
-    result
+    read_tx_command(storage, db, {:zrevrank, key, member})
   end
 
   @doc """
@@ -993,8 +940,7 @@ defmodule Vdr.TS do
   @spec zcount(reference(), non_neg_integer(), binary(), float(), float()) ::
           {:ok, non_neg_integer()} | {:error, :wrong_type}
   def zcount(storage, db, key, min, max) do
-    [result] = tx(storage, [{db, {:zcount, key, min, max}}])
-    result
+    read_tx_command(storage, db, {:zcount, key, min, max})
   end
 
   @doc """
@@ -1014,8 +960,7 @@ defmodule Vdr.TS do
   @spec zfirst(reference(), non_neg_integer(), binary()) ::
           {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
   def zfirst(storage, db, key) do
-    [result] = tx(storage, [{db, {:zfirst, key}}])
-    result
+    read_tx_command(storage, db, {:zfirst, key})
   end
 
   @doc """
@@ -1035,8 +980,7 @@ defmodule Vdr.TS do
   @spec zlast(reference(), non_neg_integer(), binary()) ::
           {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
   def zlast(storage, db, key) do
-    [result] = tx(storage, [{db, {:zlast, key}}])
-    result
+    read_tx_command(storage, db, {:zlast, key})
   end
 
   @doc """
@@ -1056,8 +1000,7 @@ defmodule Vdr.TS do
   @spec znext(reference(), non_neg_integer(), binary(), float(), binary()) ::
           {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
   def znext(storage, db, key, score, member) do
-    [result] = tx(storage, [{db, {:znext, key, score, member}}])
-    result
+    read_tx_command(storage, db, {:znext, key, score, member})
   end
 
   @doc """
@@ -1077,8 +1020,7 @@ defmodule Vdr.TS do
   @spec zprev(reference(), non_neg_integer(), binary(), float(), binary()) ::
           {:ok, {float(), binary()} | nil} | {:error, :wrong_type}
   def zprev(storage, db, key, score, member) do
-    [result] = tx(storage, [{db, {:zprev, key, score, member}}])
-    result
+    read_tx_command(storage, db, {:zprev, key, score, member})
   end
 
   @doc """
@@ -1211,90 +1153,25 @@ defmodule Vdr.TS do
   """
   @spec read_tx(reference(), non_neg_integer(), [tuple()]) :: {:ok, [term()]} | {:error, term()}
   def read_tx(storage, db, commands) when is_list(commands) do
-    case validate_readonly_commands(commands) do
-      :ok ->
-        full_commands = Enum.map(commands, fn cmd -> {db, cmd} end)
-        results = tx(storage, full_commands)
-        {:ok, unwrap_results(results)}
-
-      {:error, _} = error ->
-        error
-    end
+    read_tx_commands(storage, db, commands)
   end
 
   def read_tx(storage, db, script) when is_binary(script) do
-    read_tx_nif(storage, db, script)
+    read_tx_lua(storage, db, script)
   end
 
-  @spec read_tx_nif(reference(), non_neg_integer(), binary()) :: {:ok, term()} | {:error, term()}
-  defp read_tx_nif(_storage, _db, _script_or_bytecode),
+  defp read_tx_command(storage, db, command) do
+    {:ok, [result]} = read_tx_commands(storage, db, [command])
+    result
+  end
+
+  @spec read_tx_lua(reference(), non_neg_integer(), binary()) :: {:ok, term()} | {:error, term()}
+  defp read_tx_lua(_storage, _db, _script_or_bytecode),
     do: :erlang.nif_error(:nif_not_loaded)
 
-  # Whitelist of read-only commands
-  @readonly_commands MapSet.new([
-                       :get,
-                       :smembers,
-                       :sismember,
-                       :smismember,
-                       :srandmember,
-                       :sunion,
-                       :sinter,
-                       :sdiff,
-                       :sintercard,
-                       :scard,
-                       :sfirst,
-                       :slast,
-                       :snext,
-                       :sprev,
-                       :llen,
-                       :lrange,
-                       :hget,
-                       :hmget,
-                       :hgetall,
-                       :hkeys,
-                       :hvals,
-                       :hlen,
-                       :hexists,
-                       :hfirst,
-                       :hlast,
-                       :hnext,
-                       :hprev,
-                       :hstrlen,
-                       :hrandfield,
-                       :zscore,
-                       :zcard,
-                       :zrank,
-                       :zrevrank,
-                       :zcount,
-                       :zrange,
-                       :zrangebyscore,
-                       :zfirst,
-                       :zlast,
-                       :znext,
-                       :zprev
-                     ])
+  @spec read_tx_commands(reference(), non_neg_integer(), [tuple()]) ::
+          {:ok, [term()]} | {:error, term()}
+  defp read_tx_commands(_storage, _db, _commands),
+    do: :erlang.nif_error(:nif_not_loaded)
 
-  defp validate_readonly_commands(commands) do
-    Enum.reduce_while(commands, :ok, fn cmd, :ok ->
-      if is_tuple(cmd) and tuple_size(cmd) > 0 do
-        command_name = elem(cmd, 0)
-
-        if is_atom(command_name) and MapSet.member?(@readonly_commands, command_name) do
-          {:cont, :ok}
-        else
-          {:halt, {:error, :readonly_violation}}
-        end
-      else
-        {:halt, {:error, :invalid_command}}
-      end
-    end)
-  end
-
-  # Unwrap {:ok, value} results, keeping raw values as-is
-  defp unwrap_results(results) do
-    Enum.map(results, fn
-      {:ok, value} -> value
-      other -> other
-    end)
-  end
 end

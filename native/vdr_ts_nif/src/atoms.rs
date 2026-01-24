@@ -3,6 +3,7 @@ rustler::atoms! {
     error,
     nil,
     wrong_type,
+    readonly_violation,
     // Write command atoms
     set,
     mset,

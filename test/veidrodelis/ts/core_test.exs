@@ -16,8 +16,8 @@ defmodule Vdr.TS.CoreTest do
       TS.tx(storage1, [{0, {:set, "key", "value1"}}])
       TS.tx(storage2, [{0, {:set, "key", "value2"}}])
 
-      assert "value1" == TS.get(storage1, 0, "key")
-      assert "value2" == TS.get(storage2, 0, "key")
+      assert {:ok, "value1"} == TS.get(storage1, 0, "key")
+      assert {:ok, "value2"} == TS.get(storage2, 0, "key")
     end
   end
 
@@ -31,9 +31,9 @@ defmodule Vdr.TS.CoreTest do
 
       :ok = TS.destroy(storage)
 
-      assert nil == TS.get(storage, 0, "key1")
-      assert nil == TS.get(storage, 0, "key2")
-      assert nil == TS.get(storage, 0, "key3")
+      assert {:ok, nil} == TS.get(storage, 0, "key1")
+      assert {:ok, nil} == TS.get(storage, 0, "key2")
+      assert {:ok, nil} == TS.get(storage, 0, "key3")
     end
 
     test "storage can be reused after destroy" do
@@ -43,8 +43,8 @@ defmodule Vdr.TS.CoreTest do
       TS.destroy(storage)
 
       TS.tx(storage, [{0, {:set, "key2", "value2"}}])
-      assert "value2" == TS.get(storage, 0, "key2")
-      assert nil == TS.get(storage, 0, "key1")
+      assert {:ok, "value2"} == TS.get(storage, 0, "key2")
+      assert {:ok, nil} == TS.get(storage, 0, "key1")
     end
   end
 
@@ -63,7 +63,8 @@ defmodule Vdr.TS.CoreTest do
           Task.async(fn ->
             # Each task reads and writes
             TS.tx(storage, [{0, {:set, "task#{i}", "task_value_#{i}"}}])
-            TS.get(storage, 0, "key#{i}")
+            {:ok, value} = TS.get(storage, 0, "key#{i}")
+            value
           end)
         end
 
@@ -72,7 +73,7 @@ defmodule Vdr.TS.CoreTest do
 
       # Verify task writes succeeded
       for i <- 1..5 do
-        assert "task_value_#{i}" == TS.get(storage, 0, "task#{i}")
+        assert {:ok, "task_value_#{i}"} == TS.get(storage, 0, "task#{i}")
       end
     end
 
@@ -90,7 +91,7 @@ defmodule Vdr.TS.CoreTest do
       assert Enum.all?(results, &(&1 == [:ok]))
 
       # Some value should be stored (we don't know which due to race)
-      value = TS.get(storage, 0, "shared")
+      {:ok, value} = TS.get(storage, 0, "shared")
       assert is_binary(value)
       assert String.starts_with?(value, "value")
     end
@@ -116,7 +117,7 @@ defmodule Vdr.TS.CoreTest do
 
       # All keys should be deleted
       for i <- 1..10 do
-        assert nil == TS.get(storage, 0, "key#{i}")
+        assert {:ok, nil} == TS.get(storage, 0, "key#{i}")
       end
     end
   end
@@ -128,7 +129,7 @@ defmodule Vdr.TS.CoreTest do
       binary = <<0, 1, 2, 255, 254, 253>>
       TS.tx(storage, [{0, {:set, "binary", binary}}])
 
-      assert ^binary = TS.get(storage, 0, "binary")
+      assert {:ok, ^binary} = TS.get(storage, 0, "binary")
     end
 
     test "handles large binary values" do
@@ -138,20 +139,20 @@ defmodule Vdr.TS.CoreTest do
       large_binary = :crypto.strong_rand_bytes(1024 * 1024)
       TS.tx(storage, [{0, {:set, "large", large_binary}}])
 
-      assert ^large_binary = TS.get(storage, 0, "large")
+      assert {:ok, ^large_binary} = TS.get(storage, 0, "large")
     end
 
     test "different binary values for same key across time" do
       storage = TS.create()
 
       TS.tx(storage, [{0, {:set, "key", "value1"}}])
-      assert "value1" == TS.get(storage, 0, "key")
+      assert {:ok, "value1"} == TS.get(storage, 0, "key")
 
       TS.tx(storage, [{0, {:set, "key", "value2"}}])
-      assert "value2" == TS.get(storage, 0, "key")
+      assert {:ok, "value2"} == TS.get(storage, 0, "key")
 
       TS.tx(storage, [{0, {:set, "key", <<1, 2, 3>>}}])
-      assert <<1, 2, 3>> == TS.get(storage, 0, "key")
+      assert {:ok, <<1, 2, 3>>} == TS.get(storage, 0, "key")
     end
   end
 
@@ -166,7 +167,7 @@ defmodule Vdr.TS.CoreTest do
 
       # Verify all keys
       for i <- 1..100 do
-        assert "value#{i}" == TS.get(storage, 0, "key#{i}")
+        assert {:ok, "value#{i}"} == TS.get(storage, 0, "key#{i}")
       end
     end
 
@@ -177,7 +178,7 @@ defmodule Vdr.TS.CoreTest do
       value = "value\0with\0nulls"
 
       TS.tx(storage, [{0, {:set, key, value}}])
-      assert ^value = TS.get(storage, 0, key)
+      assert {:ok, ^value} = TS.get(storage, 0, key)
     end
   end
 end

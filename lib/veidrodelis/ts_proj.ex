@@ -281,12 +281,14 @@ defmodule Vdr.TSProj do
   # Uses TS storage directly instead of GenServer calls
   # Only get/3 is implemented, all others return {:error, :not_implemented}
 
-  def get(handle_state, db, key) when is_map(handle_state) and is_binary(key) do
+  def get(%{ready: ready, ts_storage: ts_storage}, db, key) when is_binary(key) do
     # Check if instance is ready (has completed initial sync)
-    if Map.get(handle_state, :ready, false) do
+    if ready do
       # Extract TS storage from handle_state and use it directly
-      ts_storage = handle_state.ts_storage
-      Vdr.TS.get(ts_storage, db, key)
+      case Vdr.TS.get(ts_storage, db, key) do
+        {:ok, value} -> value
+        {:error, _} = error -> error
+      end
     else
       {:error, :not_ready}
     end
@@ -469,14 +471,7 @@ defmodule Vdr.TSProj do
       when is_binary(key) do
     if ready do
       case Vdr.TS.zrange(ts_storage, db, key, start, stop, with_scores) do
-        {:ok, flat_list} when with_scores ->
-          # Convert flat list [member1, score1, member2, score2, ...] to [{member1, score1}, {member2, score2}, ...]
-          flat_list
-          |> Enum.chunk_every(2)
-          |> Enum.map(fn [member, score] -> {member, score} end)
-
         {:ok, members} ->
-          # Return members only (without scores)
           members
 
         {:error, _} = error ->
