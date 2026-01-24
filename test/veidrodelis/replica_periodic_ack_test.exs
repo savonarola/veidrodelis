@@ -54,12 +54,6 @@ defmodule Veidrodelis.ReplicaPeriodicAckTest do
     {:ok, redis} = Redix.start_link(host: @redis_host, port: @redis_port)
     Redix.command!(redis, ["FLUSHALL"])
 
-    on_exit(fn ->
-      if Process.alive?(redis) do
-        Redix.stop(redis)
-      end
-    end)
-
     {:ok, redis: redis}
   end
 

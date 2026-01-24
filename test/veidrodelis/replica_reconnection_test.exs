@@ -95,10 +95,6 @@ defmodule Veidrodelis.ReplicaReconnectionTest do
     on_exit(fn ->
       # Reset toxiproxy
       Toxiproxy.reset("redis")
-
-      if Process.alive?(redis) do
-        Redix.stop(redis)
-      end
     end)
 
     {:ok, redis: redis}

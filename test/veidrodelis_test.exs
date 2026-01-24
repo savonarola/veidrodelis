@@ -26,12 +26,6 @@ defmodule VeidrodelisTest do
     # Flush all databases before each test
     Redix.command!(redis, ["FLUSHALL"])
 
-    on_exit(fn ->
-      if Process.alive?(redis) do
-        Redix.stop(redis)
-      end
-    end)
-
     {:ok, redis: redis}
   end
 

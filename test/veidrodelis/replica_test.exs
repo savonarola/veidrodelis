@@ -76,12 +76,6 @@ defmodule Veidrodelis.ReplicaTest do
     # Flush all databases before each test
     Redix.command!(redis, ["FLUSHALL"])
 
-    on_exit(fn ->
-      if Process.alive?(redis) do
-        Redix.stop(redis)
-      end
-    end)
-
     {:ok, redis: redis}
   end
 
@@ -598,10 +592,6 @@ defmodule Veidrodelis.ReplicaTest do
               assert true
           after
             5000 ->
-              if Process.alive?(pid) do
-                Replica.stop(pid)
-              end
-
               flunk("Process did not terminate on connection failure")
           end
 
