@@ -42,3 +42,6 @@ erl_crash.dump
 benchmark/plots/*.data
 benchmark/plots/*.folded
 benchmark/plots/*.txt
+
+# rust-analyzer
+/target
