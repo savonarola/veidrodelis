@@ -18,32 +18,32 @@ pub fn execute<'a>(
     // Decode the command tuple: {db, {command_atom, arg1, arg2, ...}}
     // Get outer tuple elements
     let Ok(terms) = tuple::get_tuple(cmd_term) else {
-        return encode_error(env, "Invalid command tuple");
+        return encode_error(env, "Command must be a tuple");
     };
 
     if terms.len() != 2 {
-        return encode_error(env, "Invalid command tuple");
+        return encode_error(env, "Command tuple must have exactly 2 elements: {db, {command_atom, ...}}");
     }
 
     // First element is db (u64)
     let Ok(db) = terms[0].decode::<u64>() else {
-        return encode_error(env, "Invalid database index");
+        return encode_error(env, "Database index must be an unsigned integer");
     };
 
     // Second element is inner tuple {command_atom, arg1, arg2, ...}
     let inner_tuple: Result<Vec<rustler::Term>, _> = tuple::get_tuple(terms[1]);
 
     let Ok(cmd_terms) = inner_tuple else {
-        return encode_error(env, "Invalid command tuple");
+        return encode_error(env, "Inner command must be a tuple");
     };
 
     if cmd_terms.len() < 1 {
-        return encode_error(env, "Invalid command tuple");
+        return encode_error(env, "Command tuple cannot be empty");
     }
 
     // First element of inner tuple is command atom
     let Ok(cmd_atom) = cmd_terms[0].decode::<rustler::Atom>() else {
-        return encode_error(env, "Invalid command atom");
+        return encode_error(env, "Command name must be an atom");
     };
 
     // Rest are arguments from inner tuple
@@ -184,7 +184,7 @@ fn dispatch_write_command<'a>(
     } else if cmd_atom == atoms::swapdb() {
         handle_swapdb(inner, args)
     } else {
-        Err("Invalid command")
+        Err("Unknown write command")
     }
 }
 
@@ -198,7 +198,7 @@ fn handle_set<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for set");
+        return Err("SET requires 2 arguments: key and value must be binaries");
     };
     inner.set(db, key.as_slice(), value.as_slice());
     Ok(())
@@ -210,7 +210,7 @@ fn handle_del<'a>(
     args: &[rustler::Term<'a>],
 ) -> Result<(), &'static str> {
     let Ok(keys) = args[0].decode::<Vec<rustler::Binary>>() else {
-        return Err("Invalid arguments for del");
+        return Err("DEL requires 1 argument: keys must be a list of binaries");
     };
     for key in keys.iter() {
         inner.del(db, key.as_slice());
@@ -224,7 +224,7 @@ fn handle_mset<'a>(
     args: &[rustler::Term<'a>],
 ) -> Result<(), &'static str> {
     let Ok(pairs) = args[0].decode::<Vec<(rustler::Binary, rustler::Binary)>>() else {
-        return Err("Invalid arguments for mset");
+        return Err("MSET requires 1 argument: pairs must be a list of {key, value} tuples");
     };
     let pairs_slices: Vec<(&[u8], &[u8])> = pairs
         .iter()
@@ -253,7 +253,7 @@ fn handle_copy<'a>(
         args[1].decode::<rustler::Binary>(),
         args[2].decode::<bool>(),
     ) else {
-        return Err("Invalid arguments for copy");
+        return Err("COPY requires 3 arguments: source and destination must be binaries, replace must be a boolean");
     };
     let _ = inner.copy_key(db, source.as_slice(), destination.as_slice(), replace);
     Ok(())
@@ -268,7 +268,7 @@ fn handle_rename<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for rename");
+        return Err("RENAME requires 2 arguments: old_key and new_key must be binaries");
     };
     let _ = inner.rename(db, old_key.as_slice(), new_key.as_slice());
     Ok(())
@@ -283,7 +283,7 @@ fn handle_renamenx<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for renamenx");
+        return Err("RENAMENX requires 2 arguments: old_key and new_key must be binaries");
     };
     let _ = inner.renamenx(db, old_key.as_slice(), new_key.as_slice());
     Ok(())
@@ -296,7 +296,7 @@ fn handle_move_key<'a>(
 ) -> Result<(), &'static str> {
     let (Ok(key), Ok(target_db)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<u64>())
     else {
-        return Err("Invalid arguments for move_key");
+        return Err("MOVE requires 2 arguments: key must be a binary, target_db must be an integer");
     };
     let _ = inner.move_key(db, target_db, key.as_slice());
     Ok(())
@@ -312,7 +312,7 @@ fn handle_append<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for append");
+        return Err("APPEND requires 2 arguments: key and value must be binaries");
     };
     let _ = inner.append(db, key.as_slice(), value.as_slice());
     Ok(())
@@ -328,7 +328,7 @@ fn handle_setrange<'a>(
         args[1].decode::<usize>(),
         args[2].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for setrange");
+        return Err("SETRANGE requires 3 arguments: key and value must be binaries, offset must be an integer");
     };
     let _ = inner.setrange(db, key.as_slice(), offset, value.as_slice());
     Ok(())
@@ -340,7 +340,7 @@ fn handle_incr<'a>(
     args: &[rustler::Term<'a>],
 ) -> Result<(), &'static str> {
     let Ok(key) = args[0].decode::<rustler::Binary>() else {
-        return Err("Invalid arguments for incr");
+        return Err("INCR requires 1 argument: key must be a binary");
     };
     let _ = inner.incr(db, key.as_slice());
     Ok(())
@@ -353,7 +353,7 @@ fn handle_incrby<'a>(
 ) -> Result<(), &'static str> {
     let (Ok(key), Ok(increment)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<i64>())
     else {
-        return Err("Invalid arguments for incrby");
+        return Err("INCRBY requires 2 arguments: key must be a binary, increment must be an integer");
     };
     let _ = inner.incrby(db, key.as_slice(), increment);
     Ok(())
@@ -365,7 +365,7 @@ fn handle_decr<'a>(
     args: &[rustler::Term<'a>],
 ) -> Result<(), &'static str> {
     let Ok(key) = args[0].decode::<rustler::Binary>() else {
-        return Err("Invalid arguments for decr");
+        return Err("DECR requires 1 argument: key must be a binary");
     };
     let _ = inner.decr(db, key.as_slice());
     Ok(())
@@ -378,7 +378,7 @@ fn handle_decrby<'a>(
 ) -> Result<(), &'static str> {
     let (Ok(key), Ok(decrement)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<i64>())
     else {
-        return Err("Invalid arguments for decrby");
+        return Err("DECRBY requires 2 arguments: key must be a binary, decrement must be an integer");
     };
     let _ = inner.decrby(db, key.as_slice(), decrement);
     Ok(())
@@ -393,7 +393,7 @@ fn handle_setnx<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for setnx");
+        return Err("SETNX requires 2 arguments: key and value must be binaries");
     };
     inner.set(db, key.as_slice(), value.as_slice());
     Ok(())
@@ -405,7 +405,7 @@ fn handle_msetnx<'a>(
     args: &[rustler::Term<'a>],
 ) -> Result<(), &'static str> {
     let Ok(pairs) = args[0].decode::<Vec<(rustler::Binary, rustler::Binary)>>() else {
-        return Err("Invalid arguments for msetnx");
+        return Err("MSETNX requires 1 argument: pairs must be a list of {key, value} tuples");
     };
     let pairs_slices: Vec<(&[u8], &[u8])> = pairs
         .iter()
@@ -424,7 +424,7 @@ fn handle_getset<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for getset");
+        return Err("GETSET requires 2 arguments: key and value must be binaries");
     };
     inner.set(db, key.as_slice(), value.as_slice());
     Ok(())
@@ -436,7 +436,7 @@ fn handle_getdel<'a>(
     args: &[rustler::Term<'a>],
 ) -> Result<(), &'static str> {
     let Ok(key) = args[0].decode::<rustler::Binary>() else {
-        return Err("Invalid arguments for getdel");
+        return Err("GETDEL requires 1 argument: key must be a binary");
     };
     inner.del(db, key.as_slice());
     Ok(())
@@ -452,7 +452,7 @@ fn handle_sadd<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("Invalid arguments for sadd");
+        return Err("SADD requires 2 arguments: key must be a binary, members must be a list of binaries");
     };
     let members_slices: Vec<&[u8]> = members.iter().map(|b| b.as_slice()).collect();
     let _ = inner.sadd(db, key.as_slice(), &members_slices);
@@ -468,7 +468,7 @@ fn handle_srem<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("Invalid arguments for srem");
+        return Err("SREM requires 2 arguments: key must be a binary, members must be a list of binaries");
     };
     let members_slices: Vec<&[u8]> = members.iter().map(|b| b.as_slice()).collect();
     let _ = inner.srem(db, key.as_slice(), &members_slices);
@@ -485,7 +485,7 @@ fn handle_smove<'a>(
         args[1].decode::<rustler::Binary>(),
         args[2].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for smove");
+        return Err("SMOVE requires 3 arguments: source_key, dest_key, and member must be binaries");
     };
     let _ = inner.smove(
         db,
@@ -505,7 +505,7 @@ fn handle_sunionstore<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("Invalid arguments for sunionstore");
+        return Err("SUNIONSTORE requires 2 arguments: dest_key must be a binary, source_keys must be a list of binaries");
     };
     let keys_slices: Vec<&[u8]> = source_keys.iter().map(|b| b.as_slice()).collect();
     let _ = inner.sunionstore(db, dest_key.as_slice(), &keys_slices);
@@ -521,7 +521,7 @@ fn handle_sinterstore<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("Invalid arguments for sinterstore");
+        return Err("SINTERSTORE requires 2 arguments: dest_key must be a binary, source_keys must be a list of binaries");
     };
     let keys_slices: Vec<&[u8]> = source_keys.iter().map(|b| b.as_slice()).collect();
     let _ = inner.sinterstore(db, dest_key.as_slice(), &keys_slices);
@@ -537,7 +537,7 @@ fn handle_sdiffstore<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("Invalid arguments for sdiffstore");
+        return Err("SDIFFSTORE requires 2 arguments: dest_key must be a binary, source_keys must be a list of binaries");
     };
     let keys_slices: Vec<&[u8]> = source_keys.iter().map(|b| b.as_slice()).collect();
     let _ = inner.sdiffstore(db, dest_key.as_slice(), &keys_slices);
@@ -554,7 +554,7 @@ fn handle_lpush<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("Invalid arguments for lpush");
+        return Err("LPUSH requires 2 arguments: key must be a binary, values must be a list of binaries");
     };
     let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
     let _ = inner.lpush(db, key.as_slice(), &values_slices);
@@ -570,7 +570,7 @@ fn handle_rpush<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("Invalid arguments for rpush");
+        return Err("RPUSH requires 2 arguments: key must be a binary, values must be a list of binaries");
     };
     let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
     let _ = inner.rpush(db, key.as_slice(), &values_slices);
@@ -583,7 +583,7 @@ fn handle_lpop<'a>(
     args: &[rustler::Term<'a>],
 ) -> Result<(), &'static str> {
     let Ok(key) = args[0].decode::<rustler::Binary>() else {
-        return Err("Invalid arguments for lpop");
+        return Err("LPOP requires 1 argument: key must be a binary");
     };
     let _ = inner.lpop(db, key.as_slice());
     Ok(())
@@ -595,7 +595,7 @@ fn handle_rpop<'a>(
     args: &[rustler::Term<'a>],
 ) -> Result<(), &'static str> {
     let Ok(key) = args[0].decode::<rustler::Binary>() else {
-        return Err("Invalid arguments for rpop");
+        return Err("RPOP requires 1 argument: key must be a binary");
     };
     let _ = inner.rpop(db, key.as_slice());
     Ok(())
@@ -611,7 +611,7 @@ fn handle_lset<'a>(
         args[1].decode::<i64>(),
         args[2].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for lset");
+        return Err("LSET requires 3 arguments: key and value must be binaries, index must be an integer");
     };
     let _ = inner.lset(db, key.as_slice(), index, value.as_slice());
     Ok(())
@@ -626,7 +626,7 @@ fn handle_rpoplpush<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for rpoplpush");
+        return Err("RPOPLPUSH requires 2 arguments: source_key and dest_key must be binaries");
     };
     let _ = inner.rpoplpush(db, source_key.as_slice(), dest_key.as_slice());
     Ok(())
@@ -639,7 +639,7 @@ fn handle_lpop_count<'a>(
 ) -> Result<(), &'static str> {
     let (Ok(key), Ok(count)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<u64>())
     else {
-        return Err("Invalid arguments for lpop_count");
+        return Err("LPOP requires 2 arguments: key must be a binary, count must be an integer");
     };
     let _ = inner.lpop_count(db, key.as_slice(), count as usize);
     Ok(())
@@ -652,7 +652,7 @@ fn handle_rpop_count<'a>(
 ) -> Result<(), &'static str> {
     let (Ok(key), Ok(count)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<u64>())
     else {
-        return Err("Invalid arguments for rpop_count");
+        return Err("RPOP requires 2 arguments: key must be a binary, count must be an integer");
     };
     let _ = inner.rpop_count(db, key.as_slice(), count as usize);
     Ok(())
@@ -669,7 +669,7 @@ fn handle_lmove<'a>(
         args[2].decode::<rustler::Atom>(),
         args[3].decode::<rustler::Atom>(),
     ) else {
-        return Err("Invalid arguments for lmove");
+        return Err("LMOVE requires 4 arguments: source_key and dest_key must be binaries, wherefrom and whereto must be atoms");
     };
     let from_left = wherefrom == atoms::left();
     let to_left = whereto == atoms::left();
@@ -692,7 +692,7 @@ fn handle_lpushx<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("Invalid arguments for lpushx");
+        return Err("LPUSHX requires 2 arguments: key must be a binary, values must be a list of binaries");
     };
     let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
     let _ = inner.lpushx(db, key.as_slice(), &values_slices);
@@ -708,7 +708,7 @@ fn handle_rpushx<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("Invalid arguments for rpushx");
+        return Err("RPUSHX requires 2 arguments: key must be a binary, values must be a list of binaries");
     };
     let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
     let _ = inner.rpushx(db, key.as_slice(), &values_slices);
@@ -725,7 +725,7 @@ fn handle_lrem<'a>(
         args[1].decode::<i64>(),
         args[2].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for lrem");
+        return Err("LREM requires 3 arguments: key and value must be binaries, count must be an integer");
     };
     let _ = inner.lrem(db, key.as_slice(), count, value.as_slice());
     Ok(())
@@ -741,7 +741,7 @@ fn handle_ltrim<'a>(
         args[1].decode::<i64>(),
         args[2].decode::<i64>(),
     ) else {
-        return Err("Invalid arguments for ltrim");
+        return Err("LTRIM requires 3 arguments: key must be a binary, start and stop must be integers");
     };
     let _ = inner.ltrim(db, key.as_slice(), start, stop);
     Ok(())
@@ -758,14 +758,14 @@ fn handle_linsert<'a>(
         args[2].decode::<rustler::Binary>(),
         args[3].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for linsert");
+        return Err("LINSERT requires 4 arguments: key, pivot, and value must be binaries, direction must be an atom");
     };
     let before = if direction == atoms::before() {
         true
     } else if direction == atoms::after() {
         false
     } else {
-        return Err("Invalid direction for linsert");
+        return Err("LINSERT direction must be :before or :after");
     };
     let _ = inner.linsert(
         db,
@@ -788,7 +788,7 @@ fn handle_hset<'a>(
         args[1].decode::<rustler::Binary>(),
         args[2].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for hset");
+        return Err("HSET requires 3 arguments: key, field, and value must be binaries");
     };
     let _ = inner.hset(db, key.as_slice(), field.as_slice(), value.as_slice());
     Ok(())
@@ -803,7 +803,7 @@ fn handle_hmset<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<(rustler::Binary, rustler::Binary)>>(),
     ) else {
-        return Err("Invalid arguments for hmset");
+        return Err("HMSET requires 2 arguments: key must be a binary, fields must be a list of {field, value} tuples");
     };
     let fields_slices: Vec<(&[u8], &[u8])> = fields
         .iter()
@@ -822,7 +822,7 @@ fn handle_hdel<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("Invalid arguments for hdel");
+        return Err("HDEL requires 2 arguments: key must be a binary, fields must be a list of binaries");
     };
     let fields_slices: Vec<&[u8]> = fields.iter().map(|f| f.as_slice()).collect();
     let _ = inner.hdel(db, key.as_slice(), &fields_slices);
@@ -839,7 +839,7 @@ fn handle_hsetnx<'a>(
         args[1].decode::<rustler::Binary>(),
         args[2].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for hsetnx");
+        return Err("HSETNX requires 3 arguments: key, field, and value must be binaries");
     };
     let _ = inner.hsetnx(db, key.as_slice(), field.as_slice(), value.as_slice());
     Ok(())
@@ -855,7 +855,7 @@ fn handle_hincrby<'a>(
         args[1].decode::<rustler::Binary>(),
         args[2].decode::<i64>(),
     ) else {
-        return Err("Invalid arguments for hincrby");
+        return Err("HINCRBY requires 3 arguments: key and field must be binaries, delta must be an integer");
     };
     let _ = inner.hincrby(db, key.as_slice(), field.as_slice(), delta);
     Ok(())
@@ -871,7 +871,7 @@ fn handle_hincrbyfloat<'a>(
         args[1].decode::<rustler::Binary>(),
         args[2].decode::<f64>(),
     ) else {
-        return Err("Invalid arguments for hincrbyfloat");
+        return Err("HINCRBYFLOAT requires 3 arguments: key and field must be binaries, delta must be a float");
     };
     inner.hincrbyfloat(db, key.as_slice(), field.as_slice(), delta)
 }
@@ -885,13 +885,13 @@ fn handle_hsetex<'a>(
         args[0].decode::<rustler::Binary>(),
         args[2].decode::<Vec<(rustler::Binary, rustler::Binary)>>(),
     ) else {
-        return Err("Invalid arguments for hsetex");
+        return Err("HSETEX requires 3 arguments: key must be a binary, mode must be an atom, fields must be a list of {field, value} tuples");
     };
 
     let mode_term = args[1];
 
     let Ok(mode_atom) = mode_term.decode::<rustler::Atom>() else {
-        return Err("Invalid mode for hsetex");
+        return Err("HSETEX mode must be an atom (:nil, :nx, or :xx)");
     };
 
     let mode = if mode_atom == atoms::nil() {
@@ -919,7 +919,7 @@ fn handle_zadd<'a>(
     args: &[rustler::Term<'a>],
 ) -> Result<(), &'static str> {
     let Ok(key) = args[0].decode::<rustler::Binary>() else {
-        return Err("Invalid arguments for zadd");
+        return Err("ZADD requires at least 2 arguments: key must be a binary");
     };
 
     let members_result: Result<Vec<(f64, rustler::Binary)>, rustler::Error> =
@@ -935,7 +935,7 @@ fn handle_zadd<'a>(
         });
 
     let Ok(members) = members_result else {
-        return Err("Invalid arguments for zadd");
+        return Err("ZADD members must be a list of {score, member} tuples");
     };
 
     let options = if args.len() == 3 {
@@ -984,7 +984,7 @@ fn handle_zrem<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("Invalid arguments for zrem");
+        return Err("ZREM requires 2 arguments: key must be a binary, members must be a list of binaries");
     };
     let members_slices: Vec<&[u8]> = members.iter().map(|m| m.as_slice()).collect();
     inner.zrem(db, key.as_slice(), &members_slices)
@@ -999,7 +999,7 @@ fn handle_zpopmax<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<usize>(),
     ) else {
-        return Err("Invalid arguments for zpopmax");
+        return Err("ZPOPMAX requires 2 arguments: key must be a binary, count must be an integer");
     };
     inner.zpopmax(db, key.as_slice(), count)
 }
@@ -1013,7 +1013,7 @@ fn handle_zpopmin<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<usize>(),
     ) else {
-        return Err("Invalid arguments for zpopmin");
+        return Err("ZPOPMIN requires 2 arguments: key must be a binary, count must be an integer");
     };
     inner.zpopmin(db, key.as_slice(), count)
 }
@@ -1028,7 +1028,7 @@ fn handle_zremrangebyrank<'a>(
         args[1].decode::<i64>(),
         args[2].decode::<i64>(),
     ) else {
-        return Err("Invalid arguments for zremrangebyrank");
+        return Err("ZREMRANGEBYRANK requires 3 arguments: key must be a binary, start and stop must be integers");
     };
     inner.zremrangebyrank(db, key.as_slice(), start, stop)
 }
@@ -1039,11 +1039,11 @@ fn handle_zremrangebyscore<'a>(
     args: &[rustler::Term<'a>],
 ) -> Result<(), &'static str> {
     let Ok(key) = args[0].decode::<rustler::Binary>() else {
-        return Err("Invalid arguments for zremrangebyscore");
+        return Err("ZREMRANGEBYSCORE requires 3 arguments: key must be a binary");
     };
     let (Ok(min_bound), Ok(max_bound)) = (decode_score_bound(args[1]), decode_score_bound(args[2]))
     else {
-        return Err("Invalid arguments for zremrangebyscore");
+        return Err("ZREMRANGEBYSCORE min and max must be valid score bounds (:unbounded, {:included, score}, or {:excluded, score})");
     };
     inner.zremrangebyscore(db, key.as_slice(), min_bound, max_bound)
 }
@@ -1054,11 +1054,11 @@ fn handle_zremrangebylex<'a>(
     args: &[rustler::Term<'a>],
 ) -> Result<(), &'static str> {
     let Ok(key) = args[0].decode::<rustler::Binary>() else {
-        return Err("Invalid arguments for zremrangebylex");
+        return Err("ZREMRANGEBYLEX requires 3 arguments: key must be a binary");
     };
     let (Ok(min_bound), Ok(max_bound)) = (decode_lex_bound(args[1]), decode_lex_bound(args[2]))
     else {
-        return Err("Invalid arguments for zremrangebylex");
+        return Err("ZREMRANGEBYLEX min and max must be valid lex bounds (:unbounded, {:included, value}, or {:excluded, value})");
     };
     inner.zremrangebylex(db, key.as_slice(), min_bound, max_bound)
 }
@@ -1074,7 +1074,7 @@ fn handle_zunionstore<'a>(
         args[2].decode::<Vec<f64>>(),
         args[3].decode::<rustler::Atom>(),
     ) else {
-        return Err("Invalid arguments for zunionstore");
+        return Err("ZUNIONSTORE requires 4 arguments: dest_key must be a binary, source_keys must be a list of binaries, weights must be a list of floats, aggregate must be an atom");
     };
 
     let aggregate = if aggregate_atom == atoms::sum() {
@@ -1084,7 +1084,7 @@ fn handle_zunionstore<'a>(
     } else if aggregate_atom == atoms::max() {
         Aggregate::Max
     } else {
-        return Err("Invalid aggregate for zunionstore");
+        return Err("ZUNIONSTORE aggregate must be :sum, :min, or :max");
     };
 
     let keys_slices: Vec<&[u8]> = source_keys.iter().map(|k| k.as_slice()).collect();
@@ -1102,7 +1102,7 @@ fn handle_zinterstore<'a>(
         args[2].decode::<Vec<f64>>(),
         args[3].decode::<rustler::Atom>(),
     ) else {
-        return Err("Invalid arguments for zinterstore");
+        return Err("ZINTERSTORE requires 4 arguments: dest_key must be a binary, source_keys must be a list of binaries, weights must be a list of floats, aggregate must be an atom");
     };
 
     let aggregate = if aggregate_atom == atoms::sum() {
@@ -1112,7 +1112,7 @@ fn handle_zinterstore<'a>(
     } else if aggregate_atom == atoms::max() {
         Aggregate::Max
     } else {
-        return Err("Invalid aggregate for zinterstore");
+        return Err("ZINTERSTORE aggregate must be :sum, :min, or :max");
     };
 
     let keys_slices: Vec<&[u8]> = source_keys.iter().map(|k| k.as_slice()).collect();
@@ -1128,7 +1128,7 @@ fn handle_zdiffstore<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("Invalid arguments for zdiffstore");
+        return Err("ZDIFFSTORE requires 2 arguments: dest_key must be a binary, source_keys must be a list of binaries");
     };
     let keys_slices: Vec<&[u8]> = source_keys.iter().map(|k| k.as_slice()).collect();
     inner.zdiffstore(db, dest_key.as_slice(), &keys_slices)
@@ -1146,7 +1146,7 @@ fn handle_zrangestore<'a>(
         args[3].decode::<String>(),
         args[4].decode::<Vec<String>>(),
     ) else {
-        return Err("Invalid arguments for zrangestore");
+        return Err("ZRANGESTORE requires 5 arguments: dest_key and source_key must be binaries, min_str and max_str must be strings, options must be a list of strings");
     };
 
     let mut by_score = false;
@@ -1198,7 +1198,7 @@ fn handle_zincrby<'a>(
         args[1].decode::<f64>(),
         args[2].decode::<rustler::Binary>(),
     ) else {
-        return Err("Invalid arguments for zincrby");
+        return Err("ZINCRBY requires 3 arguments: key and member must be binaries, delta must be a float");
     };
     inner.zincrby(db, key.as_slice(), OrderedFloat(delta), member.as_slice())
 }
@@ -1217,7 +1217,7 @@ fn handle_swapdb<'a>(
     args: &[rustler::Term<'a>],
 ) -> Result<(), &'static str> {
     let (Ok(db1), Ok(db2)) = (args[0].decode::<u64>(), args[1].decode::<u64>()) else {
-        return Err("Invalid arguments for swapdb");
+        return Err("SWAPDB requires 2 arguments: db1 and db2 must be integers");
     };
     inner.swapdb(db1, db2)
 }
