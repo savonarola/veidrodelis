@@ -324,8 +324,11 @@ defmodule VeidrodelisTest do
       end
 
       # Trying to access string as set should return error
-      assert {:error, :wrong_type} == Veidrodelis.smembers(@id, 0, "mystring")
-      assert {:error, :wrong_type} == Veidrodelis.scard(@id, 0, "mystring")
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.smembers(@id, 0, "mystring")
+
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.scard(@id, 0, "mystring")
 
       Veidrodelis.stop(pid)
     end
@@ -570,8 +573,11 @@ defmodule VeidrodelisTest do
       end
 
       # Trying to access string as list should return error
-      assert {:error, :wrong_type} == Veidrodelis.llen(@id, 0, "mystring")
-      assert {:error, :wrong_type} == Veidrodelis.lrange(@id, 0, "mystring", 0, -1)
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.llen(@id, 0, "mystring")
+
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.lrange(@id, 0, "mystring", 0, -1)
 
       Veidrodelis.stop(pid)
     end
@@ -843,9 +849,14 @@ defmodule VeidrodelisTest do
       end
 
       # Trying to access string as hash should return error
-      assert {:error, :wrong_type} == Veidrodelis.hget(@id, 0, "mystring", "field")
-      assert {:error, :wrong_type} == Veidrodelis.hlen(@id, 0, "mystring")
-      assert {:error, :wrong_type} == Veidrodelis.hgetall(@id, 0, "mystring")
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.hget(@id, 0, "mystring", "field")
+
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.hlen(@id, 0, "mystring")
+
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.hgetall(@id, 0, "mystring")
 
       Veidrodelis.stop(pid)
     end
@@ -1126,9 +1137,14 @@ defmodule VeidrodelisTest do
       end
 
       # Trying to access string as zset should return error
-      assert {:error, :wrong_type} == Veidrodelis.zscore(@id, 0, "mystring", "member")
-      assert {:error, :wrong_type} == Veidrodelis.zcard(@id, 0, "mystring")
-      assert {:error, :wrong_type} == Veidrodelis.zrange(@id, 0, "mystring", 0, -1)
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.zscore(@id, 0, "mystring", "member")
+
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.zcard(@id, 0, "mystring")
+
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.zrange(@id, 0, "mystring", 0, -1)
 
       Veidrodelis.stop(pid)
     end
@@ -1503,7 +1519,7 @@ defmodule VeidrodelisTest do
                ])
 
       assert get_result == {:ok, "some_value"}
-      assert set_result == {:error, :readonly_violation}
+      assert set_result == {:error, "Unknown read command"}
     end
 
     test "handles empty command list", %{redis: _redis} do
