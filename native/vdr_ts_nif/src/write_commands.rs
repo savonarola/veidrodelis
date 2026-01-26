@@ -255,8 +255,7 @@ fn handle_copy<'a>(
     ) else {
         return Err("COPY requires 3 arguments: source and destination must be binaries, replace must be a boolean");
     };
-    let _ = inner.copy_key(db, source.as_slice(), destination.as_slice(), replace);
-    Ok(())
+    inner.copy_key(db, source.as_slice(), destination.as_slice(), replace)
 }
 
 fn handle_rename<'a>(
@@ -270,8 +269,7 @@ fn handle_rename<'a>(
     ) else {
         return Err("RENAME requires 2 arguments: old_key and new_key must be binaries");
     };
-    let _ = inner.rename(db, old_key.as_slice(), new_key.as_slice());
-    Ok(())
+    inner.rename(db, old_key.as_slice(), new_key.as_slice())
 }
 
 fn handle_renamenx<'a>(
@@ -285,8 +283,7 @@ fn handle_renamenx<'a>(
     ) else {
         return Err("RENAMENX requires 2 arguments: old_key and new_key must be binaries");
     };
-    let _ = inner.renamenx(db, old_key.as_slice(), new_key.as_slice());
-    Ok(())
+    inner.renamenx(db, old_key.as_slice(), new_key.as_slice())
 }
 
 fn handle_move_key<'a>(
@@ -298,8 +295,7 @@ fn handle_move_key<'a>(
     else {
         return Err("MOVE requires 2 arguments: key must be a binary, target_db must be an integer");
     };
-    let _ = inner.move_key(db, target_db, key.as_slice());
-    Ok(())
+    inner.move_key(db, target_db, key.as_slice())
 }
 
 // String manipulation commands
@@ -314,8 +310,7 @@ fn handle_append<'a>(
     ) else {
         return Err("APPEND requires 2 arguments: key and value must be binaries");
     };
-    let _ = inner.append(db, key.as_slice(), value.as_slice());
-    Ok(())
+    inner.append(db, key.as_slice(), value.as_slice())
 }
 
 fn handle_setrange<'a>(
@@ -330,8 +325,7 @@ fn handle_setrange<'a>(
     ) else {
         return Err("SETRANGE requires 3 arguments: key and value must be binaries, offset must be an integer");
     };
-    let _ = inner.setrange(db, key.as_slice(), offset, value.as_slice());
-    Ok(())
+    inner.setrange(db, key.as_slice(), offset, value.as_slice())
 }
 
 fn handle_incr<'a>(
@@ -342,8 +336,7 @@ fn handle_incr<'a>(
     let Ok(key) = args[0].decode::<rustler::Binary>() else {
         return Err("INCR requires 1 argument: key must be a binary");
     };
-    let _ = inner.incr(db, key.as_slice());
-    Ok(())
+    inner.incr(db, key.as_slice())
 }
 
 fn handle_incrby<'a>(
@@ -355,8 +348,7 @@ fn handle_incrby<'a>(
     else {
         return Err("INCRBY requires 2 arguments: key must be a binary, increment must be an integer");
     };
-    let _ = inner.incrby(db, key.as_slice(), increment);
-    Ok(())
+    inner.incrby(db, key.as_slice(), increment)
 }
 
 fn handle_decr<'a>(
@@ -367,8 +359,7 @@ fn handle_decr<'a>(
     let Ok(key) = args[0].decode::<rustler::Binary>() else {
         return Err("DECR requires 1 argument: key must be a binary");
     };
-    let _ = inner.decr(db, key.as_slice());
-    Ok(())
+    inner.decr(db, key.as_slice())
 }
 
 fn handle_decrby<'a>(
@@ -380,8 +371,7 @@ fn handle_decrby<'a>(
     else {
         return Err("DECRBY requires 2 arguments: key must be a binary, decrement must be an integer");
     };
-    let _ = inner.decrby(db, key.as_slice(), decrement);
-    Ok(())
+    inner.decrby(db, key.as_slice(), decrement)
 }
 
 fn handle_setnx<'a>(
@@ -455,8 +445,7 @@ fn handle_sadd<'a>(
         return Err("SADD requires 2 arguments: key must be a binary, members must be a list of binaries");
     };
     let members_slices: Vec<&[u8]> = members.iter().map(|b| b.as_slice()).collect();
-    let _ = inner.sadd(db, key.as_slice(), &members_slices);
-    Ok(())
+    inner.sadd(db, key.as_slice(), &members_slices)
 }
 
 fn handle_srem<'a>(
@@ -471,8 +460,7 @@ fn handle_srem<'a>(
         return Err("SREM requires 2 arguments: key must be a binary, members must be a list of binaries");
     };
     let members_slices: Vec<&[u8]> = members.iter().map(|b| b.as_slice()).collect();
-    let _ = inner.srem(db, key.as_slice(), &members_slices);
-    Ok(())
+    inner.srem(db, key.as_slice(), &members_slices)
 }
 
 fn handle_smove<'a>(
@@ -487,13 +475,12 @@ fn handle_smove<'a>(
     ) else {
         return Err("SMOVE requires 3 arguments: source_key, dest_key, and member must be binaries");
     };
-    let _ = inner.smove(
+    inner.smove(
         db,
         source_key.as_slice(),
         dest_key.as_slice(),
         member.as_slice(),
-    );
-    Ok(())
+    )
 }
 
 fn handle_sunionstore<'a>(
@@ -508,8 +495,7 @@ fn handle_sunionstore<'a>(
         return Err("SUNIONSTORE requires 2 arguments: dest_key must be a binary, source_keys must be a list of binaries");
     };
     let keys_slices: Vec<&[u8]> = source_keys.iter().map(|b| b.as_slice()).collect();
-    let _ = inner.sunionstore(db, dest_key.as_slice(), &keys_slices);
-    Ok(())
+    inner.sunionstore(db, dest_key.as_slice(), &keys_slices)
 }
 
 fn handle_sinterstore<'a>(
@@ -524,8 +510,7 @@ fn handle_sinterstore<'a>(
         return Err("SINTERSTORE requires 2 arguments: dest_key must be a binary, source_keys must be a list of binaries");
     };
     let keys_slices: Vec<&[u8]> = source_keys.iter().map(|b| b.as_slice()).collect();
-    let _ = inner.sinterstore(db, dest_key.as_slice(), &keys_slices);
-    Ok(())
+    inner.sinterstore(db, dest_key.as_slice(), &keys_slices)
 }
 
 fn handle_sdiffstore<'a>(
@@ -540,8 +525,7 @@ fn handle_sdiffstore<'a>(
         return Err("SDIFFSTORE requires 2 arguments: dest_key must be a binary, source_keys must be a list of binaries");
     };
     let keys_slices: Vec<&[u8]> = source_keys.iter().map(|b| b.as_slice()).collect();
-    let _ = inner.sdiffstore(db, dest_key.as_slice(), &keys_slices);
-    Ok(())
+    inner.sdiffstore(db, dest_key.as_slice(), &keys_slices)
 }
 
 // List commands
@@ -557,8 +541,7 @@ fn handle_lpush<'a>(
         return Err("LPUSH requires 2 arguments: key must be a binary, values must be a list of binaries");
     };
     let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
-    let _ = inner.lpush(db, key.as_slice(), &values_slices);
-    Ok(())
+    inner.lpush(db, key.as_slice(), &values_slices)
 }
 
 fn handle_rpush<'a>(
@@ -573,8 +556,7 @@ fn handle_rpush<'a>(
         return Err("RPUSH requires 2 arguments: key must be a binary, values must be a list of binaries");
     };
     let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
-    let _ = inner.rpush(db, key.as_slice(), &values_slices);
-    Ok(())
+    inner.rpush(db, key.as_slice(), &values_slices)
 }
 
 fn handle_lpop<'a>(
@@ -585,8 +567,7 @@ fn handle_lpop<'a>(
     let Ok(key) = args[0].decode::<rustler::Binary>() else {
         return Err("LPOP requires 1 argument: key must be a binary");
     };
-    let _ = inner.lpop(db, key.as_slice());
-    Ok(())
+    inner.lpop(db, key.as_slice())
 }
 
 fn handle_rpop<'a>(
@@ -597,8 +578,7 @@ fn handle_rpop<'a>(
     let Ok(key) = args[0].decode::<rustler::Binary>() else {
         return Err("RPOP requires 1 argument: key must be a binary");
     };
-    let _ = inner.rpop(db, key.as_slice());
-    Ok(())
+    inner.rpop(db, key.as_slice())
 }
 
 fn handle_lset<'a>(
@@ -613,8 +593,7 @@ fn handle_lset<'a>(
     ) else {
         return Err("LSET requires 3 arguments: key and value must be binaries, index must be an integer");
     };
-    let _ = inner.lset(db, key.as_slice(), index, value.as_slice());
-    Ok(())
+    inner.lset(db, key.as_slice(), index, value.as_slice())
 }
 
 fn handle_rpoplpush<'a>(
@@ -628,8 +607,7 @@ fn handle_rpoplpush<'a>(
     ) else {
         return Err("RPOPLPUSH requires 2 arguments: source_key and dest_key must be binaries");
     };
-    let _ = inner.rpoplpush(db, source_key.as_slice(), dest_key.as_slice());
-    Ok(())
+    inner.rpoplpush(db, source_key.as_slice(), dest_key.as_slice())
 }
 
 fn handle_lpop_count<'a>(
@@ -641,8 +619,7 @@ fn handle_lpop_count<'a>(
     else {
         return Err("LPOP requires 2 arguments: key must be a binary, count must be an integer");
     };
-    let _ = inner.lpop_count(db, key.as_slice(), count as usize);
-    Ok(())
+    inner.lpop_count(db, key.as_slice(), count as usize)
 }
 
 fn handle_rpop_count<'a>(
@@ -654,8 +631,7 @@ fn handle_rpop_count<'a>(
     else {
         return Err("RPOP requires 2 arguments: key must be a binary, count must be an integer");
     };
-    let _ = inner.rpop_count(db, key.as_slice(), count as usize);
-    Ok(())
+    inner.rpop_count(db, key.as_slice(), count as usize)
 }
 
 fn handle_lmove<'a>(
@@ -673,14 +649,13 @@ fn handle_lmove<'a>(
     };
     let from_left = wherefrom == atoms::left();
     let to_left = whereto == atoms::left();
-    let _ = inner.lmove(
+    inner.lmove(
         db,
         source_key.as_slice(),
         dest_key.as_slice(),
         from_left,
         to_left,
-    );
-    Ok(())
+    )
 }
 
 fn handle_lpushx<'a>(
@@ -695,8 +670,7 @@ fn handle_lpushx<'a>(
         return Err("LPUSHX requires 2 arguments: key must be a binary, values must be a list of binaries");
     };
     let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
-    let _ = inner.lpushx(db, key.as_slice(), &values_slices);
-    Ok(())
+    inner.lpushx(db, key.as_slice(), &values_slices)
 }
 
 fn handle_rpushx<'a>(
@@ -711,8 +685,7 @@ fn handle_rpushx<'a>(
         return Err("RPUSHX requires 2 arguments: key must be a binary, values must be a list of binaries");
     };
     let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
-    let _ = inner.rpushx(db, key.as_slice(), &values_slices);
-    Ok(())
+    inner.rpushx(db, key.as_slice(), &values_slices)
 }
 
 fn handle_lrem<'a>(
@@ -727,8 +700,7 @@ fn handle_lrem<'a>(
     ) else {
         return Err("LREM requires 3 arguments: key and value must be binaries, count must be an integer");
     };
-    let _ = inner.lrem(db, key.as_slice(), count, value.as_slice());
-    Ok(())
+    inner.lrem(db, key.as_slice(), count, value.as_slice())
 }
 
 fn handle_ltrim<'a>(
@@ -743,8 +715,7 @@ fn handle_ltrim<'a>(
     ) else {
         return Err("LTRIM requires 3 arguments: key must be a binary, start and stop must be integers");
     };
-    let _ = inner.ltrim(db, key.as_slice(), start, stop);
-    Ok(())
+    inner.ltrim(db, key.as_slice(), start, stop)
 }
 
 fn handle_linsert<'a>(
@@ -767,14 +738,13 @@ fn handle_linsert<'a>(
     } else {
         return Err("LINSERT direction must be :before or :after");
     };
-    let _ = inner.linsert(
+    inner.linsert(
         db,
         key.as_slice(),
         before,
         pivot.as_slice(),
         value.as_slice(),
-    );
-    Ok(())
+    )
 }
 
 // Hash commands
@@ -790,8 +760,7 @@ fn handle_hset<'a>(
     ) else {
         return Err("HSET requires 3 arguments: key, field, and value must be binaries");
     };
-    let _ = inner.hset(db, key.as_slice(), field.as_slice(), value.as_slice());
-    Ok(())
+    inner.hset(db, key.as_slice(), field.as_slice(), value.as_slice())
 }
 
 fn handle_hmset<'a>(
@@ -809,8 +778,7 @@ fn handle_hmset<'a>(
         .iter()
         .map(|(f, v)| (f.as_slice(), v.as_slice()))
         .collect();
-    let _ = inner.hmset(db, key.as_slice(), &fields_slices);
-    Ok(())
+    inner.hmset(db, key.as_slice(), &fields_slices)
 }
 
 fn handle_hdel<'a>(
@@ -825,8 +793,7 @@ fn handle_hdel<'a>(
         return Err("HDEL requires 2 arguments: key must be a binary, fields must be a list of binaries");
     };
     let fields_slices: Vec<&[u8]> = fields.iter().map(|f| f.as_slice()).collect();
-    let _ = inner.hdel(db, key.as_slice(), &fields_slices);
-    Ok(())
+    inner.hdel(db, key.as_slice(), &fields_slices)
 }
 
 fn handle_hsetnx<'a>(
@@ -841,8 +808,7 @@ fn handle_hsetnx<'a>(
     ) else {
         return Err("HSETNX requires 3 arguments: key, field, and value must be binaries");
     };
-    let _ = inner.hsetnx(db, key.as_slice(), field.as_slice(), value.as_slice());
-    Ok(())
+    inner.hsetnx(db, key.as_slice(), field.as_slice(), value.as_slice())
 }
 
 fn handle_hincrby<'a>(
@@ -857,8 +823,7 @@ fn handle_hincrby<'a>(
     ) else {
         return Err("HINCRBY requires 3 arguments: key and field must be binaries, delta must be an integer");
     };
-    let _ = inner.hincrby(db, key.as_slice(), field.as_slice(), delta);
-    Ok(())
+    inner.hincrby(db, key.as_slice(), field.as_slice(), delta)
 }
 
 fn handle_hincrbyfloat<'a>(
