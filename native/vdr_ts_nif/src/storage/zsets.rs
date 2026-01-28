@@ -65,9 +65,8 @@ impl StorageInner {
             .entry(Bytes::new(key))
             .or_insert_with(|| StorageValue::ZSet(ZSet::new()));
 
-        let zset = match zset {
-            StorageValue::ZSet(z) => z,
-            _ => unreachable!(),
+        let StorageValue::ZSet(zset) = zset else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
         };
 
         for (score, member) in members {
@@ -221,21 +220,15 @@ impl StorageInner {
             return Ok(Vec::new());
         }
 
-        // Use indexset's efficient range_idx() method for O(log n) range access
         let result: Vec<(Bytes, Option<Score>)> = zset
             .index
             .range_idx(start_pos..=stop_pos)
             .map(|key| {
-                // Clone the Arc-wrapped Bytes directly instead of reconstructing
-                match key {
-                    ZSetIndexKey::Key { score, entry } => {
-                        if with_scores {
-                            (entry.clone(), Some(*score))
-                        } else {
-                            (entry.clone(), None)
-                        }
-                    }
-                    _ => unreachable!(),
+                let (score, entry) = key.unwrap_key();
+                if with_scores {
+                    (entry.clone(), Some(*score))
+                } else {
+                    (entry.clone(), None)
                 }
             })
             .collect();
@@ -269,20 +262,16 @@ impl StorageInner {
             .index
             .range::<_, ZSetIndexKey>((Bound::Included(&min_key), Bound::Included(&max_key)))
             .filter_map(|key| {
-                match key {
-                    ZSetIndexKey::Key { score: s, entry } => {
-                        if *s >= min && *s <= max {
-                            if with_scores {
-                                Some((entry.clone(), Some(*s)))
-                            } else {
-                                Some((entry.clone(), None))
-                            }
+                let (s, entry) = key.unwrap_key();
+                    if *s >= min && *s <= max {
+                        if with_scores {
+                            Some((entry.clone(), Some(*s)))
                         } else {
-                            None
+                            Some((entry.clone(), None))
                         }
+                    } else {
+                        None
                     }
-                    _ => unreachable!(),
-                }
             })
             .collect();
 
@@ -394,9 +383,8 @@ impl StorageInner {
             .entry(Bytes::new(key))
             .or_insert_with(|| StorageValue::ZSet(ZSet::new()));
 
-        let zset = match zset {
-            StorageValue::ZSet(z) => z,
-            _ => unreachable!(),
+        let StorageValue::ZSet(zset) = zset else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
         };
 
         // Use direct HashMap lookup for old score with &[u8]
@@ -434,12 +422,8 @@ impl StorageInner {
         };
 
         let result = zset.index.first().and_then(|key| {
-            match key {
-                ZSetIndexKey::Key { score, entry } => {
-                    Some((*score, entry.clone()))
-                }
-                _ => unreachable!(),
-            }
+            let (score, entry) = key.unwrap_key();
+            Some((*score, entry.clone()))
         });
         Ok(result)
     }
@@ -460,12 +444,8 @@ impl StorageInner {
         };
 
         let result = zset.index.last().and_then(|key| {
-            match key {
-                ZSetIndexKey::Key { score, entry } => {
-                    Some((*score, entry.clone()))
-                }
-                _ => unreachable!(),
-            }
+            let (score, entry) = key.unwrap_key();
+            Some((*score, entry.clone()))
         });
         Ok(result)
     }
@@ -489,12 +469,8 @@ impl StorageInner {
         // Use range starting after the current key
         let range = zset.index.range::<_, ZSetIndexKey>((Bound::Excluded(&current_key), Bound::Unbounded));
         let result = range.take(1).next().and_then(|key| {
-            match key {
-                ZSetIndexKey::Key { score, entry } => {
-                    Some((*score, entry.clone()))
-                }
-                _ => unreachable!(),
-            }
+            let (score, entry) = key.unwrap_key();
+            Some((*score, entry.clone()))
         });
         Ok(result)
     }
@@ -518,15 +494,11 @@ impl StorageInner {
         // Use range ending before the current key, get last element
         let range = zset.index.range::<_, ZSetIndexKey>((Bound::Unbounded, Bound::Excluded(&current_key)));
         let result = range.last().and_then(|key| {
-            match key {
-                ZSetIndexKey::Key { score: sc, entry } => {
-                    if *sc == score && entry.as_slice() == member {
-                        None
-                    } else {
-                        Some((*sc, entry.clone()))
-                    }
-                }
-                _ => unreachable!(),
+            let (sc, entry) = key.unwrap_key();
+            if *sc == score && entry.as_slice() == member {
+                None
+            } else {
+                Some((*sc, entry.clone()))
             }
         });
         Ok(result)
@@ -552,13 +524,9 @@ impl StorageInner {
         for _ in 0..count {
             // Use pop_last to remove the highest score element
             if let Some(index_key) = zset.index.pop_last() {
-                match index_key {
-                    ZSetIndexKey::Key { score: _, entry } => {
-                        // Remove from entries map
-                        zset.entries.remove(entry.as_slice());
-                    }
-                    _ => unreachable!(),
-                }
+                let (_, entry) = index_key.unwrap_key();
+                // Remove from entries map
+                zset.entries.remove(entry.as_slice());
             } else {
                 // No more elements
                 break;
@@ -593,13 +561,9 @@ impl StorageInner {
         for _ in 0..count {
             // Use pop_first to remove the lowest score element
             if let Some(index_key) = zset.index.pop_first() {
-                match index_key {
-                    ZSetIndexKey::Key { score: _, entry } => {
-                        // Remove from entries map
-                        zset.entries.remove(entry.as_slice());
-                    }
-                    _ => unreachable!(),
-                }
+                let (_, entry) = index_key.unwrap_key();
+                // Remove from entries map
+                zset.entries.remove(entry.as_slice());
             } else {
                 // No more elements
                 break;
@@ -655,13 +619,9 @@ impl StorageInner {
         let members_to_remove: Vec<(Bytes, Score)> = zset
             .index
             .range_idx(start_pos..=stop_pos)
-            .map(|index_key|
-                match index_key {
-                    ZSetIndexKey::Key { score, entry } => {
-                        (entry.clone(), *score)
-                    }
-                    _ => unreachable!(),
-
+            .map(|index_key| {
+                let (score, entry) = index_key.unwrap_key();
+                (entry.clone(), *score)
             })
             .collect();
 
@@ -724,28 +684,24 @@ impl StorageInner {
             .index
             .range::<_, ZSetIndexKey>((start_bound, end_bound))
             .filter_map(|index_key| {
-                match index_key {
-                    ZSetIndexKey::Key { score: s, entry } => {
+                let (s, entry) = index_key.unwrap_key();
                     // Apply actual bound checks based on the original min/max bounds
-                        let min_ok = match min_bound {
-                            Bound::Unbounded => true,
-                            Bound::Included(min) => *s >= min,
-                            Bound::Excluded(min) => *s > min,
-                        };
+                let min_ok = match min_bound {
+                    Bound::Unbounded => true,
+                    Bound::Included(min) => *s >= min,
+                    Bound::Excluded(min) => *s > min,
+                };
 
-                        let max_ok = match max_bound {
-                            Bound::Unbounded => true,
-                            Bound::Included(max) => *s <= max,
-                            Bound::Excluded(max) => *s < max,
-                        };
+                let max_ok = match max_bound {
+                    Bound::Unbounded => true,
+                    Bound::Included(max) => *s <= max,
+                    Bound::Excluded(max) => *s < max,
+                };
 
-                        if min_ok && max_ok {
-                            Some((entry.clone(), *s))
-                        } else {
-                            None
-                        }
-                    }
-                    _ => unreachable!(),
+                if min_ok && max_ok {
+                    Some((entry.clone(), *s))
+                } else {
+                    None
                 }
             })
             .collect();
@@ -1126,15 +1082,11 @@ impl StorageInner {
                 .index
                 .range::<_, ZSetIndexKey>((start_key_bound, end_key_bound))
                 .filter_map(|key| {
-                    match key {
-                        ZSetIndexKey::Key { score, entry } => {
-                            if self.score_in_range(*score, &min_bound, &max_bound) {
-                                Some((entry.clone(), *score))
-                            } else {
-                                None
-                            }
-                        }
-                        _ => unreachable!(),
+                    let (score, entry) = key.unwrap_key();
+                    if self.score_in_range(*score, &min_bound, &max_bound) {
+                        Some((entry.clone(), *score))
+                    } else {
+                        None
                     }
                 })
                 .collect();
@@ -1170,12 +1122,8 @@ impl StorageInner {
 
                 let mut collected: Vec<(Bytes, Score)> = Vec::new();
                 for key in range_iter {
-                    match key {
-                        ZSetIndexKey::Key { score, entry } => {
-                            collected.push((entry.clone(), *score));
-                        }
-                        _ => unreachable!(),
-                    }
+                    let (score, entry) = key.unwrap_key();
+                    collected.push((entry.clone(), *score));
                 }
 
                 // Apply LIMIT if specified

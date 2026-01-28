@@ -34,6 +34,13 @@ impl ZSetIndexKey {
             entry: unsafe { std::mem::transmute(entry) },
         }
     }
+
+    pub fn unwrap_key(&self) -> (&Score, &Bytes) {
+        match self {
+            ZSetIndexKey::Key { score, entry } => (score, entry),
+            _ => unreachable!(),
+        }
+    }
 }
 
 // Implement ordering traits by delegating to the contained ZSetIndexKeyRef
