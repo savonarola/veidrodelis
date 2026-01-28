@@ -59,74 +59,123 @@ impl StorageInner {
 
     /// Get field value from hash. Returns None if key or field doesn't exist.
     pub fn hget(&self, db: u64, key: &[u8], field: &[u8]) -> Result<Option<Bytes>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Hash(hash)) => Ok(hash.get(field).cloned()),
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(hash.get(field).cloned())
     }
 
     /// Get multiple field values from hash.
     pub fn hmget(&self, db: u64, key: &[u8], fields: &[&[u8]]) -> Result<Vec<Option<Bytes>>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Hash(hash)) => {
-                let values = fields.iter().map(|field| hash.get(*field).cloned()).collect();
-                Ok(values)
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => {
-                // Return vec of None for each field
-                Ok(vec![None; fields.len()])
-            }
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(vec![None; fields.len()]);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(vec![None; fields.len()]);
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        let values = fields.iter().map(|field| hash.get(*field).cloned()).collect();
+        Ok(values)
     }
 
     /// Get all field-value pairs from hash.
     pub fn hgetall(&self, db: u64, key: &[u8]) -> Result<Vec<(Bytes, Bytes)>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Hash(hash)) => {
-                let pairs = hash.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
-                Ok(pairs)
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(Vec::new()),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        let pairs = hash.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        Ok(pairs)
     }
 
     /// Get all field names from hash.
     pub fn hkeys(&self, db: u64, key: &[u8]) -> Result<Vec<Bytes>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Hash(hash)) => Ok(hash.keys().cloned().collect()),
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(Vec::new()),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(hash.keys().cloned().collect())
     }
 
     /// Get all values from hash.
     pub fn hvals(&self, db: u64, key: &[u8]) -> Result<Vec<Bytes>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Hash(hash)) => Ok(hash.values().cloned().collect()),
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(Vec::new()),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(hash.values().cloned().collect())
     }
 
     /// Get number of fields in hash.
     pub fn hlen(&self, db: u64, key: &[u8]) -> Result<usize, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Hash(hash)) => Ok(hash.len()),
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(0),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(0);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(0);
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(hash.len())
     }
 
     /// Check if field exists in hash.
     pub fn hexists(&self, db: u64, key: &[u8], field: &[u8]) -> Result<bool, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Hash(hash)) => Ok(hash.contains_key(field)),
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(false),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(false);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(false);
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(hash.contains_key(field))
     }
 
     /// Delete fields from hash.
@@ -159,27 +208,39 @@ impl StorageInner {
     /// Get the first (minimum) field from hash.
     /// Returns Some((field, value)) or None if hash is empty/doesn't exist.
     pub fn hfirst(&self, db: u64, key: &[u8]) -> Result<Option<(Bytes, Bytes)>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Hash(hash)) => {
-                let result = hash.first_key_value().map(|(field, value)| (field.clone(), value.clone()));
-                Ok(result)
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        let result = hash.first_key_value().map(|(field, value)| (field.clone(), value.clone()));
+        Ok(result)
     }
 
     /// Get the last (maximum) field from hash.
     /// Returns Some((field, value)) or None if hash is empty/doesn't exist.
     pub fn hlast(&self, db: u64, key: &[u8]) -> Result<Option<(Bytes, Bytes)>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Hash(hash)) => {
-                let result = hash.last_key_value().map(|(field, value)| (field.clone(), value.clone()));
-                Ok(result)
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        let result = hash.last_key_value().map(|(field, value)| (field.clone(), value.clone()));
+        Ok(result)
     }
 
     /// Get the next field after the given field in hash.
@@ -187,16 +248,22 @@ impl StorageInner {
     pub fn hnext(&self, db: u64, key: &[u8], field: &[u8]) -> Result<Option<(Bytes, Bytes)>, &'static str> {
         use std::ops::Bound;
 
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Hash(hash)) => {
-                // Use range starting after the current field
-                let range = hash.range::<[u8], _>((Bound::Excluded(field), Bound::Unbounded));
-                let result = range.take(1).next().map(|(f, v)| (f.clone(), v.clone()));
-                Ok(result)
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        // Use range starting after the current field
+        let range = hash.range::<[u8], _>((Bound::Excluded(field), Bound::Unbounded));
+        let result = range.take(1).next().map(|(f, v)| (f.clone(), v.clone()));
+        Ok(result)
     }
 
     /// Get the previous field before the given field in hash.
@@ -204,16 +271,22 @@ impl StorageInner {
     pub fn hprev(&self, db: u64, key: &[u8], field: &[u8]) -> Result<Option<(Bytes, Bytes)>, &'static str> {
         use std::ops::Bound;
 
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Hash(hash)) => {
-                // Use range ending before the current field, get last element
-                let range = hash.range::<[u8], _>((Bound::Unbounded, Bound::Excluded(field)));
-                let result = range.last().map(|(f, v)| (f.clone(), v.clone()));
-                Ok(result)
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        // Use range ending before the current field, get last element
+        let range = hash.range::<[u8], _>((Bound::Unbounded, Bound::Excluded(field)));
+        let result = range.last().map(|(f, v)| (f.clone(), v.clone()));
+        Ok(result)
     }
 
     /// Set field in hash only if it doesn't exist.
@@ -391,13 +464,19 @@ impl StorageInner {
     /// Get the string length of the value stored at field in hash.
     /// Returns 0 if field doesn't exist.
     pub fn hstrlen(&self, db: u64, key: &[u8], field: &[u8]) -> Result<usize, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Hash(hash)) => {
-                Ok(hash.get(field).map(|v| v.len()).unwrap_or(0))
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(0),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(0);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(0);
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(hash.get(field).map(|v| v.len()).unwrap_or(0))
     }
 
     /// Get random field(s) from hash.
@@ -408,61 +487,67 @@ impl StorageInner {
         use rand::seq::SliceRandom;
         use rand::thread_rng;
 
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Hash(hash)) => {
-                if hash.is_empty() {
-                    return Ok(Vec::new());
-                }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
 
-                let mut rng = thread_rng();
-                let fields: Vec<_> = hash.iter().collect();
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
 
-                if count == 1 {
-                    // Return single random field
-                    if let Some((field, value)) = fields.choose(&mut rng) {
-                        let val = if with_values {
-                            Some((*value).clone())
-                        } else {
-                            None
-                        };
-                        Ok(vec![((*field).clone(), val)])
-                    } else {
-                        Ok(Vec::new())
-                    }
-                } else if count > 1 {
-                    // Return multiple unique random fields (up to count)
-                    let sample_size = (count as usize).min(fields.len());
-                    let samples = fields.choose_multiple(&mut rng, sample_size);
-                    Ok(samples.map(|(field, value)| {
-                        let val = if with_values {
-                            Some((*value).clone())
-                        } else {
-                            None
-                        };
-                        ((*field).clone(), val)
-                    }).collect())
-                } else if count < 0 {
-                    // Return |count| fields with repetition allowed
-                    let sample_size = (-count) as usize;
-                    let mut results = Vec::with_capacity(sample_size);
-                    for _ in 0..sample_size {
-                        if let Some((field, value)) = fields.choose(&mut rng) {
-                            let val = if with_values {
-                                Some((*value).clone())
-                            } else {
-                                None
-                            };
-                            results.push(((*field).clone(), val));
-                        }
-                    }
-                    Ok(results)
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        if hash.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let mut rng = thread_rng();
+        let fields: Vec<_> = hash.iter().collect();
+
+        if count == 1 {
+            // Return single random field
+            if let Some((field, value)) = fields.choose(&mut rng) {
+                let val = if with_values {
+                    Some((*value).clone())
                 } else {
-                    // count == 0
-                    Ok(Vec::new())
+                    None
+                };
+                Ok(vec![((*field).clone(), val)])
+            } else {
+                Ok(Vec::new())
+            }
+        } else if count > 1 {
+            // Return multiple unique random fields (up to count)
+            let sample_size = (count as usize).min(fields.len());
+            let samples = fields.choose_multiple(&mut rng, sample_size);
+            Ok(samples.map(|(field, value)| {
+                let val = if with_values {
+                    Some((*value).clone())
+                } else {
+                    None
+                };
+                ((*field).clone(), val)
+            }).collect())
+        } else if count < 0 {
+            // Return |count| fields with repetition allowed
+            let sample_size = (-count) as usize;
+            let mut results = Vec::with_capacity(sample_size);
+            for _ in 0..sample_size {
+                if let Some((field, value)) = fields.choose(&mut rng) {
+                    let val = if with_values {
+                        Some((*value).clone())
+                    } else {
+                        None
+                    };
+                    results.push(((*field).clone(), val));
                 }
             }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(Vec::new()),
+            Ok(results)
+        } else {
+            // count == 0
+            Ok(Vec::new())
         }
     }
 }

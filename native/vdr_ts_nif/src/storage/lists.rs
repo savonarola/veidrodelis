@@ -308,53 +308,67 @@ impl StorageInner {
 
     /// Get the length of a list.
     pub fn llen(&self, db: u64, key: &[u8]) -> Result<usize, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::List(list)) => Ok(list.len()),
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(0),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(0);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(0);
+        };
+
+        let StorageValue::List(list) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(list.len())
     }
 
     /// Get a range of elements from the list.
     /// Both start and stop are inclusive and support negative indices.
     pub fn lrange(&self, db: u64, key: &[u8], start: i64, stop: i64) -> Result<Vec<Bytes>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::List(list)) => {
-                let len = list.len() as i64;
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
 
-                if len == 0 {
-                    return Ok(Vec::new());
-                }
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
 
-                // Normalize negative indices
-                let start_pos = if start < 0 {
-                    (len + start).max(0) as usize
-                } else {
-                    start.min(len - 1).max(0) as usize
-                };
+        let StorageValue::List(list) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
 
-                let stop_pos = if stop < 0 {
-                    (len + stop).max(0) as usize
-                } else {
-                    stop.min(len - 1).max(0) as usize
-                };
+        let len = list.len() as i64;
 
-                if start_pos > stop_pos || start_pos >= len as usize {
-                    return Ok(Vec::new());
-                }
-
-                let result: Vec<Bytes> = list
-                    .iter()
-                    .skip(start_pos)
-                    .take(stop_pos - start_pos + 1)
-                    .cloned()
-                    .collect();
-
-                Ok(result)
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(Vec::new()),
+        if len == 0 {
+            return Ok(Vec::new());
         }
+
+        // Normalize negative indices
+        let start_pos = if start < 0 {
+            (len + start).max(0) as usize
+        } else {
+            start.min(len - 1).max(0) as usize
+        };
+
+        let stop_pos = if stop < 0 {
+            (len + stop).max(0) as usize
+        } else {
+            stop.min(len - 1).max(0) as usize
+        };
+
+        if start_pos > stop_pos || start_pos >= len as usize {
+            return Ok(Vec::new());
+        }
+
+        let result: Vec<Bytes> = list
+            .iter()
+            .skip(start_pos)
+            .take(stop_pos - start_pos + 1)
+            .cloned()
+            .collect();
+
+        Ok(result)
     }
 
     /// Set the list element at index to value.
