@@ -151,184 +151,230 @@ impl StorageInner {
 
     /// Get the score of a member in sorted set.
     pub fn zscore(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<Score>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::ZSet(zset)) => Ok(zset.entries.get(member).copied()),
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(zset.entries.get(member).copied())
     }
 
     /// Get the cardinality (number of members) of sorted set.
     pub fn zcard(&self, db: u64, key: &[u8]) -> Result<usize, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::ZSet(zset)) => Ok(zset.len()),
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(0),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(0);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(0);
+        };
+
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(zset.len())
     }
 
     /// Get range of members by index (rank). Supports negative indices.
     /// Returns list of (member, score) tuples.
     pub fn zrange(&self, db: u64, key: &[u8], start: i64, stop: i64, with_scores: bool) -> Result<Vec<(Bytes, Option<Score>)>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::ZSet(zset)) => {
-                let len = zset.len() as i64;
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
 
-                if len == 0 {
-                    return Ok(Vec::new());
-                }
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
 
-                // Normalize negative indices
-                let start_pos = if start < 0 {
-                    (len + start).max(0) as usize
-                } else {
-                    start.min(len - 1).max(0) as usize
-                };
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
 
-                let stop_pos = if stop < 0 {
-                    (len + stop).max(0) as usize
-                } else {
-                    stop.min(len - 1).max(0) as usize
-                };
+        let len = zset.len() as i64;
 
-                if start_pos > stop_pos || start_pos >= len as usize {
-                    return Ok(Vec::new());
-                }
-
-                // Use indexset's efficient range_idx() method for O(log n) range access
-                let result: Vec<(Bytes, Option<Score>)> = zset
-                    .index
-                    .range_idx(start_pos..=stop_pos)
-                    .map(|key| {
-                        // Clone the Arc-wrapped Bytes directly instead of reconstructing
-                        match key {
-                            ZSetIndexKey::Key { score, entry } => {
-                                if with_scores {
-                                    (entry.clone(), Some(*score))
-                                } else {
-                                    (entry.clone(), None)
-                                }
-                            }
-                            _ => unreachable!(),
-                        }
-                    })
-                    .collect();
-
-                Ok(result)
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(Vec::new()),
+        if len == 0 {
+            return Ok(Vec::new());
         }
+
+        // Normalize negative indices
+        let start_pos = if start < 0 {
+            (len + start).max(0) as usize
+        } else {
+            start.min(len - 1).max(0) as usize
+        };
+
+        let stop_pos = if stop < 0 {
+            (len + stop).max(0) as usize
+        } else {
+            stop.min(len - 1).max(0) as usize
+        };
+
+        if start_pos > stop_pos || start_pos >= len as usize {
+            return Ok(Vec::new());
+        }
+
+        // Use indexset's efficient range_idx() method for O(log n) range access
+        let result: Vec<(Bytes, Option<Score>)> = zset
+            .index
+            .range_idx(start_pos..=stop_pos)
+            .map(|key| {
+                // Clone the Arc-wrapped Bytes directly instead of reconstructing
+                match key {
+                    ZSetIndexKey::Key { score, entry } => {
+                        if with_scores {
+                            (entry.clone(), Some(*score))
+                        } else {
+                            (entry.clone(), None)
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+            })
+            .collect();
+
+        Ok(result)
     }
 
     /// Get range of members by score. Returns list of (member, score) tuples.
     /// Optimized to use BTreeSet::range() for O(log n + k) instead of O(n) where k is result size.
     pub fn zrangebyscore(&self, db: u64, key: &[u8], min: Score, max: Score, with_scores: bool) -> Result<Vec<(Bytes, Option<Score>)>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::ZSet(zset)) => {
-                // Create boundary keys for efficient range query
-                let min_key = ZSetIndexKey::min_score_key(min);
-                let max_key = ZSetIndexKey::max_score_key(max);
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
 
-                // Use range() for O(log n) seek + O(k) iteration, avoiding full tree scan
-                // Note: MaxScoreKey is fictional, so indexset may include entries beyond it
-                // We add boundary checks to drop elements that don't fit
-                let result: Vec<(Bytes, Option<Score>)> = zset
-                    .index
-                    .range::<_, ZSetIndexKey>((Bound::Included(&min_key), Bound::Included(&max_key)))
-                    .filter_map(|key| {
-                        match key {
-                            ZSetIndexKey::Key { score: s, entry } => {
-                                if *s >= min && *s <= max {
-                                    if with_scores {
-                                        Some((entry.clone(), Some(*s)))
-                                    } else {
-                                        Some((entry.clone(), None))
-                                    }
-                                } else {
-                                    None
-                                }
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
+
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        // Create boundary keys for efficient range query
+        let min_key = ZSetIndexKey::min_score_key(min);
+        let max_key = ZSetIndexKey::max_score_key(max);
+
+        // Use range() for O(log n) seek + O(k) iteration, avoiding full tree scan
+        // Note: MaxScoreKey is fictional, so indexset may include entries beyond it
+        // We add boundary checks to drop elements that don't fit
+        let result: Vec<(Bytes, Option<Score>)> = zset
+            .index
+            .range::<_, ZSetIndexKey>((Bound::Included(&min_key), Bound::Included(&max_key)))
+            .filter_map(|key| {
+                match key {
+                    ZSetIndexKey::Key { score: s, entry } => {
+                        if *s >= min && *s <= max {
+                            if with_scores {
+                                Some((entry.clone(), Some(*s)))
+                            } else {
+                                Some((entry.clone(), None))
                             }
-                            _ => unreachable!(),
+                        } else {
+                            None
                         }
-                    })
-                    .collect();
+                    }
+                    _ => unreachable!(),
+                }
+            })
+            .collect();
 
-                Ok(result)
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(Vec::new()),
-        }
+        Ok(result)
     }
 
     /// Get the rank (index) of a member in sorted set (0-based, ascending order).
     pub fn zrank(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<usize>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::ZSet(zset)) => {
-                // Use direct HashMap lookup for score with &[u8]
-                let Some(score) = zset.entries.get(member) else {
-                    return Ok(None);
-                };
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
 
-                // Use indexset's efficient rank() method - O(log n) instead of O(n)
-                // Use ZSetIndexKeyRef for lookup
-                let lookup_key = ZSetIndexKey::create_ref(*score, member);
-                let rank = zset.index.rank(&lookup_key);
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
 
-                Ok(Some(rank))
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        // Use direct HashMap lookup for score with &[u8]
+        let Some(score) = zset.entries.get(member) else {
+            return Ok(None);
+        };
+
+        // Use indexset's efficient rank() method - O(log n) instead of O(n)
+        // Use ZSetIndexKeyRef for lookup
+        let lookup_key = ZSetIndexKey::create_ref(*score, member);
+        let rank = zset.index.rank(&lookup_key);
+
+        Ok(Some(rank))
     }
 
     /// Get the reverse rank (index from highest to lowest) of a member.
     pub fn zrevrank(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<usize>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::ZSet(zset)) => {
-                // Use direct HashMap lookup for score with &[u8]
-                let Some(score) = zset.entries.get(member) else {
-                    return Ok(None);
-                };
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
 
-                // Use indexset's efficient rank() method, then convert to reverse rank
-                // Reverse rank = (total_count - 1) - rank
-                // Use ZSetIndexKeyRef for lookup
-                let lookup_key = ZSetIndexKey::create_ref(*score, member);
-                let rank = zset.index.rank(&lookup_key);
-                let rev_rank = zset.len() - 1 - rank;
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
 
-                Ok(Some(rev_rank))
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        // Use direct HashMap lookup for score with &[u8]
+        let Some(score) = zset.entries.get(member) else {
+            return Ok(None);
+        };
+
+        // Use indexset's efficient rank() method, then convert to reverse rank
+        // Reverse rank = (total_count - 1) - rank
+        // Use ZSetIndexKeyRef for lookup
+        let lookup_key = ZSetIndexKey::create_ref(*score, member);
+        let rank = zset.index.rank(&lookup_key);
+        let rev_rank = zset.len() - 1 - rank;
+
+        Ok(Some(rev_rank))
     }
 
     /// Count members in sorted set with scores between min and max (inclusive).
     /// Optimized to use rank difference instead of iteration: O(log n) instead of O(n).
     pub fn zcount(&self, db: u64, key: &[u8], min: Score, max: Score) -> Result<usize, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::ZSet(zset)) => {
-                // Create boundary keys for the score range
-                let min_key = ZSetIndexKey::min_score_key(min);
-                let max_key = ZSetIndexKey::max_score_key(max);
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(0);
+        };
 
-                // Get ranks: min_rank is where first element >= min starts,
-                // max_rank is where last element <= max ends
-                let min_rank = zset.index.rank(&min_key);
-                let max_rank = zset.index.rank(&max_key);
+        let Some(value) = db_map.get(key) else {
+            return Ok(0);
+        };
 
-                // Count is the difference of ranks
-                // Handle inverted range (min > max) by returning 0
-                if max_rank < min_rank {
-                    Ok(0)
-                } else {
-                    Ok(max_rank - min_rank)
-                }
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(0),
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        // Create boundary keys for the score range
+        let min_key = ZSetIndexKey::min_score_key(min);
+        let max_key = ZSetIndexKey::max_score_key(max);
+
+        // Get ranks: min_rank is where first element >= min starts,
+        // max_rank is where last element <= max ends
+        let min_rank = zset.index.rank(&min_key);
+        let max_rank = zset.index.rank(&max_key);
+
+        // Count is the difference of ranks
+        // Handle inverted range (min > max) by returning 0
+        if max_rank < min_rank {
+            Ok(0)
+        } else {
+            Ok(max_rank - min_rank)
         }
     }
 
@@ -375,91 +421,115 @@ impl StorageInner {
     /// Get the first (minimum) member from sorted set.
     /// Returns Some((score, member)) or None if set is empty/doesn't exist.
     pub fn zfirst(&self, db: u64, key: &[u8]) -> Result<Option<(Score, Bytes)>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::ZSet(zset)) => {
-                let result = zset.index.first().and_then(|key| {
-                    match key {
-                        ZSetIndexKey::Key { score, entry } => {
-                            Some((*score, entry.clone()))
-                        }
-                        _ => unreachable!(),
-                    }
-                });
-                Ok(result)
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        let result = zset.index.first().and_then(|key| {
+            match key {
+                ZSetIndexKey::Key { score, entry } => {
+                    Some((*score, entry.clone()))
+                }
+                _ => unreachable!(),
             }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        });
+        Ok(result)
     }
 
     /// Get the last (maximum) member from sorted set.
     /// Returns Some((score, member)) or None if set is empty/doesn't exist.
     pub fn zlast(&self, db: u64, key: &[u8]) -> Result<Option<(Score, Bytes)>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::ZSet(zset)) => {
-                let result = zset.index.last().and_then(|key| {
-                    match key {
-                        ZSetIndexKey::Key { score, entry } => {
-                            Some((*score, entry.clone()))
-                        }
-                        _ => unreachable!(),
-                    }
-                });
-                Ok(result)
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        let result = zset.index.last().and_then(|key| {
+            match key {
+                ZSetIndexKey::Key { score, entry } => {
+                    Some((*score, entry.clone()))
+                }
+                _ => unreachable!(),
             }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        });
+        Ok(result)
     }
 
     /// Get the next member after the given (score, member) in sorted set.
     /// Returns Some((score, member)) or None if no next element exists.
     pub fn znext(&self, db: u64, key: &[u8], score: Score, member: &[u8]) -> Result<Option<(Score, Bytes)>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::ZSet(zset)) => {
-                let current_key = ZSetIndexKey::create(score, member);
-                // Use range starting after the current key
-                let range = zset.index.range::<_, ZSetIndexKey>((Bound::Excluded(&current_key), Bound::Unbounded));
-                let result = range.take(1).next().and_then(|key| {
-                    match key {
-                        ZSetIndexKey::Key { score, entry } => {
-                            Some((*score, entry.clone()))
-                        }
-                        _ => unreachable!(),
-                    }
-                });
-                Ok(result)
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        let current_key = ZSetIndexKey::create(score, member);
+        // Use range starting after the current key
+        let range = zset.index.range::<_, ZSetIndexKey>((Bound::Excluded(&current_key), Bound::Unbounded));
+        let result = range.take(1).next().and_then(|key| {
+            match key {
+                ZSetIndexKey::Key { score, entry } => {
+                    Some((*score, entry.clone()))
+                }
+                _ => unreachable!(),
             }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        });
+        Ok(result)
     }
 
     /// Get the previous member before the given (score, member) in sorted set.
     /// Returns Some((score, member)) or None if no previous element exists.
     pub fn zprev(&self, db: u64, key: &[u8], score: Score, member: &[u8]) -> Result<Option<(Score, Bytes)>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::ZSet(zset)) => {
-                let current_key = ZSetIndexKey::create(score, member);
-                // Use range ending before the current key, get last element
-                let range = zset.index.range::<_, ZSetIndexKey>((Bound::Unbounded, Bound::Excluded(&current_key)));
-                let result = range.last().and_then(|key| {
-                    match key {
-                        ZSetIndexKey::Key { score: sc, entry } => {
-                            if *sc == score && entry.as_slice() == member {
-                                None
-                            } else {
-                                Some((*sc, entry.clone()))
-                            }
-                        }
-                        _ => unreachable!(),
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        let current_key = ZSetIndexKey::create(score, member);
+        // Use range ending before the current key, get last element
+        let range = zset.index.range::<_, ZSetIndexKey>((Bound::Unbounded, Bound::Excluded(&current_key)));
+        let result = range.last().and_then(|key| {
+            match key {
+                ZSetIndexKey::Key { score: sc, entry } => {
+                    if *sc == score && entry.as_slice() == member {
+                        None
+                    } else {
+                        Some((*sc, entry.clone()))
                     }
-                });
-                Ok(result)
+                }
+                _ => unreachable!(),
             }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        });
+        Ok(result)
     }
 
     /// Pop member(s) with highest score from sorted set.
