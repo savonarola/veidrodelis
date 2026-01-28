@@ -252,59 +252,89 @@ impl StorageInner {
 
     /// Get all members of a set.
     pub fn smembers(&self, db: u64, key: &[u8]) -> Result<Vec<Bytes>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Set(set)) => Ok(set.iter().cloned().collect()),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
-                Err("WRONGTYPE Operation against a key holding the wrong kind of value")
-            }
-            None => Ok(Vec::new()),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
+
+        let StorageValue::Set(set) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(set.iter().cloned().collect())
     }
 
     /// Check if member exists in set.
     pub fn sismember(&self, db: u64, key: &[u8], member: &[u8]) -> Result<bool, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Set(set)) => Ok(set.contains(member)),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
-                Err("WRONGTYPE Operation against a key holding the wrong kind of value")
-            }
-            None => Ok(false),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(false);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(false);
+        };
+
+        let StorageValue::Set(set) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(set.contains(member))
     }
 
     /// Get the number of members in a set.
     pub fn scard(&self, db: u64, key: &[u8]) -> Result<usize, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Set(set)) => Ok(set.len()),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
-                Err("WRONGTYPE Operation against a key holding the wrong kind of value")
-            }
-            None => Ok(0),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(0);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(0);
+        };
+
+        let StorageValue::Set(set) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(set.len())
     }
 
     /// Get the first (minimum) member from set.
     /// Returns Some(member) or None if set is empty/doesn't exist.
     pub fn sfirst(&self, db: u64, key: &[u8]) -> Result<Option<Bytes>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Set(set)) => {
-                Ok(set.iter().next().cloned())
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::Set(set) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(set.iter().next().cloned())
     }
 
     /// Get the last (maximum) member from set.
     /// Returns Some(member) or None if set is empty/doesn't exist.
     pub fn slast(&self, db: u64, key: &[u8]) -> Result<Option<Bytes>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Set(set)) => {
-                Ok(set.iter().next_back().cloned())
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::Set(set) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(set.iter().next_back().cloned())
     }
 
     /// Get the next member after the given member in set.
@@ -312,15 +342,21 @@ impl StorageInner {
     pub fn snext(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<Bytes>, &'static str> {
         use std::ops::Bound;
 
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Set(set)) => {
-                // Use range starting after the current member
-                let range = set.range::<[u8], _>((Bound::Excluded(member), Bound::Unbounded));
-                Ok(range.take(1).next().cloned())
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::Set(set) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        // Use range starting after the current member
+        let range = set.range::<[u8], _>((Bound::Excluded(member), Bound::Unbounded));
+        Ok(range.take(1).next().cloned())
     }
 
     /// Get the previous member before the given member in set.
@@ -328,29 +364,39 @@ impl StorageInner {
     pub fn sprev(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<Bytes>, &'static str> {
         use std::ops::Bound;
 
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Set(set)) => {
-                // Use range ending before the current member, get last element
-                let range = set.range::<[u8], _>((Bound::Unbounded, Bound::Excluded(member)));
-                Ok(range.last().cloned())
-            }
-            Some(_) => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
-            None => Ok(None),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(None);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(None);
+        };
+
+        let StorageValue::Set(set) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        // Use range ending before the current member, get last element
+        let range = set.range::<[u8], _>((Bound::Unbounded, Bound::Excluded(member)));
+        Ok(range.last().cloned())
     }
 
     /// Check if multiple members exist in set.
     /// Returns a vector of booleans, one for each member.
     pub fn smismember(&self, db: u64, key: &[u8], members: &[&[u8]]) -> Result<Vec<bool>, &'static str> {
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Set(set)) => {
-                Ok(members.iter().map(|member| set.contains(*member)).collect())
-            }
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
-                Err("WRONGTYPE Operation against a key holding the wrong kind of value")
-            }
-            None => Ok(vec![false; members.len()]),
-        }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(vec![false; members.len()]);
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(vec![false; members.len()]);
+        };
+
+        let StorageValue::Set(set) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(members.iter().map(|member| set.contains(*member)).collect())
     }
 
     /// Get random member(s) from set without removing them.
@@ -361,34 +407,38 @@ impl StorageInner {
         use rand::seq::SliceRandom;
         use rand::thread_rng;
 
-        match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
-            Some(StorageValue::Set(set)) => {
-                if count == 0 || set.is_empty() {
-                    return Ok(Vec::new());
-                }
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
 
-                let members: Vec<Bytes> = set.iter().cloned().collect();
-                let mut rng = thread_rng();
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
 
-                if count > 0 {
-                    // Return up to count unique random members
-                    let take_count = std::cmp::min(count as usize, members.len());
-                    let mut result = members.clone();
-                    result.shuffle(&mut rng);
-                    result.truncate(take_count);
-                    Ok(result)
-                } else {
-                    // Return abs(count) members, allowing duplicates
-                    let count = count.abs() as usize;
-                    Ok((0..count)
-                        .map(|_| members.choose(&mut rng).unwrap().clone())
-                        .collect())
-                }
-            }
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
-                Err("WRONGTYPE Operation against a key holding the wrong kind of value")
-            }
-            None => Ok(Vec::new()),
+        let StorageValue::Set(set) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        if count == 0 || set.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let members: Vec<Bytes> = set.iter().cloned().collect();
+        let mut rng = thread_rng();
+
+        if count > 0 {
+            // Return up to count unique random members
+            let take_count = std::cmp::min(count as usize, members.len());
+            let mut result = members.clone();
+            result.shuffle(&mut rng);
+            result.truncate(take_count);
+            Ok(result)
+        } else {
+            // Return abs(count) members, allowing duplicates
+            let count = count.abs() as usize;
+            Ok((0..count)
+                .map(|_| members.choose(&mut rng).unwrap().clone())
+                .collect())
         }
     }
 
