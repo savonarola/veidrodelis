@@ -71,19 +71,19 @@ impl PartialEq for ZSetIndexKey {
                     entry: e2,
                 },
             ) => s1 == s2 && e1 == &e2.as_slice(),
-            (
-                Ref {
-                    score: _,
-                    entry: _,
-                },
-                Ref {
-                    score: _,
-                    entry: _,
-                },
-            ) => unreachable!(),
-            (MinScoreKey(s1), MinScoreKey(s2)) => s1 == s2,
-            (MaxScoreKey(s1), MaxScoreKey(s2)) => s1 == s2,
-            _ => false,
+            (Ref { score: _, entry: _ }, Ref { score: _, entry: _ }) => unreachable!(),
+            (MinScoreKey(_), MinScoreKey(_)) => unreachable!(),
+            (MinScoreKey(_), MaxScoreKey(_)) => unreachable!(),
+            (MinScoreKey(_), Ref { score: _, entry: _ }) => unreachable!(),
+            (MaxScoreKey(_), MaxScoreKey(_)) => unreachable!(),
+            (MaxScoreKey(_), MinScoreKey(_)) => unreachable!(),
+            (MaxScoreKey(_), Ref { score: _, entry: _ }) => unreachable!(),
+            (Ref { score: _, entry: _ }, MinScoreKey(_)) => unreachable!(),
+            (Ref { score: _, entry: _ }, MaxScoreKey(_)) => unreachable!(),
+            (Key { score: _, entry: _ }, MinScoreKey(_)) => false,
+            (Key { score: _, entry: _ }, MaxScoreKey(_)) => false,
+            (MaxScoreKey(_), Key { score: _, entry: _ }) => false,
+            (MinScoreKey(_), Key { score: _, entry: _ }) => false,
         }
     }
 }
