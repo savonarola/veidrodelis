@@ -35,15 +35,6 @@ mix compile
 # - C code: LZF compression (legacy, wrapped by vdr_redis_nif)
 ```
 
-### Benchmarking
-```bash
-# Run benchmarks
-mix benchmark
-
-# Benchmarks test replication performance with different scenarios
-# See benchmark/ directory for scenario definitions
-```
-
 ### Testing
 ```bash
 # Run all ExUnit tests
@@ -56,6 +47,11 @@ mix test --trace
 mix test test/veidrodelis/rdb_test.exs
 ```
 
+To restart docker containers for testing, run:
+```bash
+just dc-restart
+```
+
 ### Code Formatting
 ```bash
 # Format Elixir code
@@ -63,51 +59,6 @@ mix format
 
 # Check if code is formatted
 mix format --check-formatted
-```
-
-## Project Structure
-
-```
-/home/av/dev/veidrodelis/
-├── lib/                          # Elixir source code
-│   ├── veidrodelis.ex            # Main API entry point
-│   ├── veidrodelis/
-│   │   ├── application.ex        # OTP Application (starts Registry)
-│   │   ├── handle.ex             # Handle struct for registry lookups
-│   │   ├── registry.ex           # ETS-based instance registry
-│   │   ├── ts.ex                 # Rust-based Term Storage (TS) NIF interface
-│   │   ├── ts_proj.ex            # TS-based projection implementation
-│   │   ├── redis_stream/         # Redis replication stream components
-│   │   │   ├── callback.ex       # Behavior definition for callbacks
-│   │   │   ├── replica.ex        # Main replica client (GenServer)
-│   │   │   ├── replica_command.ex # Command wrapper with context
-│   │   │   ├── parser.ex         # Rust NIF wrapper for parsing
-│   │   │   ├── rdb.ex            # RDB parsing interface
-│   │   │   ├── command.ex        # Command structs
-│   │   │   ├── command_parser.ex # Command parsing utilities
-│   │   │   └── command_filter.ex # Command filtering
-│   │   └── benchmark/            # Benchmarking infrastructure
-│   └── mix/tasks/
-│       └── benchmark.ex          # Mix task for benchmarking
-├── native/                       # Rust NIFs (2 crates)
-│   ├── vdr_redis_nif/           # Redis parsing NIF
-│   │   ├── c_src/               # LZF compression (C code)
-│   │   └── src/
-│   │       ├── rdb.rs           # RDB parser
-│   │       └── replica.rs       # Replica parser
-│   └── vdr_ts_nif/              # Term Storage NIF
-│       └── src/
-│           ├── lib.rs           # Main NIF entry point
-│           └── storage.rs       # Core storage implementation
-├── test/                         # Test suite
-│   ├── veidrodelis/
-│   │   ├── transaction_test.exs  # Transaction tests
-│   │   ├── ts_test.exs           # TS tests
-│   │   ├── rdb_test.exs          # RDB parser tests
-│   │   ├── replica_test.exs      # Replica client tests
-│   │   └── ts_proj/              # TS-based store tests
-│   └── support/                  # Test helpers
-└── benchmark/                    # Benchmark scenarios
 ```
 
 ## Architecture
@@ -140,27 +91,11 @@ Veidrodelis API → Registry Lookup →
 - Multi-database support (db parameter)
 - **Batch command execution** via `tx/2` - executes multiple write commands under single mutex lock
 - Direct read operations (no GenServer overhead)
-- Arc-based reference counting for efficient memory management
+- Rc-based reference counting for efficient memory management
 - **Lua transaction interface** via `read_tx/3` and `lua_load/2`:
-  - Embedded LuaJIT VM initialized once per storage instance
-  - All read-only functions exposed to Lua via `ts.*` namespace
-  - Script compilation to bytecode for performance via `lua_load/2`
-  - Atomic execution under storage mutex
-  - Lua functions initialized once during storage creation for zero overhead
 - **Write operations** (via `tx/2` only):
-  - **Strings**: `{:set, key, value}`, `{:del, keys}`
-  - **Lists**: `{:lpush, key, values}`, `{:rpush, key, values}`, `{:lpop, key}`, `{:rpop, key}`, `{:lset, key, index, value}`, `{:rpoplpush, source_key, dest_key}`
-  - **Sets**: `{:sadd, key, members}`, `{:srem, key, members}`, `{:smove, source_key, dest_key, member}`, `{:sunionstore, dest_key, source_keys}`, `{:sinterstore, dest_key, source_keys}`, `{:sdiffstore, dest_key, source_keys}`
-  - **Hashes**: `{:hset, key, field, value}`, `{:hmset, key, fields}`, `{:hdel, key, fields}`
-  - **Sorted Sets**: `{:zadd, key, members}`, `{:zrem, key, members}`, `{:zincrby, key, delta, member}`
-- **Read operations** (direct function calls):
-  - **Strings**: `get/3`
-  - **Lists**: `llen/3`, `lrange/5`
-  - **Sets**: `smembers/3`, `sismember/4`, `scard/3`
-  - **Hashes**: `hget/4`, `hmget/4`, `hgetall/3`, `hkeys/3`, `hvals/3`, `hlen/3`, `hexists/4`
-  - **Sorted Sets**: `zscore/4`, `zcard/3`, `zrange/6`, `zrangebyscore/6`, `zrank/4`, `zrevrank/4`, `zcount/5`
-  - **Sorted Set Iteration**: `zfirst/3`, `zlast/3`, `znext/5`, `zprev/5` - efficient iteration without loading entire set
-- Rust dependencies: `im` (immutable data structures), `indexset`, `ordered-float`, `ouroboros`, `mlua` (LuaJIT)
+- **Read operations** (direct function calls)
+- Rust dependencies: `im` (immutable data structures), `indexset`, `ordered-float`, `mlua` (LuaJIT)
 
 **Vdr.TSProj - TS-based Projection ([lib/veidrodelis/ts_proj.ex](lib/veidrodelis/ts_proj.ex))**
 - Redis replication processor using Rust-native TS storage
@@ -204,33 +139,17 @@ Veidrodelis API → Registry Lookup →
 - Main callback: `on_command/3` - called for each parsed Redis command
 - Returns: `{:ok, new_state}` or `{:error, reason}`
 
-**Command Structs ([lib/veidrodelis/redis_stream/command.ex](lib/veidrodelis/redis_stream/command.ex))**
-- Represents Redis write commands that would have created the RDB data
-- `%Command.Set{key, value}` - SET command for string values
-- `%Command.RPush{key, value}` - RPUSH command for list elements
-- `%Command.SAdd{key, member}` - SADD command for set members
-- `%Command.ZAdd{key, score, member}` - ZADD command for sorted set members
-- `%Command.HSet{key, field, value}` - HSET command for hash fields
-- And many more command types for all Redis operations
-
-**LZF Compression NIF ([native/vdr_redis_nif/c_src/](native/vdr_redis_nif/c_src/))**
-- C implementation for LZF compression/decompression (legacy)
-- Used by RDB parser for compressed strings
-- Functions exposed via Rust NIF wrapper
-- Files: `lzf_c.c`, `lzf_d.c`, `lzf.h`, `lzfP.h`
-
 **Vdr.Registry ([lib/veidrodelis/registry.ex](lib/veidrodelis/registry.ex))**
 - ETS-based registry for Veidrodelis instances
 - Instance registration by ID, process monitoring, cleanup on crash
 - Used for looking up projection processes by handle
-
 
 ## Implementation Notes
 
 ### Working with TS Storage
 - TS (Term Storage) is a Rust NIF providing thread-safe storage with internal locking
 - For atomic multi-command operations, always use `Vdr.TS.tx/2` to execute under a single mutex lock
-- TS storage uses Arc-based reference counting - no need to manually manage memory
+- TS storage uses Rc-based reference counting - no need to manually manage memory
 - Direct NIF calls bypass GenServer overhead for maximum read performance
 - Multi-database support via the `db` parameter (defaults to 0)
 - **CRITICAL**: All mutating functions (write operations) should return `Result<(), &'static str>` (i.e., `Ok(())` on success). They are only used for replication where return values are not needed. Only read operations should return meaningful data (counts, values, etc.)
