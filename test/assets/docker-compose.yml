@@ -67,6 +67,27 @@ services:
     networks:
       - veidrodelis-net
 
+  valkey-ssl:
+    image: valkey/valkey:9-alpine
+    container_name: veidrodelis-valkey-ssl
+    ports:
+      - "16382:6379"
+    command: >
+      valkey-server
+      --tls-port 6379
+      --port 0
+      --tls-cert-file /tls/server-cert.pem
+      --tls-key-file /tls/server-key.pem
+      --tls-ca-cert-file /tls/ca-cert.pem
+      --tls-auth-clients no
+      --repl-diskless-sync yes
+      --save 60 1
+      --loglevel verbose
+    volumes:
+      - ./ssl:/tls:ro
+    networks:
+      - veidrodelis-net
+
 networks:
   veidrodelis-net:
     driver: bridge
