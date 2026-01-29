@@ -43,8 +43,9 @@ defmodule Veidrodelis do
   ## Options
 
     * `:id` - Veidrodelis instance ID, required
-    * `:host` - Redis host (default: "localhost")
-    * `:port` - Redis port (default: 6379)
+    * `:host` - Redis host (default: "localhost"). Cannot be used with `:sentinel`.
+    * `:port` - Redis port (default: 6379). Cannot be used with `:sentinel`.
+    * `:sentinel` - Sentinel configuration. See `Vdr.RedisStream.Replica` for details.
     * `:username` - Redis username for ACL authentication (default: nil)
     * `:password` - Redis password (default: nil)
     * `:ssl` - Use SSL/TLS (default: false)
@@ -53,18 +54,22 @@ defmodule Veidrodelis do
     * `:reconnect_delay_ms` - Initial delay before reconnection in ms (default: 1000)
     * `:max_reconnect_delay_ms` - Maximum delay between reconnection attempts in ms (default: 30000)
 
+  For full documentation of sentinel options and advanced features, see `Vdr.RedisStream.Replica`.
+
   ## Returns
 
     * `{:ok, pid}` - Successfully started (returns Replica GenServer PID)
     * `{:error, reason}` - Failed to start
 
-  ## Example
+  ## Examples
+
+  ### Direct Connection
 
       opts = [
+        id: :my_instance,
         host: "localhost",
         port: 6379
       ]
-
       {:ok, pid} = Veidrodelis.start_link(opts)
 
       # Query data
@@ -73,6 +78,20 @@ defmodule Veidrodelis do
 
       # Stop when done
       :ok = Veidrodelis.stop(pid)
+
+  ### Sentinel Connection
+
+      opts = [
+        id: :my_instance,
+        sentinel: [
+          sentinels: [
+            [host: "sentinel1", port: 26379],
+            [host: "sentinel2", port: 26379]
+          ],
+          group: "mymaster"
+        ]
+      ]
+      {:ok, pid} = Veidrodelis.start_link(opts)
   """
   @spec start_link(keyword()) :: {:ok, pid()} | {:error, term()}
   def start_link(opts) do

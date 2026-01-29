@@ -4,14 +4,14 @@ defmodule Vdr.RedisStream.Replica do
   replication stream via PSYNC.
 
   The replica manages a state machine for the replication protocol:
-  1. Connect to Redis (TCP/SSL)
+  1. Connect to Redis (TCP/SSL) or discover via Sentinel
   2. Send PING
   3. Authenticate (if password provided)
   4. Negotiate PSYNC
   5. Receive and parse RDB snapshot
   6. Stream commands and invoke callbacks
 
-  ## Example
+  ## Direct Connection Example
 
       defmodule MyCallback do
         @behaviour Veidrodelis.RedisStream.Callback
@@ -31,34 +31,32 @@ defmodule Vdr.RedisStream.Replica do
         end
       end
 
-      # Without authentication
+      # Direct connection
       opts = [
         host: "localhost",
         port: 6379,
         callback_module: MyCallback,
         callback_state: %{count: 0}
       ]
-
-      # With legacy password authentication (Redis < 6)
-      opts = [
-        host: "localhost",
-        port: 6379,
-        password: "mypassword",
-        callback_module: MyCallback,
-        callback_state: %{count: 0}
-      ]
-
-      # With ACL authentication (Redis 6+)
-      opts = [
-        host: "localhost",
-        port: 6379,
-        username: "myuser",
-        password: "mypassword",
-        callback_module: MyCallback,
-        callback_state: %{count: 0}
-      ]
-
       {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+
+  ## Sentinel Connection Example
+
+      # Connect via Redis Sentinel for automatic failover
+      opts = [
+        sentinel: [
+          sentinels: [
+            [host: "sentinel1", port: 26379],
+            [host: "sentinel2", port: 26379]
+          ],
+          group: "mymaster"
+        ],
+        callback_module: MyCallback,
+        callback_state: %{count: 0}
+      ]
+      {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+
+  ## API Usage
 
       # Get current replication offset
       offset = Vdr.RedisStream.Replica.get_offset(replica)
@@ -97,14 +95,33 @@ defmodule Vdr.RedisStream.Replica do
 
   ## Options
 
-    * `:host` - Redis host (default: "localhost")
-    * `:port` - Redis port (default: 6379)
+  ### Connection Options (mutually exclusive)
+
+    * `:host` - Redis host (default: "localhost"). Cannot be used with `:sentinel`.
+    * `:port` - Redis port (default: 6379). Cannot be used with `:sentinel`.
+    * `:sentinel` - Sentinel configuration (keyword list). Cannot be used with `:host`/`:port`.
+      Requires `:redix` dependency at runtime.
+      * `:sentinels` - List of sentinel nodes (required), each with `:host` and `:port`
+      * `:group` - Name of the primary group in sentinel (required)
+      * `:role` - Server role to discover: `:primary` or `:replica` (default: `:primary`)
+      * `:timeout` - Timeout for sentinel operations in ms (default: 500)
+      * `:ssl` - Use SSL for sentinel connections (default: false)
+      * `:password` - Password for sentinel authentication (default: nil)
+
+  ### Redis Server Options (apply to discovered or direct server)
+
     * `:username` - Redis username for ACL authentication (default: nil)
     * `:password` - Redis password (default: nil)
-    * `:ssl` - Use SSL/TLS (default: false)
+    * `:ssl` - Use SSL/TLS for Redis connection (default: false)
     * `:ssl_opts` - SSL options (default: [])
-    * `:callback_module` - Module implementing `Vdr.RedisStream.Callback`
-    * `:callback_state` - Initial state for callbacks
+
+  ### Callback Options
+
+    * `:callback_module` - Module implementing `Vdr.RedisStream.Callback` (required)
+    * `:callback_state` - Initial state for callbacks (required)
+
+  ### Other Options
+
     * `:name` - GenServer name (optional)
     * `:reconnect` - Enable automatic reconnection (default: true)
     * `:reconnect_delay_ms` - Initial delay before reconnection in ms (default: 1000)
@@ -117,12 +134,85 @@ defmodule Vdr.RedisStream.Replica do
   For Redis 6+ ACL authentication, provide both `:username` and `:password`.
   For older Redis versions, provide only `:password`.
 
+  ## Sentinel Support
+
+  When using Redis Sentinel for high availability, provide the `:sentinel` option instead of
+  `:host` and `:port`. The replica will:
+
+  1. Query sentinels sequentially to discover the primary (or replica) address
+  2. Connect to the discovered Redis server
+  3. Verify the server role matches the expected role
+  4. On reconnection, repeat the discovery process (automatically handling failovers)
+
+  The `:role` option determines which type of server to discover:
+  - `:primary` - Connect to the primary server (typical for replication)
+  - `:replica` - Connect to a replica server (for read-only replication)
+
   ## Reconnection
 
   When enabled, the replica will automatically attempt to reconnect on connection failures
   or disconnects. It will use exponential backoff starting from `:reconnect_delay_ms` up to
   `:max_reconnect_delay_ms`. The replica will attempt partial resync (PSYNC) when possible
   to avoid full RDB transfer.
+
+  When using Sentinel, the reconnection process includes rediscovery, allowing the replica
+  to automatically adapt to failovers and topology changes.
+
+  ## Examples
+
+  ### Direct Connection
+
+      # Basic connection
+      opts = [
+        host: "localhost",
+        port: 6379,
+        callback_module: MyCallback,
+        callback_state: %{}
+      ]
+      {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+
+      # With ACL authentication
+      opts = [
+        host: "localhost",
+        port: 6379,
+        username: "myuser",
+        password: "mypassword",
+        callback_module: MyCallback,
+        callback_state: %{}
+      ]
+      {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+
+  ### Sentinel Connection
+
+      # Connect to primary via sentinel
+      opts = [
+        sentinel: [
+          sentinels: [
+            [host: "sentinel1", port: 26379],
+            [host: "sentinel2", port: 26379],
+            [host: "sentinel3", port: 26379]
+          ],
+          group: "mymaster",
+          role: :primary,
+          timeout: 500
+        ],
+        password: "redis_password",
+        callback_module: MyCallback,
+        callback_state: %{}
+      ]
+      {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+
+      # Connect to replica via sentinel
+      opts = [
+        sentinel: [
+          sentinels: [[host: "sentinel1", port: 26379]],
+          group: "mymaster",
+          role: :replica
+        ],
+        callback_module: MyCallback,
+        callback_state: %{}
+      ]
+      {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
 
   ## Returns
 
@@ -214,14 +304,43 @@ defmodule Vdr.RedisStream.Replica do
     Logger.debug("Initializing replica with opts: #{inspect(opts)}")
     Process.flag(:trap_exit, true)
 
+    # Check sentinel configuration
+    sentinel_opts = Keyword.get(opts, :sentinel)
+
+    if sentinel_opts do
+      # Check Redix availability
+      unless Code.ensure_loaded?(Redix) do
+        raise RuntimeError, """
+        Sentinel support requires :redix dependency.
+        Add to mix.exs: {:redix, "~> 1.5"}
+        """
+      end
+
+      # Validate sentinel configuration
+      validate_sentinel_opts!(sentinel_opts)
+
+      # Ensure host/port not specified with sentinel
+      if Keyword.has_key?(opts, :host) or Keyword.has_key?(opts, :port) do
+        raise ArgumentError, ":host or :port cannot be specified with :sentinel"
+      end
+    end
+
     callback_module = Keyword.get(opts, :callback_module)
     callback_opts = Keyword.get(opts, :callback_opts)
 
     case callback_module.init(callback_opts) do
       {:ok, callback_state} ->
         state = %{
+          # Connection mode
+          sentinel: sentinel_opts,
+          connection_mode: if(sentinel_opts, do: :sentinel, else: :direct),
+          # For direct connections
           host: Keyword.get(opts, :host, "localhost"),
           port: Keyword.get(opts, :port, @default_port),
+          # For discovered connections (filled by sentinel)
+          discovered_host: nil,
+          discovered_port: nil,
+          # Auth and SSL
           username: Keyword.get(opts, :username),
           password: Keyword.get(opts, :password),
           ssl: Keyword.get(opts, :ssl, false),
@@ -464,29 +583,72 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   defp connect(state) do
+    case state.connection_mode do
+      :direct ->
+        connect_directly(state.host, state.port, state)
+
+      :sentinel ->
+        discover_and_connect_via_sentinel(state)
+    end
+  end
+
+  defp discover_and_connect_via_sentinel(state) do
+    group = state.sentinel[:group]
+    Logger.info("Starting sentinel discovery for group: #{group}")
+
+    redis_opts = [
+      username: state.username,
+      password: state.password,
+      ssl: state.ssl,
+      ssl_opts: state.ssl_opts,
+      timeout: @default_timeout
+    ]
+
+    case Vdr.RedisStream.SentinelConnector.discover_server(state.sentinel, redis_opts) do
+      {:ok, {host, port}} ->
+        Logger.info("Sentinel discovered server at #{host}:#{port}")
+
+        # Update state with discovered address
+        state = %{state | discovered_host: host, discovered_port: port}
+
+        # Connect to discovered server
+        connect_directly(host, port, state)
+
+      {:error, reason} ->
+        Logger.error("Sentinel discovery failed: #{inspect(reason)}")
+        {:error, {:sentinel_discovery_failed, reason}}
+    end
+  end
+
+  defp connect_directly(host, port, state) do
     transport = if state.ssl, do: :ssl, else: :tcp
 
-    Logger.info("Connecting to #{state.host}:#{state.port} via #{transport}")
+    Logger.info("Connecting to #{host}:#{port} via #{transport}")
 
-    case transport_connect(transport, state.host, state.port, state.ssl_opts) do
+    case transport_connect(transport, host, port, state.ssl_opts) do
       {:ok, socket} ->
         Logger.info("Connected successfully")
 
         # Set socket to active: once for backpressure
         :ok = transport_setopts(transport, socket, active: :once)
 
-        # If password is provided, send AUTH first, then PING
-        # Otherwise send PING directly
-        if state.password do
-          new_state = %{state | socket: socket, transport: transport, state: :auth}
-          send_auth(new_state)
-        else
-          new_state = %{state | socket: socket, transport: transport, state: :ping}
-          send_ping(new_state)
-        end
+        new_state = %{state | socket: socket, transport: transport}
+        proceed_after_connect(new_state)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  defp proceed_after_connect(state) do
+    # If password is provided, send AUTH first, then PING
+    # Otherwise send PING directly
+    if state.password do
+      new_state = %{state | state: :auth}
+      send_auth(new_state)
+    else
+      new_state = %{state | state: :ping}
+      send_ping(new_state)
     end
   end
 
@@ -1068,6 +1230,44 @@ defmodule Vdr.RedisStream.Replica do
       :incomplete ->
         :incomplete
     end
+  end
+
+  # Sentinel configuration validation
+
+  defp validate_sentinel_opts!(opts) do
+    unless Keyword.has_key?(opts, :sentinels) do
+      raise ArgumentError, "sentinel :sentinels list is required"
+    end
+
+    unless Keyword.has_key?(opts, :group) do
+      raise ArgumentError, "sentinel :group is required"
+    end
+
+    sentinels = Keyword.get(opts, :sentinels)
+
+    unless is_list(sentinels) and length(sentinels) > 0 do
+      raise ArgumentError, "sentinel :sentinels must be a non-empty list"
+    end
+
+    # Validate each sentinel
+    Enum.each(sentinels, fn sentinel ->
+      unless is_list(sentinel) do
+        raise ArgumentError, "each sentinel must be a keyword list"
+      end
+
+      unless Keyword.has_key?(sentinel, :host) and Keyword.has_key?(sentinel, :port) do
+        raise ArgumentError, "each sentinel must have :host and :port"
+      end
+    end)
+
+    # Validate role if provided
+    role = Keyword.get(opts, :role, :primary)
+
+    unless role in [:primary, :replica] do
+      raise ArgumentError, "sentinel :role must be :primary or :replica"
+    end
+
+    :ok
   end
 
   # Transport abstraction

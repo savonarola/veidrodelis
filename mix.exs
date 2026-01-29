@@ -38,7 +38,7 @@ defmodule Veidrodelis.MixProject do
   defp deps do
     [
       {:rustler, "~> 0.36", runtime: false},
-      {:redix, "~> 1.5", only: [:dev, :test]},
+      {:redix, "~> 1.5", optional: true},
       {:castore, only: [:dev, :test]},
       {:req, "~> 0.5", only: :test},
       {:excoveralls, "~> 0.18", only: :test}
