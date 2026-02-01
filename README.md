@@ -1,3 +1,5 @@
+[![CI](https://github.com/savonarola/veidrodelis/actions/workflows/ci.yml/badge.svg)](https://github.com/savonarola/veidrodelis/actions/workflows/ci.yml)
+
 # Veidrodelis
 
 **Local Read-Only Projection of Redis/Valkey Data**
