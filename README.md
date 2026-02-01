@@ -4,7 +4,7 @@
 
 **Local Read-Only Projection of Redis/Valkey Data**
 
-Veidrodelis connects to Redis or Valkey as a replica and builds a local, read-only projection of the data inside your Erlang/Elixir node. Write commands are issued to the remote Redis via a standard client like Redix, while reads are served from the local projection with near-zero latency.
+Veidrodelis connects to Redis or Valkey as a replica and builds a local, read-only projection of the data inside your Erlang/Elixir node. Write commands are issued to the remote Redis via a standard client like Redix, while reads are served from the local projection with little latency.
 
 ## Architecture
 
@@ -39,29 +39,6 @@ Veidrodelis connects to Redis or Valkey as a replica and builds a local, read-on
 │                                                              │
 │  Your Application: Write via Redix, Read via Veidrodelis     │
 └──────────────────────────────────────────────────────────────┘
-```
-
-### Multi-Node Deployment
-
-```
-                    ┌──────────────────┐
-                    │   Redis/Valkey   │
-                    │    (Primary)     │
-                    └─────────┬────────┘
-                              │
-              ┌───────────────┼───────────────┐
-              │               │               │
-         ┌────▼────┐     ┌────▼────┐     ┌────▼────┐
-         │ Node 1  │     │ Node 2  │     │ Node 3  │
-         │         │     │         │     │         │
-         │VDR  RDX │     │VDR  RDX │     │VDR  RDX │
-         │(RO) (RW)│     │(RO) (RW)│     │(RO) (RW)│
-         │         │     │         │     │         │
-         │ [Store] │     │ [Store] │     │ [Store] │
-         └─────────┘     └─────────┘     └─────────┘
-
-   VDR = Veidrodelis (reads)
-   RDX = Redix (writes)
 ```
 
 ## General Idea
@@ -136,43 +113,53 @@ Veidrodelis.stop(vdr)
 Redix.stop(rdx)
 ```
 
-### Supported Commands
+### Supported data types
 
-Veidrodelis implements read operations for basic Redis data types. The local projection is updated automatically as write commands are replicated from Redis.
-
-#### Read Operations
-
-**Strings**: `GET`
-**Lists**: `LLEN`, `LRANGE`
-**Sets**: `SMEMBERS`, `SCARD`, `SISMEMBER`, `SFIRST`, `SLAST`, `SNEXT`, `SPREV`
-**Sorted Sets**: `ZRANGE`, `ZCARD`, `ZSCORE`, `ZRANGEBYSCORE`, `ZRANK`, `ZREVRANK`, `ZCOUNT`
-**Hashes**: `HGET`, `HMGET`, `HGETALL`, `HKEYS`, `HVALS`, `HLEN`, `HEXISTS`
-
-#### Write Operations (Replicated from Redis)
-
-Veidrodelis supports replication of the following write commands. For the full list, see:
-- [String commands](doc/string-write.md)
-- [Hash commands](doc/hash-write.md)
-- [List commands](doc/list-write.md)
-- [Set commands](doc/set-write.md)
-- [Sorted Set commands](doc/sorted-set-write.md)
-- [Other commands](doc/other-write.md)
-
-Examples include: `SET`, `SETEX`, `INCR`, `APPEND`, `HSET`, `LPUSH`, `SADD`, `ZADD`, `DEL`, `EXPIRE`, etc.
+Veidrodelis supports replication of [string](doc/string-write.md), [hash](doc/hash-write.md), [list](doc/list-write.md), [set](doc/set-write.md), [sorted set](doc/sorted-set-write.md) data types and almost all commands over these data types.
 
 #### Unsupported Write Commands
 
-Commands not listed in the documentation above are **not supported** and will not be replicated correctly. To prevent data inconsistencies, configure Redis ACLs to deny unsupported write commands.
+Unsupported write commands are:
 
-**Recommended ACL Configuration:**
+- `SORT`
+- `RESTORE`
 
-Reference: [`doc/acl.txt`](doc/acl.txt)
+and all the commands that are not related to string, hash, list, set, sorted set data types.
 
-This ensures clients cannot execute commands that Veidrodelis cannot replicate, preventing projection inconsistencies.
+To prevent data inconsistencies, configure Redis ACLs to deny unsupported write commands, see [doc/acl.txt](doc/acl.txt) for the recommended configuration.
 
-### Write Transactions via `SETEX __vdr_tx`
+#### Replication caveats
 
-Veidrodelis supports write transactions using a special transaction key pattern. This allows atomic multi-key writes from the perspective of readers.
+Some write commands (namely, `ZREMRANGEBYLEX`) are declared to produce undefined behavior if applied to wrong data. Obviously, we cannot replicate undefined behavior (in Redis/Valkey the correctness of replication is achieved by running exactly the same code on the replica). So, one should either manually control the
+correctness of the data when using these commands or just disable them with renaming or ACLs.
+
+### Read Operations
+
+**String:** `get`
+
+**List:** `llen`, `lrange`
+
+**Set:** `smembers`, `scard`, `sismember`, `smismember`, `srandmember`, `sunion`, `sinter`, `sdiff`, `sintercard`, `sfirst`, `slast`, `snext`, `sprev`
+
+**Hash:** `hget`, `hmget`, `hgetall`, `hkeys`, `hvals`, `hlen`, `hexists`, `hstrlen`, `hrandfield`, `hfirst`, `hlast`, `hnext`, `hprev`
+
+**Sorted Set:** `zscore`, `zcard`, `zrange`, `zrangebyscore`, `zrank`, `zrevrank`, `zcount`, `zfirst`, `zlast`, `znext`, `zprev`
+
+Note, that read operations do not always directly reflect Redis/Valkey commands.
+
+### Transactions
+
+Redis/Valkey supports simple write transactions via the `MULTI` and `EXEC` commands. Also, Redis/Valkey supports Lua scripts for more complex atomic write operations. However, replicas receive plain stream of mutating commands, so when reading from a replica, you may see partial transaction state.
+
+Veidrodelis, being an in-process replica, supports a convention to avoid seeing partial transaction state.
+
+When issuing a write transaction, one sets an arbitrary value to the special key `__vdr_tx` as the first command.
+The key is removed as the last command of the transaction.
+
+Then, when replicating, Veidrodelis buffers all the commands between the `SET __vdr_tx` and `DEL __vdr_tx` commands
+and applies them atomically.
+
+So Veidrodelis local readers never see partial transaction state.
 
 ```elixir
 # Start transaction by setting the __vdr_tx key with expiration
@@ -189,17 +176,7 @@ Redix.command!(rdx, ["SET", "transfer:789:amount", "100"])
 Redix.command!(rdx, ["DEL", "__vdr_tx"])
 ```
 
-**How it works:**
-1. When `__vdr_tx` key is set, Veidrodelis starts buffering writes
-2. The projection remains active for reads
-3. When `__vdr_tx` expires or is deleted, Veidrodelis atomically applies all buffered writes
-4. All buffered writes become visible at once
-
-**Important Notes:**
-- Always set an expiration on `__vdr_tx` (using `SETEX` or `PSETEX`)
-- The expiration acts as a timeout for the transaction
-- If you forget to delete `__vdr_tx`, it will auto-close when it expires
-- Readers never see partial transaction state
+**Important:** Always set an expiration on `__vdr_tx` (using `SETEX` or `PSETEX`)
 
 ### Read Transactions via Command Lists
 
@@ -227,12 +204,7 @@ Execute multiple read operations atomically under a single lock:
 # All reads are atomic - they see a consistent snapshot
 ```
 
-**Supported commands in read transactions:**
-- `{:get, key}`
-- `{:hget, key, field}`, `{:hmget, key, fields}`, `{:hgetall, key}`, `{:hkeys, key}`, `{:hvals, key}`, `{:hlen, key}`
-- `{:llen, key}`, `{:lrange, key, start, stop}`
-- `{:smembers, key}`, `{:sismember, key, member}`, `{:scard, key}`
-- `{:zscore, key, member}`, `{:zcard, key}`, `{:zrange, key, start, stop, with_scores}`, `{:zrangebyscore, key, min, max, with_scores}`, `{:zrank, key, member}`, `{:zrevrank, key, member}`, `{:zcount, key, min, max}`
+The operations supported by the `read_tx/3` function are the same as the direct read operations supported by the `Veidrodelis` module.
 
 ### Read Transactions via Lua
 
@@ -276,45 +248,7 @@ return results
 {:ok, leaderboard} = Veidrodelis.read_tx(:my_cache, 0, script)
 ```
 
-**Available Lua functions:**
-
-**String:**
-- `ts.get(key)` - Get string value
-
-**Hash:**
-- `ts.hget(key, field)` - Get field value
-- `ts.hmget(key, fields)` - Get multiple field values (fields is a Lua table)
-- `ts.hgetall(key)` - Get all field-value pairs as Lua table
-- `ts.hkeys(key)` - Get all field names
-- `ts.hvals(key)` - Get all values
-- `ts.hlen(key)` - Get number of fields
-- `ts.hexists(key, field)` - Check if field exists
-- `ts.hstrlen(key, field)` - Get length of field value
-- `ts.hrandfield(key, count, with_values)` - Get random fields (with_values is boolean)
-- `ts.hfirst(key)`, `ts.hlast(key)`, `ts.hnext(key, field)`, `ts.hprev(key, field)` - Hash iteration
-
-**List:**
-- `ts.llen(key)` - Get list length
-- `ts.lrange(key, start, stop)` - Get list elements by index range
-
-**Set:**
-- `ts.smembers(key)` - Get all members
-- `ts.sismember(key, member)` - Check if member exists
-- `ts.smismember(key, members)` - Check multiple members (members is a Lua table)
-- `ts.scard(key)` - Get set size
-- `ts.srandmember(key, count)` - Get random members
-- `ts.sunion(keys)`, `ts.sinter(keys)`, `ts.sdiff(keys)` - Set operations (keys is a Lua table)
-- `ts.sintercard(keys)` - Get intersection size
-- `ts.sfirst(key)`, `ts.slast(key)`, `ts.snext(key, member)`, `ts.sprev(key, member)` - Set iteration
-
-**Sorted Set:**
-- `ts.zscore(key, member)` - Get member score
-- `ts.zcard(key)` - Get sorted set size
-- `ts.zrange(key, start, stop)` - Get members by rank range (returns table of {member, score})
-- `ts.zrangebyscore(key, min, max)` - Get members by score range (returns table of {member, score})
-- `ts.zrank(key, member)`, `ts.zrevrank(key, member)` - Get member rank
-- `ts.zcount(key, min, max)` - Count members in score range
-- `ts.zfirst(key)`, `ts.zlast(key)`, `ts.znext(key, score, member)`, `ts.zprev(key, score, member)` - Sorted set iteration
+The operations supported in read Lua scripts are the same as the direct read operations supported by the `Veidrodelis` module.
 
 **Performance tip:** Compile scripts once, reuse many times:
 
@@ -330,7 +264,7 @@ script = "return ts.get('user:123:name')"
 
 ### Key Watches
 
-Subscribe to real-time notifications when specific keys are modified. Watchers receive messages for every write operation affecting the watched key.
+Subscribe to real-time notifications when specific keys are modified. Watchers receive messages for every write operation affecting the watched key. The watches may produce false positives, so the key's value may appear to be not modified even if a notification was issued.
 
 ```elixir
 # Subscribe to key updates
@@ -356,7 +290,7 @@ end
   Sent when the watched key is modified. Contains the full command that modified it.
 
 - **Init event**: `{ref, %Vdr.WatchEvent.Init{}}`
-  Sent when Veidrodelis transitions to streaming mode (after RDB transfer completes).
+  Sent when Veidrodelis (re)connected and finished building the initial projection of the data.
 
 **Important notes:**
 
@@ -428,6 +362,12 @@ state = Veidrodelis.get_replication_state(:my_cache)
 # :reconnecting - Disconnected, attempting to reconnect
 ```
 
+### Expiration
+
+Veidrodelis ignores all expirations of keys/hash keys, because they are only needed if a replica becomes a primary, which is obviously not the case for Veidrodelis. Primary server explicitly issues del/hdel commands for expired keys, and they are replicated.
+
+On disconnect, Veidrodelis does not receive these explicit del/hdel commands, so it looks like the time "froze" for the cached projection.
+
 ### Sentinel Support
 
 For high-availability setups, connect via Redis Sentinel:
@@ -462,5 +402,5 @@ The project name is a diacritic-less form of the Lithuanian word "veidrodėlis",
 
 ## License
 
-Copyright © 2026
+[Apache 2.0](LICENSE)
 
