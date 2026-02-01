@@ -65,6 +65,8 @@ Add to your `mix.exs`:
 def deps do
   [
     {:veidrodelis, "~> 0.1.0"},
+    # optional, for Sentinel support
+    # however, you probably need some client to make writes to the primary
     {:redix, "~> 1.5"}
   ]
 end
