@@ -1,18 +1,13 @@
 use std::borrow::Borrow;
 use std::cmp::Ordering;
-use std::rc::Rc;
+use std::sync::Arc;
 
 #[derive(Clone, Debug)]
-pub struct Bytes(Rc<Vec<u8>>);
-
-// SAFETY: Bytes is only accessed while holding the storage mutex lock,
-// so concurrent access is prevented at a higher level.
-unsafe impl Send for Bytes {}
-unsafe impl Sync for Bytes {}
+pub struct Bytes(Arc<Vec<u8>>);
 
 impl Bytes {
     pub fn new(data: &[u8]) -> Self {
-        Bytes(Rc::new(data.to_vec()))
+        Bytes(Arc::new(data.to_vec()))
     }
 
     pub fn as_slice(&self) -> &[u8] {

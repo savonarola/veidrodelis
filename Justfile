@@ -80,7 +80,7 @@ dc-sentinel-logs:
 bench-list:
     mix benchmark --list
 
-default_scenario := 'hashes_50k'
+default_scenario := 'hashes'
 duration := '30'
 intensity := '50000'
 readers := '1'
@@ -91,3 +91,6 @@ bench-profile scenario=default_scenario:
     ./scripts/bench-profile.sh {{scenario}} {{duration}} {{intensity}} {{readers}}
     @echo "View plots at: http://{{HOST}}:8000"
     python3 -m http.server 8000 -d benchmark/plots/
+
+bench scenario=default_scenario:
+    mix benchmark {{scenario}} --duration {{duration}} --intensity {{intensity}} --readers {{readers}}
