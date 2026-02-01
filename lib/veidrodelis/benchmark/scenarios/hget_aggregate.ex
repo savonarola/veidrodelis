@@ -11,8 +11,8 @@ defmodule Vdr.Benchmark.Scenarios.HgetAggregate do
   """
 
   # Limited key space for high hit rate
-  @hash_count 10000
-  @fields_per_hash 10000
+  @hash_count 1000
+  @fields_per_hash 1000
   @commands_per_read 10
 
   @doc """
@@ -70,6 +70,7 @@ defmodule Vdr.Benchmark.Scenarios.HgetAggregate do
     end
 
     hit_check = fn result -> result > 0 end
+
 
     {read_op, hit_check}
   end

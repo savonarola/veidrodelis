@@ -44,17 +44,37 @@ dc-start:
 
 # Stop Redis Docker container
 dc-stop:
-    cd test/assets && docker compose down
+    cd test/assets && docker compose down --remove-orphans
 
 dc-restart:
-    cd test/assets && docker compose down -v && docker compose up -d
+    cd test/assets && docker compose down -v --remove-orphans && docker compose up -d
 
 # Stop Redis and remove volumes
 dc-clean:
-    cd test/assets && docker compose down -v
+    cd test/assets && docker compose down -v --remove-orphans
 
 dc-logs:
     cd test/assets && docker compose logs -f
+
+# Start Sentinel services in Docker for testing
+dc-sentinel-start:
+    cd test/assets && docker compose -f docker-compose-sentinel.yml up -d
+
+# Stop Sentinel Docker services
+dc-sentinel-stop:
+    cd test/assets && docker compose -f docker-compose-sentinel.yml down --remove-orphans
+
+# Restart Sentinel Docker services
+dc-sentinel-restart:
+    cd test/assets && docker compose -f docker-compose-sentinel.yml down -v --remove-orphans && docker compose -f docker-compose-sentinel.yml up -d
+
+# Stop Sentinel services and remove volumes
+dc-sentinel-clean:
+    cd test/assets && docker compose -f docker-compose-sentinel.yml down -v --remove-orphans
+
+# View Sentinel service logs
+dc-sentinel-logs:
+    cd test/assets && docker compose -f docker-compose-sentinel.yml logs -f
 
 # List available benchmark scenarios
 bench-list:

@@ -63,20 +63,9 @@ defmodule Vdr.SentinelIntegrationTest do
   end
 
   setup do
-    System.cmd("just", ["dc-restart"], cd: Path.join([__DIR__, "..", ".."]))
+    System.cmd("just", ["dc-sentinel-restart"], cd: Path.join([__DIR__, "..", ".."]))
     # Connect to primary directly to set up test data
     {:ok, conn} = Redix.start_link(host: @primary_host, port: @primary_port)
-
-    # Check if primary is writable, if not make it writable
-    case Redix.command(conn, ["ROLE"]) do
-      {:ok, ["slave" | _]} ->
-        # Primary is currently a replica, make it a primary again
-        Redix.command!(conn, ["REPLICAOF", "NO", "ONE"])
-        Process.sleep(1000)
-
-      _ ->
-        :ok
-    end
 
     # Flush all data and wait for it to propagate
     Redix.command!(conn, ["FLUSHALL"])

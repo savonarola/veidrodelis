@@ -20,7 +20,7 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
   }
 
   setup_all do
-    System.cmd("just", ["dc-restart"], cd: Path.join([__DIR__, "..", "..", ".."]))
+    System.cmd("just", ["dc-sentinel-restart"], cd: Path.join([__DIR__, "..", "..", ".."]))
     # Wait for containers to initialize and sentinels to register replicas
     :ok
   end
