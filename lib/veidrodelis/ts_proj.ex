@@ -45,6 +45,7 @@ defmodule Vdr.TSProj do
       Keyword.take(opts, [
         :host,
         :port,
+        :sentinel,
         :username,
         :password,
         :ssl,
