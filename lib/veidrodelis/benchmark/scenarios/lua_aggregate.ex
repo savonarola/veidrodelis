@@ -1,22 +1,9 @@
 defmodule Vdr.Benchmark.Scenarios.LuaAggregate do
-  @moduledoc """
-  Complex benchmark scenario using Lua transactions for aggregate reads.
+  @moduledoc false
 
-  Write side: HSET with integer values to random hash keys/fields.
-  Read side: Lua transaction reading 5 random hash fields and returning their sum.
-  Hit: Counted when sum > 0 (at least one value was found).
-
-  Key space is intentionally limited to ensure substantial hit rate.
-  Bytecodes are cached per-script using the process dictionary.
-  """
-
-  # Limited key space for high hit rate
   @hash_count 100
   @fields_per_hash 20
 
-  @doc """
-  Returns scenario configurations for Lua aggregate benchmark.
-  """
   def scenarios do
     [
       %{
@@ -42,10 +29,7 @@ defmodule Vdr.Benchmark.Scenarios.LuaAggregate do
     ["HSET", key, field, Integer.to_string(value)]
   end
 
-  # Generates Lua transaction that reads 5 random hash fields and sums them
-  # Caches compiled bytecode in process dictionary for reuse
   defp generate_read(vdr_id) do
-    # Generate 5 random key/field pairs
     keys =
       for _ <- 1..5 do
         hash_num = :rand.uniform(@hash_count)

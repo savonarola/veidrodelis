@@ -1,12 +1,12 @@
 defmodule Vdr.Benchmark.LagTracker do
-  @moduledoc """
-  Tracks replication lag by monitoring timestamp markers in the data stream.
+  @moduledoc false
 
-  Measures lag by:
-  1. Pushing timestamps to Redis list key "lagmon" at regular intervals
-  2. Monitoring replicated data to detect when these timestamps arrive
-  3. Calculating lag as the difference between send and receive times
-  """
+  # Tracks replication lag by monitoring timestamp markers in the data stream.
+
+  # Measures lag by:
+  # 1. Pushing timestamps to Redis list key "lagmon" at regular intervals
+  # 2. Monitoring replicated data to detect when these timestamps arrive
+  # 3. Calculating lag as the difference between send and receive times
 
   use GenServer
 
@@ -22,18 +22,6 @@ defmodule Vdr.Benchmark.LagTracker do
     :timestamp_interval_ms
   ]
 
-  @doc """
-  Starts a lag tracker that monitors a specific key for timestamp updates.
-
-  The lag tracker automatically injects timestamp markers into Redis at the
-  specified interval and monitors the replicated data stream to measure lag.
-
-  Options:
-    * `:vdr_id` - Veidrodelis instance ID
-    * `:tracker_key` - Key to monitor for timestamps (default: "lagmon")
-    * `:redis_conn` - Redix connection PID for injecting timestamps
-    * `:timestamp_interval_ms` - How often to inject timestamps (default: 1000ms)
-  """
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -59,17 +47,10 @@ defmodule Vdr.Benchmark.LagTracker do
     }
   end
 
-  @doc """
-  Gets all collected lag samples.
-  Returns a list of {relative_time_us, lag_us} tuples in microseconds.
-  """
   def get_lag_samples do
     GenServer.call(__MODULE__, :get_lag_samples)
   end
 
-  @doc """
-  Clears all collected lag samples.
-  """
   def reset do
     GenServer.call(__MODULE__, :reset)
   end
@@ -89,7 +70,6 @@ defmodule Vdr.Benchmark.LagTracker do
       timestamp_interval_ms: timestamp_interval_ms
     }
 
-    # Schedule timestamp injection
     schedule_timestamp_injection()
 
     {:ok, state}
@@ -108,7 +88,6 @@ defmodule Vdr.Benchmark.LagTracker do
       | start_time: System.monotonic_time(:microsecond)
     }
 
-    # Clear the timestamp key in Redis
     Redix.command!(state.redis_conn, ["DEL", state.tracker_key])
 
     {:reply, :ok, new_state}
@@ -126,11 +105,9 @@ defmodule Vdr.Benchmark.LagTracker do
   end
 
   defp inject_timestamp(state) do
-    # Use system_time (wall clock) for measuring actual lag in microseconds
     timestamp_us = System.system_time(:microsecond)
 
     try do
-      # Push timestamp to lagmon list
       res =
         Redix.command!(state.redis_conn, [
           "LPUSH",
@@ -147,18 +124,14 @@ defmodule Vdr.Benchmark.LagTracker do
 
   defp fetch_lag_samples(state) do
     try do
-      # Get all entries from the lagmon list (db 0)
-      # Use lrange to get all elements (0 to -1 means all)
       {:ok, entries} = Veidrodelis.lrange(state.vdr_id, 0, state.tracker_key, 0, -1)
       Logger.debug("fetch_lag_samples entries: #{inspect(entries)}")
 
       case entries do
         [] ->
-          # No entries yet
           []
 
         binary_entries ->
-          # Parse entries in format "sent_timestamp-receive_timestamp"
           parsed_entries =
             binary_entries
             |> Enum.map(&parse_lag_entry/1)
@@ -179,7 +152,6 @@ defmodule Vdr.Benchmark.LagTracker do
       end
     rescue
       _e ->
-        # Silently handle errors (e.g., store not yet initialized)
         []
     end
   end
@@ -197,7 +169,6 @@ defmodule Vdr.Benchmark.LagTracker do
 
   defp parse_lag_entry(_), do: nil
 
-  # Helper to convert integer to binary string
   defp integer_to_binary(int) when is_integer(int) do
     Integer.to_string(int)
   end

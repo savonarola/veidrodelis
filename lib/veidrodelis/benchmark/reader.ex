@@ -1,12 +1,12 @@
 defmodule Vdr.Benchmark.Reader do
-  @moduledoc """
-  Spawns reader processes that hammer Veidrodelis with read commands in a hot loop.
+  @moduledoc false
 
-  Each reader runs batches of read operations, recording average latency and hit rate
-  per batch. Supports any read operation via the configurable `read_fn`.
+  # Spawns reader processes that hammer Veidrodelis with read commands in a hot loop.
 
-  Collects latency samples and calculates TPS metrics.
-  """
+  # Each reader runs batches of read operations, recording average latency and hit rate
+  # per batch. Supports any read operation via the configurable `read_fn`.
+
+  # Collects latency samples and calculates TPS metrics.
 
   use GenServer
 
@@ -27,48 +27,39 @@ defmodule Vdr.Benchmark.Reader do
   # Number of operations per batch before recording a sample
   @default_batch_size 1000
 
-  @doc """
-  Starts the reader coordinator.
+  # Starts the reader coordinator.
 
-  Options:
-    * `:vdr_id` - Veidrodelis instance ID (required)
-    * `:reader_count` - Number of parallel reader processes (default: 4)
-    * `:read_fn` - Function that returns `{read_operation, hit_check}` (required)
-      - Direct: `{fn vdr_id -> Veidrodelis.get(vdr_id, 0, "key") end, fn result -> result != nil end}`
-      - Transaction: `{fn vdr_id -> Veidrodelis.read_tx(vdr_id, 0, "return ts.get('key')") end, fn r -> r != nil end}`
-    * `:batch_size` - Operations per batch before recording a sample (default: 1000)
-  """
+  # Options:
+  #   * `:vdr_id` - Veidrodelis instance ID (required)
+  #   * `:reader_count` - Number of parallel reader processes (default: 4)
+  #   * `:read_fn` - Function that returns `{read_operation, hit_check}` (required)
+  #     - Direct: `{fn vdr_id -> Veidrodelis.get(vdr_id, 0, "key") end, fn result -> result != nil end}`
+  #     - Transaction: `{fn vdr_id -> Veidrodelis.read_tx(vdr_id, 0, "return ts.get('key')") end, fn r -> r != nil end}`
+  #   * `:batch_size` - Operations per batch before recording a sample (default: 1000)
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
 
-  @doc """
-  Starts all reader processes. They will run until `stop/0` is called.
-  """
   def start_readers do
     GenServer.call(__MODULE__, :start_readers)
   end
 
-  @doc """
-  Stops all reader processes and returns collected metrics.
+  # Stops all reader processes and returns collected metrics.
 
-  Returns:
-    %{
-      total_ops: integer,
-      duration_us: integer,
-      tps: float,
-      latency_samples: [{time_us, avg_latency_us, hit_rate}],
-      total_hits: integer,
-      total_misses: integer
-    }
-  """
+  # Returns:
+  #   %{
+  #     total_ops: integer,
+  #     duration_us: integer,
+  #     tps: float,
+  #     latency_samples: [{time_us, avg_latency_us, hit_rate}],
+  #     total_hits: integer,
+  #     total_misses: integer
+  #   }
   def stop_readers do
     GenServer.call(__MODULE__, :stop_readers, :infinity)
   end
 
-  @doc """
-  Gets current metrics without stopping readers.
-  """
+  # Gets current metrics without stopping readers.
   def get_metrics do
     GenServer.call(__MODULE__, :get_metrics)
   end
@@ -109,7 +100,6 @@ defmodule Vdr.Benchmark.Reader do
 
       start_time = System.monotonic_time(:microsecond)
 
-      # Spawn reader processes
       reader_pids =
         for i <- 1..state.reader_count do
           spawn_reader(i, state, start_time)
@@ -127,12 +117,10 @@ defmodule Vdr.Benchmark.Reader do
     else
       end_time = System.monotonic_time(:microsecond)
 
-      # Signal all readers to stop
       Enum.each(state.reader_pids, fn pid ->
         send(pid, :stop)
       end)
 
-      # Wait for readers to finish (with timeout)
       Enum.each(state.reader_pids, fn pid ->
         ref = Process.monitor(pid)
 
@@ -145,7 +133,6 @@ defmodule Vdr.Benchmark.Reader do
         end
       end)
 
-      # Collect metrics
       metrics = collect_metrics(state, end_time)
 
       new_state = %{state | reader_pids: [], running: false}
@@ -165,16 +152,10 @@ defmodule Vdr.Benchmark.Reader do
   end
 
   @impl true
-  def terminate(_reason, state) do
-    # Cleanup ETS table
-    if state.samples_ets do
-      :ets.delete(state.samples_ets)
-    end
-
+  def terminate(_reason, _state) do
     :ok
   end
 
-  # Spawns a reader process that runs in a hot loop
   defp spawn_reader(reader_id, state, start_time) do
     vdr_id = state.vdr_id
     read_fn = state.read_fn
@@ -188,33 +169,36 @@ defmodule Vdr.Benchmark.Reader do
   end
 
   defp reader_loop(reader_id, vdr_id, read_fn, samples_ets, total_ops, start_time, batch_size) do
-    # Check for stop signal (non-blocking)
     receive do
       :stop ->
         :ok
     after
       0 ->
-        # Get the read operation and hit checker
         {read_op, hit_check} = read_fn.(vdr_id)
 
-        # Run batch_size operations and collect results
+        # Run operations in batches to reduce influence of the plumbing code
         batch_start = System.monotonic_time(:microsecond)
-
         results = read_many(vdr_id, read_op, batch_size)
-
         batch_end = System.monotonic_time(:microsecond)
 
-        # Calculate batch metrics
         batch_duration = batch_end - batch_start
         avg_latency = div(batch_duration, batch_size)
         hits = Enum.count(results, &hit_check.(&1))
 
-        # Increment total ops counter
         :counters.add(total_ops, 1, batch_size)
 
-        # Record sample: {reader_id, relative_time, avg_latency_us, hits, batch_size}
         relative_time = batch_end - start_time
-        :ets.insert(samples_ets, {reader_id, relative_time, avg_latency, hits, batch_size})
+
+        :ets.insert(
+          samples_ets,
+          {reader_id,
+           %{
+             relative_time: relative_time,
+             avg_latency: avg_latency,
+             hits: hits,
+             batch_size: batch_size
+           }}
+        )
 
         reader_loop(reader_id, vdr_id, read_fn, samples_ets, total_ops, start_time, batch_size)
     end
@@ -235,21 +219,26 @@ defmodule Vdr.Benchmark.Reader do
     duration_us = end_time - state.start_time
     total_ops = :counters.get(state.total_ops, 1)
 
-    # Collect all samples from ETS
     all_samples =
       :ets.tab2list(state.samples_ets)
-      |> Enum.map(fn {_reader_id, time, avg_latency, hits, batch_size} ->
+      |> Enum.map(fn {_reader_id,
+                      %{
+                        relative_time: time,
+                        avg_latency: avg_latency,
+                        hits: hits,
+                        batch_size: batch_size
+                      }} ->
         hit_rate = hits / batch_size
         {time, avg_latency, hit_rate}
       end)
       |> Enum.sort_by(fn {time, _, _} -> time end)
 
-    # Calculate total hits/misses
+    #  total hits/misses
     raw_samples = :ets.tab2list(state.samples_ets)
-    total_hits = Enum.reduce(raw_samples, 0, fn {_, _, _, hits, _}, acc -> acc + hits end)
+    total_hits = Enum.reduce(raw_samples, 0, fn {_, %{hits: hits}}, acc -> acc + hits end)
 
     total_sampled =
-      Enum.reduce(raw_samples, 0, fn {_, _, _, _, batch_size}, acc -> acc + batch_size end)
+      Enum.reduce(raw_samples, 0, fn {_, %{batch_size: batch_size}}, acc -> acc + batch_size end)
 
     total_misses = total_sampled - total_hits
 

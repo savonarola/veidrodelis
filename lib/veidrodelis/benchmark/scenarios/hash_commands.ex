@@ -1,11 +1,6 @@
 defmodule Vdr.Benchmark.Scenarios.HashCommands do
-  @moduledoc """
-  Benchmark scenario for hash commands (HSET, HDEL).
-  """
+  @moduledoc false
 
-  @doc """
-  Returns scenario configurations for hash commands at different intensities.
-  """
   def scenarios do
     [
       %{
@@ -19,7 +14,6 @@ defmodule Vdr.Benchmark.Scenarios.HashCommands do
     ]
   end
 
-  # Alternates between HSET and HDEL commands
   defp generate_command do
     key_num = :rand.uniform(1000)
     key = "hash:#{key_num}"
@@ -33,8 +27,6 @@ defmodule Vdr.Benchmark.Scenarios.HashCommands do
     end
   end
 
-  # Generates read operations for reader processes
-  # Reads random hash keys/fields - sometimes hits, sometimes misses
   defp generate_read(_vdr_id) do
     key_num = :rand.uniform(1000)
     key = "hash:#{key_num}"

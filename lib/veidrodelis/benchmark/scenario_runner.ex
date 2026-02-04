@@ -1,25 +1,12 @@
 defmodule Vdr.Benchmark.ScenarioRunner do
-  @moduledoc """
-  Runs benchmark scenarios and collects metrics.
-  """
+  @moduledoc false
+
+  # Runs benchmark scenarios and collects metrics.
 
   alias Vdr.Benchmark.Reader
 
   @pipeline_batch_size 100
 
-  @doc """
-  Runs a benchmark scenario.
-
-  Options:
-    * `:name` - Scenario name
-    * `:duration_seconds` - How long to run the scenario
-    * `:intensity` - Commands per second
-    * `:command_fn` - Function that generates commands
-    * `:redis_conn` - Redix connection PID
-    * `:vdr_id` - Veidrodelis instance ID (required for readers)
-    * `:reader_count` - Number of reader processes (optional, 0 = no readers)
-    * `:read_fn` - Function that generates read operations (required if reader_count > 0)
-  """
   def run(opts) do
     name = Keyword.fetch!(opts, :name)
     duration_seconds = Keyword.fetch!(opts, :duration_seconds)
@@ -35,10 +22,8 @@ defmodule Vdr.Benchmark.ScenarioRunner do
     IO.puts("Intensity: #{intensity} commands/sec")
     IO.puts("Reader processes: #{reader_count}")
 
-    # Reset lag tracker
     Vdr.Benchmark.LagTracker.reset()
 
-    # Start readers if configured
     reader_pid =
       if reader_count > 0 and read_fn != nil do
         {:ok, pid} =
@@ -54,10 +39,8 @@ defmodule Vdr.Benchmark.ScenarioRunner do
         nil
       end
 
-    # Calculate timing
     end_time = System.monotonic_time(:millisecond) + duration_seconds * 1000
 
-    # Start command loop - send commands in batches per second
     command_count =
       execute_command_loop(
         redis_conn,
@@ -70,7 +53,6 @@ defmodule Vdr.Benchmark.ScenarioRunner do
     # Wait a bit for final replication
     Process.sleep(1000)
 
-    # Stop readers and collect metrics
     reader_metrics =
       if reader_pid do
         metrics = Reader.stop_readers()
@@ -80,7 +62,6 @@ defmodule Vdr.Benchmark.ScenarioRunner do
         nil
       end
 
-    # Collect lag results
     lag_samples = Vdr.Benchmark.LagTracker.get_lag_samples()
 
     IO.puts("\nCompleted!")
@@ -127,18 +108,14 @@ defmodule Vdr.Benchmark.ScenarioRunner do
     if current_time >= end_time do
       count
     else
-      # Mark start of this batch
       batch_start = System.monotonic_time(:millisecond)
 
-      # Generate commands for this second
       run_commands(command_fn, redis_conn, @pipeline_batch_size, intensity, [])
 
-      # Calculate elapsed time
       elapsed_ms = System.monotonic_time(:millisecond) - batch_start
 
       IO.puts("Batch took #{elapsed_ms}ms, intensity: #{intensity}")
 
-      # Warn if we can't keep up with the desired intensity
       if elapsed_ms > 1000 do
         IO.puts(
           "Warning: Batch took #{elapsed_ms}ms (> 1000ms). " <>
@@ -146,7 +123,6 @@ defmodule Vdr.Benchmark.ScenarioRunner do
         )
       end
 
-      # Sleep for the rest of the second
       sleep_ms = max(0, 1000 - elapsed_ms)
 
       if sleep_ms > 0 do
@@ -173,17 +149,9 @@ defmodule Vdr.Benchmark.ScenarioRunner do
     ])
   end
 
-  @doc """
-  Writes benchmark results to CSV files.
-
-  Creates two files:
-    * `{output_dir}/{name}_lag.csv` - Replication lag samples
-    * `{output_dir}/{name}_reads.csv` - Reader latency samples (if readers were used)
-  """
   def write_results_to_csv(results, output_dir) do
     name = results.name
 
-    # Write lag samples
     lag_file = Path.join(output_dir, "#{name}_lag.csv")
 
     lag_content =
@@ -195,7 +163,6 @@ defmodule Vdr.Benchmark.ScenarioRunner do
     File.write!(lag_file, lag_content)
     IO.puts("Lag results written to #{lag_file}")
 
-    # Write reader samples if available
     if results.reader_metrics && length(results.reader_metrics.latency_samples) > 0 do
       reads_file = Path.join(output_dir, "#{name}_reads.csv")
 
@@ -210,7 +177,6 @@ defmodule Vdr.Benchmark.ScenarioRunner do
       File.write!(reads_file, reads_content)
       IO.puts("Read results written to #{reads_file}")
 
-      # Write summary stats
       summary_file = Path.join(output_dir, "#{name}_summary.csv")
 
       summary_content =
