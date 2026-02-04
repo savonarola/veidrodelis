@@ -71,9 +71,7 @@ defmodule Vdr.RedisStream.SentinelConnector do
             success
 
           {:error, reason} ->
-            Logger.warning(
-              "Sentinel #{host}:#{port} failed: #{inspect(reason)}, trying next"
-            )
+            Logger.warning("Sentinel #{host}:#{port} failed: #{inspect(reason)}, trying next")
 
             try_sentinels(rest, sentinel_opts, redis_opts, host_map, index + 1, total)
         end

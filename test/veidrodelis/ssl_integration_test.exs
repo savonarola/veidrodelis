@@ -62,9 +62,10 @@ defmodule Veidrodelis.SSLIntegrationTest do
     # Start Veidrodelis with SSL
     id = "ssl_test_replica"
 
-    replica_opts = [
-      id: id
-    ] ++ conn_opts
+    replica_opts =
+      [
+        id: id
+      ] ++ conn_opts
 
     {:ok, pid} = Veidrodelis.start_link(replica_opts)
 

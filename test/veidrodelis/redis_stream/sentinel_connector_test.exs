@@ -140,7 +140,7 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
 
       assert_within 10_000 do
         assert {:error, :no_viable_sentinel_connection} =
-               SentinelConnector.discover_server(sentinel_opts, redis_opts)
+                 SentinelConnector.discover_server(sentinel_opts, redis_opts)
       end
     end
 

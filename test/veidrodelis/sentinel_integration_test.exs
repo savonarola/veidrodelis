@@ -72,6 +72,7 @@ defmodule Vdr.SentinelIntegrationTest do
 
     log_level = Logger.level()
     Logger.configure(level: :critical)
+
     on_exit(fn ->
       Logger.configure(level: log_level)
     end)
@@ -116,8 +117,13 @@ defmodule Vdr.SentinelIntegrationTest do
       # Wait for streaming command
       assert_within 2000 do
         assert {:ok, state} = CollectorCallback.get_state(replica)
+
         assert command_in_list(
-          %Vdr.RedisStream.ReplicaCommand{command: {:set, "streaming_key", "streaming_value"}}, state.commands)
+                 %Vdr.RedisStream.ReplicaCommand{
+                   command: {:set, "streaming_key", "streaming_value"}
+                 },
+                 state.commands
+               )
       end
 
       Replica.stop(replica)
@@ -192,8 +198,16 @@ defmodule Vdr.SentinelIntegrationTest do
       # Verify streaming commands received
       assert_within 2000 do
         assert {:ok, state} = CollectorCallback.get_state(replica)
-        assert command_in_list(%Vdr.RedisStream.ReplicaCommand{command: {:set, "stream1", "value1"}}, state.commands)
-        assert command_in_list(%Vdr.RedisStream.ReplicaCommand{command: {:set, "stream2", "value2"}}, state.commands)
+
+        assert command_in_list(
+                 %Vdr.RedisStream.ReplicaCommand{command: {:set, "stream1", "value1"}},
+                 state.commands
+               )
+
+        assert command_in_list(
+                 %Vdr.RedisStream.ReplicaCommand{command: {:set, "stream2", "value2"}},
+                 state.commands
+               )
       end
 
       Replica.stop(replica)
@@ -236,7 +250,11 @@ defmodule Vdr.SentinelIntegrationTest do
       # Wait for the command to be replicated
       assert_within 2000 do
         assert {:ok, state} = CollectorCallback.get_state(replica)
-        assert command_in_list(%Vdr.RedisStream.ReplicaCommand{command: {:set, "pre_failover", "test"}}, state.commands)
+
+        assert command_in_list(
+                 %Vdr.RedisStream.ReplicaCommand{command: {:set, "pre_failover", "test"}},
+                 state.commands
+               )
       end
 
       # Trigger failover by stopping the primary
@@ -337,7 +355,11 @@ defmodule Vdr.SentinelIntegrationTest do
       # Wait for the new command to be replicated to our Veidrodelis replica
       assert_within 5000 do
         assert {:ok, state} = CollectorCallback.get_state(replica)
-        assert command_in_list(%Vdr.RedisStream.ReplicaCommand{command: {:set, "after_failover", "value2"}}, state.commands)
+
+        assert command_in_list(
+                 %Vdr.RedisStream.ReplicaCommand{command: {:set, "after_failover", "value2"}},
+                 state.commands
+               )
       end
 
       # Verify replica is still receiving commands from the new primary
@@ -345,7 +367,11 @@ defmodule Vdr.SentinelIntegrationTest do
 
       assert_within 2000 do
         assert {:ok, state} = CollectorCallback.get_state(replica)
-        assert command_in_list(%Vdr.RedisStream.ReplicaCommand{command: {:set, "final_test", "success"}}, state.commands)
+
+        assert command_in_list(
+                 %Vdr.RedisStream.ReplicaCommand{command: {:set, "final_test", "success"}},
+                 state.commands
+               )
       end
 
       Redix.stop(new_primary_conn)

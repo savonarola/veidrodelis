@@ -71,7 +71,6 @@ defmodule Vdr.Benchmark.Scenarios.HgetAggregate do
 
     hit_check = fn result -> result > 0 end
 
-
     {read_op, hit_check}
   end
 end

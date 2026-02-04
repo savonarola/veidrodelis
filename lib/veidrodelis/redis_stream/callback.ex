@@ -79,7 +79,6 @@ defmodule Vdr.RedisStream.Callback do
   @callback handle_info(state(), message()) ::
               {:noreply, state()} | {:error, term()}
 
-
   @doc """
   Called when the replica is about to shutdown (in `&Vdr.RedisStream.Replica.terminate/2`).
   """
