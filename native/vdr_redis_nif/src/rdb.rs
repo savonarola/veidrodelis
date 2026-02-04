@@ -1,5 +1,5 @@
-use rustler::{Binary, Encoder, Env, LocalPid, NewBinary, Resource, ResourceArc, Term};
 use bytes::{Buf, BufMut, BytesMut};
+use rustler::{Binary, Encoder, Env, LocalPid, NewBinary, Resource, ResourceArc, Term};
 use std::cell::RefCell;
 use std::panic::{RefUnwindSafe, UnwindSafe};
 
@@ -28,8 +28,8 @@ const RDB_TYPE_HASH_LISTPACK: u8 = 16;
 const RDB_TYPE_ZSET_LISTPACK: u8 = 17;
 const RDB_TYPE_LIST_QUICKLIST_2: u8 = 18;
 const RDB_TYPE_SET_LISTPACK: u8 = 20;
-const RDB_TYPE_HASH_METADATA: u8 = 21;     // Redis/Valkey 9.0+ hash with per-field TTLs (with min_expire prefix)
-const RDB_TYPE_HASH_LISTPACK_EX: u8 = 22;  // Valkey 9.0+ hash listpack with per-field TTLs
+const RDB_TYPE_HASH_METADATA: u8 = 21; // Redis/Valkey 9.0+ hash with per-field TTLs (with min_expire prefix)
+const RDB_TYPE_HASH_LISTPACK_EX: u8 = 22; // Valkey 9.0+ hash listpack with per-field TTLs
 const RDB_TYPE_HASH_METADATA_PRE_GA: u8 = 200; // Pre-GA hash with per-field TTLs (no min_expire prefix)
 
 // Encoding types
@@ -42,8 +42,8 @@ const RDB_ENC_LZF: u8 = 3;
 /// Will be converted to Vdr.Command structs in Elixir
 #[derive(Debug, Clone)]
 pub(crate) struct RawCommand {
-    pub(crate) db: u32,           // Database number
-    pub(crate) name: Vec<u8>,     // Command name like "SET", "RPUSH", etc.
+    pub(crate) db: u32,            // Database number
+    pub(crate) name: Vec<u8>,      // Command name like "SET", "RPUSH", etc.
     pub(crate) args: Vec<Vec<u8>>, // Command arguments
 }
 
@@ -59,12 +59,12 @@ impl RawCommand {
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 enum ParseState {
-    Magic(usize),    // Reading magic + version (9 bytes total)
+    Magic(usize), // Reading magic + version (9 bytes total)
     Opcode,
     ProcessingOpcode(u8),
     ProcessingKey(u8),
     ProcessingValue(u8, usize), // type, key_offset in saved_key
-    WaitingChecksum, // Encountered EOF, waiting for 8-byte checksum
+    WaitingChecksum,            // Encountered EOF, waiting for 8-byte checksum
     Finished,
 }
 
@@ -120,12 +120,20 @@ impl RDBParser {
         // Parse and collect commands
         let mut commands = Vec::new();
 
-        log::debug!("feed_data, state: {:?}, passed bytes: {:?}", state.parse_state, data.len());
+        log::debug!(
+            "feed_data, state: {:?}, passed bytes: {:?}",
+            state.parse_state,
+            data.len()
+        );
 
         loop {
             match state.parse_next()? {
                 Some(mut cmds) => {
-                    log::debug!("parse_next is some, state: {:?}, cmds: {:?}", state.parse_state, cmds);
+                    log::debug!(
+                        "parse_next is some, state: {:?}, cmds: {:?}",
+                        state.parse_state,
+                        cmds
+                    );
                     commands.append(&mut cmds);
                 }
                 None => {
@@ -172,20 +180,18 @@ impl ParserState {
         // Both formats are 9 bytes total
         if &magic_version[0..5] == b"REDIS" {
             // Redis format: REDIS0001-0012
-            let version_str = std::str::from_utf8(&magic_version[5..9])
-                .map_err(|_| "invalid_version")?;
-            let version: u32 = version_str.parse()
-                .map_err(|_| "invalid_version")?;
+            let version_str =
+                std::str::from_utf8(&magic_version[5..9]).map_err(|_| "invalid_version")?;
+            let version: u32 = version_str.parse().map_err(|_| "invalid_version")?;
 
             if !(1..=12).contains(&version) {
                 return Err("unsupported_version".to_string());
             }
         } else if &magic_version[0..6] == b"VALKEY" {
             // Valkey format: VALKEY080, etc (3-digit version)
-            let version_str = std::str::from_utf8(&magic_version[6..9])
-                .map_err(|_| "invalid_version")?;
-            let version: u32 = version_str.parse()
-                .map_err(|_| "invalid_version")?;
+            let version_str =
+                std::str::from_utf8(&magic_version[6..9]).map_err(|_| "invalid_version")?;
+            let version: u32 = version_str.parse().map_err(|_| "invalid_version")?;
 
             // Valkey versions start at 080 (forked from Redis 7.2)
             if !(80..=999).contains(&version) {
@@ -233,8 +239,11 @@ impl ParserState {
                 self.parse_state = ParseState::WaitingChecksum;
                 self.parse_next()
             }
-            RDB_OPCODE_SELECTDB | RDB_OPCODE_RESIZEDB |
-            RDB_OPCODE_AUX | RDB_OPCODE_EXPIRETIME | RDB_OPCODE_EXPIRETIME_MS => {
+            RDB_OPCODE_SELECTDB
+            | RDB_OPCODE_RESIZEDB
+            | RDB_OPCODE_AUX
+            | RDB_OPCODE_EXPIRETIME
+            | RDB_OPCODE_EXPIRETIME_MS => {
                 self.parse_state = ParseState::ProcessingOpcode(opcode);
                 self.parse_next()
             }
@@ -254,24 +263,20 @@ impl ParserState {
                 self.parse_state = ParseState::ProcessingValue(value_type, key_len);
                 self.parse_next()
             }
-            None => {
-                Ok(None)
-            }
+            None => Ok(None),
         }
     }
 
     fn process_opcode(&mut self, opcode: u8) -> Result<Option<Vec<RawCommand>>, String> {
         match opcode {
-            RDB_OPCODE_SELECTDB => {
-                match self.load_length()? {
-                    Some(db_num) => {
-                        self.current_db = db_num as u32;
-                        self.parse_state = ParseState::Opcode;
-                        self.parse_next()
-                    }
-                    None => Ok(None),
+            RDB_OPCODE_SELECTDB => match self.load_length()? {
+                Some(db_num) => {
+                    self.current_db = db_num as u32;
+                    self.parse_state = ParseState::Opcode;
+                    self.parse_next()
                 }
-            }
+                None => Ok(None),
+            },
             RDB_OPCODE_RESIZEDB => {
                 // Peek at both lengths to ensure we have all data
                 let (_db_size, db_bytes) = match self.peek_length_at(0)? {
@@ -332,17 +337,21 @@ impl ParserState {
         }
     }
 
-    fn parse_value(&mut self, value_type: u8, _key_len: usize) -> Result<Option<Vec<RawCommand>>, String> {
+    fn parse_value(
+        &mut self,
+        value_type: u8,
+        _key_len: usize,
+    ) -> Result<Option<Vec<RawCommand>>, String> {
         // Calculate how much data we need for this entire value
         // If we don't have it all, wait for more data to avoid partial consumption
         match self.calculate_value_size(value_type, 0)? {
             Some(total_size) => {
                 if self.buffer.len() < total_size {
-                    return Ok(None);  // Wait for complete value data
+                    return Ok(None); // Wait for complete value data
                 }
                 // We have all the data, proceed with parsing
             }
-            None => return Ok(None),  // Not enough data to even determine size
+            None => return Ok(None), // Not enough data to even determine size
         }
 
         let key = self.saved_key.clone();
@@ -440,7 +449,7 @@ impl ParserState {
                         }
                         None => return Ok(None),
                     }
-                    total += 8;  // 8 bytes for f64
+                    total += 8; // 8 bytes for f64
                     current_offset += 8;
                 }
                 Ok(Some(total))
@@ -505,10 +514,13 @@ impl ParserState {
                 }
                 Ok(Some(total))
             }
-            RDB_TYPE_HASH_ZIPLIST | RDB_TYPE_HASH_LISTPACK |
-            RDB_TYPE_SET_INTSET | RDB_TYPE_SET_LISTPACK |
-            RDB_TYPE_ZSET_ZIPLIST | RDB_TYPE_ZSET_LISTPACK |
-            RDB_TYPE_HASH_METADATA_PRE_GA => {
+            RDB_TYPE_HASH_ZIPLIST
+            | RDB_TYPE_HASH_LISTPACK
+            | RDB_TYPE_SET_INTSET
+            | RDB_TYPE_SET_LISTPACK
+            | RDB_TYPE_ZSET_ZIPLIST
+            | RDB_TYPE_ZSET_LISTPACK
+            | RDB_TYPE_HASH_METADATA_PRE_GA => {
                 // These are all stored as a single string
                 self.calculate_string_size(offset)
             }
@@ -527,12 +539,18 @@ impl ParserState {
                 for _ in 0..count {
                     // Field
                     match self.calculate_string_size(current_offset)? {
-                        Some(size) => { total += size; current_offset += size; }
+                        Some(size) => {
+                            total += size;
+                            current_offset += size;
+                        }
                         None => return Ok(None),
                     }
                     // Value
                     match self.calculate_string_size(current_offset)? {
-                        Some(size) => { total += size; current_offset += size; }
+                        Some(size) => {
+                            total += size;
+                            current_offset += size;
+                        }
                         None => return Ok(None),
                     }
                     // Length-encoded TTL
@@ -556,12 +574,18 @@ impl ParserState {
                 for _ in 0..count {
                     // Field
                     match self.calculate_string_size(current_offset)? {
-                        Some(size) => { total += size; current_offset += size; }
+                        Some(size) => {
+                            total += size;
+                            current_offset += size;
+                        }
                         None => return Ok(None),
                     }
                     // Value
                     match self.calculate_string_size(current_offset)? {
-                        Some(size) => { total += size; current_offset += size; }
+                        Some(size) => {
+                            total += size;
+                            current_offset += size;
+                        }
                         None => return Ok(None),
                     }
                     // 8-byte expiry
@@ -590,10 +614,11 @@ impl ParserState {
             // Special encoding
             let enc_subtype = first & 0x3F;
             let size = match enc_subtype {
-                0 => 2,  // INT8
-                1 => 3,  // INT16
-                2 => 5,  // INT32
-                3 => {   // LZF
+                0 => 2, // INT8
+                1 => 3, // INT16
+                2 => 5, // INT32
+                3 => {
+                    // LZF
                     let (clen, clen_bytes) = match self.peek_length_at(offset + 1)? {
                         Some(v) => v,
                         None => return Ok(None),
@@ -644,7 +669,10 @@ impl ParserState {
             match enc_subtype {
                 RDB_ENC_INT8 => {
                     if self.buffer.len() < 2 {
-                        log::trace!("load_string, RDB_ENC_INT8, not enough data, state: {:?}", self.parse_state);
+                        log::trace!(
+                            "load_string, RDB_ENC_INT8, not enough data, state: {:?}",
+                            self.parse_state
+                        );
                         return Ok(None);
                     }
                     self.buffer_advance(1);
@@ -687,8 +715,7 @@ impl ParserState {
                     // Peek at compressed length
                     let (clen, clen_bytes) = match self.peek_length_at(peek_cursor)? {
                         Some((len, bytes_used)) => (len, bytes_used),
-                        None =>
-                        {
+                        None => {
                             log::trace!("load_string, RDB_ENC_LZF, not enough data");
                             return Ok(None);
                         }
@@ -717,11 +744,16 @@ impl ParserState {
                     let ulen_actual = self.load_length()?.unwrap(); // uncomp len
                     let compressed = self.buffer.split_to(clen_actual as usize);
                     let decompressed = lzf_decompress(&compressed, ulen_actual as usize)?;
-                    log::debug!("load_string, RDB_ENC_LZF, decompressed: {}", String::from_utf8_lossy(&decompressed));
+                    log::debug!(
+                        "load_string, RDB_ENC_LZF, decompressed: {}",
+                        String::from_utf8_lossy(&decompressed)
+                    );
                     Ok(Some(decompressed))
                 }
-                _ => Err(format!("unknown_encoding: 0x{:02X} (enc_type={}, subtype={})",
-                          first, enc_type, enc_subtype)),
+                _ => Err(format!(
+                    "unknown_encoding: 0x{:02X} (enc_type={}, subtype={})",
+                    first, enc_type, enc_subtype
+                )),
             }
         } else {
             // Regular string - peek at length first
@@ -729,7 +761,7 @@ impl ParserState {
                 Some((len, bytes_used)) => (len, bytes_used),
                 None => {
                     log::trace!("load_string, regular string, no length");
-                    return Ok(None)
+                    return Ok(None);
                 }
             };
 
@@ -742,7 +774,11 @@ impl ParserState {
             // Now consume the length and data
             let _ = self.load_length()?; // Already validated
             let data = self.buffer.split_to(len as usize).to_vec();
-            log::debug!("load_string, regular string, data: {:?}, ascii: {}", data, String::from_utf8_lossy(&data));
+            log::debug!(
+                "load_string, regular string, data: {:?}, ascii: {}",
+                data,
+                String::from_utf8_lossy(&data)
+            );
             Ok(Some(data))
         }
     }
@@ -814,7 +850,11 @@ impl ParserState {
         }
     }
 
-    fn load_object(&mut self, value_type: u8, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+    fn load_object(
+        &mut self,
+        value_type: u8,
+        key: &[u8],
+    ) -> Result<Option<Vec<RawCommand>>, String> {
         match value_type {
             RDB_TYPE_STRING => self.load_string_value(key),
             RDB_TYPE_LIST => self.load_list_value(key),
@@ -835,7 +875,11 @@ impl ParserState {
             RDB_TYPE_ZSET_LISTPACK => self.load_zset_listpack_value(key),
             _ => {
                 // Skip unknown type - attempt to load as string
-                log::warn!("Unknown RDB type {} for key {:?}", value_type, String::from_utf8_lossy(key));
+                log::warn!(
+                    "Unknown RDB type {} for key {:?}",
+                    value_type,
+                    String::from_utf8_lossy(key)
+                );
                 match self.load_string()? {
                     Some(_) => Ok(Some(Vec::new())),
                     None => Ok(None),
@@ -847,11 +891,7 @@ impl ParserState {
     fn load_string_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
         match self.load_string()? {
             Some(value) => {
-                let cmd = RawCommand::with_args(
-                    self.current_db,
-                    b"SET",
-                    vec![key.to_vec(), value],
-                );
+                let cmd = RawCommand::with_args(self.current_db, b"SET", vec![key.to_vec(), value]);
                 Ok(Some(vec![cmd]))
             }
             None => Ok(None),
@@ -904,15 +944,13 @@ impl ParserState {
                 let mut members = Vec::new();
                 for _ in 0..count {
                     match self.load_string()? {
-                        Some(member) => {
-                            match self.load_double_value()? {
-                                Some(score) => {
-                                    members.push(score);
-                                    members.push(member);
-                                }
-                                None => return Ok(None),
+                        Some(member) => match self.load_double_value()? {
+                            Some(score) => {
+                                members.push(score);
+                                members.push(member);
                             }
-                        }
+                            None => return Ok(None),
+                        },
                         None => return Ok(None),
                     }
                 }
@@ -959,15 +997,13 @@ impl ParserState {
                 let mut fields = Vec::new();
                 for _ in 0..count {
                     match self.load_string()? {
-                        Some(field) => {
-                            match self.load_string()? {
-                                Some(value) => {
-                                    fields.push(field);
-                                    fields.push(value);
-                                }
-                                None => return Ok(None),
+                        Some(field) => match self.load_string()? {
+                            Some(value) => {
+                                fields.push(field);
+                                fields.push(value);
                             }
-                        }
+                            None => return Ok(None),
+                        },
                         None => return Ok(None),
                     }
                 }
@@ -1012,12 +1048,10 @@ impl ParserState {
 
                 for _ in 0..count {
                     match self.load_string()? {
-                        Some(listpack_bin) => {
-                            match parse_listpack(&listpack_bin) {
-                                Ok(entries) => all_values.extend(entries),
-                                Err(e) => return Err(e),
-                            }
-                        }
+                        Some(listpack_bin) => match parse_listpack(&listpack_bin) {
+                            Ok(entries) => all_values.extend(entries),
+                            Err(e) => return Err(e),
+                        },
                         None => return Ok(None),
                     }
                 }
@@ -1049,12 +1083,10 @@ impl ParserState {
                     self.buffer.advance(1);
 
                     match self.load_string()? {
-                        Some(listpack_bin) => {
-                            match parse_listpack(&listpack_bin) {
-                                Ok(entries) => all_values.extend(entries),
-                                Err(e) => return Err(e),
-                            }
-                        }
+                        Some(listpack_bin) => match parse_listpack(&listpack_bin) {
+                            Ok(entries) => all_values.extend(entries),
+                            Err(e) => return Err(e),
+                        },
                         None => return Ok(None),
                     }
                 }
@@ -1074,42 +1106,38 @@ impl ParserState {
 
     fn load_hash_ziplist_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
         match self.load_string()? {
-            Some(ziplist_bin) => {
-                match parse_ziplist(&ziplist_bin) {
-                    Ok(entries) => {
-                        if entries.len() % 2 != 0 {
-                            return Err("odd_hash_entries".to_string());
-                        }
-
-                        let mut args = vec![key.to_vec()];
-                        args.extend(entries);
-                        let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
-                        Ok(Some(vec![cmd]))
+            Some(ziplist_bin) => match parse_ziplist(&ziplist_bin) {
+                Ok(entries) => {
+                    if entries.len() % 2 != 0 {
+                        return Err("odd_hash_entries".to_string());
                     }
-                    Err(e) => Err(e),
+
+                    let mut args = vec![key.to_vec()];
+                    args.extend(entries);
+                    let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
+                    Ok(Some(vec![cmd]))
                 }
-            }
+                Err(e) => Err(e),
+            },
             None => Ok(None),
         }
     }
 
     fn load_hash_listpack_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
         match self.load_string()? {
-            Some(listpack_bin) => {
-                match parse_listpack(&listpack_bin) {
-                    Ok(entries) => {
-                        if entries.len() % 2 != 0 {
-                            return Err("odd_hash_entries".to_string());
-                        }
-
-                        let mut args = vec![key.to_vec()];
-                        args.extend(entries);
-                        let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
-                        Ok(Some(vec![cmd]))
+            Some(listpack_bin) => match parse_listpack(&listpack_bin) {
+                Ok(entries) => {
+                    if entries.len() % 2 != 0 {
+                        return Err("odd_hash_entries".to_string());
                     }
-                    Err(e) => Err(e),
+
+                    let mut args = vec![key.to_vec()];
+                    args.extend(entries);
+                    let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
+                    Ok(Some(vec![cmd]))
                 }
-            }
+                Err(e) => Err(e),
+            },
             None => Ok(None),
         }
     }
@@ -1162,7 +1190,10 @@ impl ParserState {
     // Hash with per-field TTLs (type 22, Valkey 9.0+)
     // Format: length-encoded count, then for each field: string field, string value, 8-byte expiry
     // This is the same as RDB_TYPE_HASH (type 4) but with 8-byte expiry after each field-value pair
-    fn load_hash_listpack_ex_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+    fn load_hash_listpack_ex_value(
+        &mut self,
+        key: &[u8],
+    ) -> Result<Option<Vec<RawCommand>>, String> {
         let count = match self.load_length()? {
             Some(c) => c,
             None => return Ok(None),
@@ -1200,7 +1231,10 @@ impl ParserState {
 
     // Pre-GA hash with per-field TTLs (type 200)
     // Format: listpack containing triplets: [ttl, field, value, ttl, field, value, ...]
-    fn load_hash_metadata_pre_ga_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+    fn load_hash_metadata_pre_ga_value(
+        &mut self,
+        key: &[u8],
+    ) -> Result<Option<Vec<RawCommand>>, String> {
         match self.load_string()? {
             Some(listpack_bin) => {
                 match parse_listpack(&listpack_bin) {
@@ -1237,38 +1271,35 @@ impl ParserState {
 
     fn load_set_intset_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
         match self.load_string()? {
-            Some(intset_bin) => {
-                match parse_intset(&intset_bin) {
-                    Ok(integers) => {
-                        let members: Vec<Vec<u8>> = integers.iter()
-                            .map(|i| i.to_string().into_bytes())
-                            .collect();
+            Some(intset_bin) => match parse_intset(&intset_bin) {
+                Ok(integers) => {
+                    let members: Vec<Vec<u8>> = integers
+                        .iter()
+                        .map(|i| i.to_string().into_bytes())
+                        .collect();
 
-                        let mut args = vec![key.to_vec()];
-                        args.extend(members);
-                        let cmd = RawCommand::with_args(self.current_db, b"SADD", args);
-                        Ok(Some(vec![cmd]))
-                    }
-                    Err(e) => Err(e),
+                    let mut args = vec![key.to_vec()];
+                    args.extend(members);
+                    let cmd = RawCommand::with_args(self.current_db, b"SADD", args);
+                    Ok(Some(vec![cmd]))
                 }
-            }
+                Err(e) => Err(e),
+            },
             None => Ok(None),
         }
     }
 
     fn load_set_listpack_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
         match self.load_string()? {
-            Some(listpack_bin) => {
-                match parse_listpack(&listpack_bin) {
-                    Ok(entries) => {
-                        let mut args = vec![key.to_vec()];
-                        args.extend(entries);
-                        let cmd = RawCommand::with_args(self.current_db, b"SADD", args);
-                        Ok(Some(vec![cmd]))
-                    }
-                    Err(e) => Err(e),
+            Some(listpack_bin) => match parse_listpack(&listpack_bin) {
+                Ok(entries) => {
+                    let mut args = vec![key.to_vec()];
+                    args.extend(entries);
+                    let cmd = RawCommand::with_args(self.current_db, b"SADD", args);
+                    Ok(Some(vec![cmd]))
                 }
-            }
+                Err(e) => Err(e),
+            },
             None => Ok(None),
         }
     }
@@ -1773,7 +1804,6 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
         }
         _ => Err("invalid_listpack_encoding".to_string()),
     }
-
 }
 
 // NIFs
@@ -1784,11 +1814,7 @@ fn create_parser(env: Env) -> ResourceArc<RDBParser> {
 }
 
 #[rustler::nif(name = "rdb_data")]
-fn feed_data<'a>(
-    env: Env<'a>,
-    parser: ResourceArc<RDBParser>,
-    data: Binary,
-) -> Term<'a> {
+fn feed_data<'a>(env: Env<'a>, parser: ResourceArc<RDBParser>, data: Binary) -> Term<'a> {
     if parser.pid != env.pid() {
         return (atoms::error(), "parser_not_owned".to_string()).encode(env);
     }
@@ -1796,7 +1822,8 @@ fn feed_data<'a>(
     match parser.feed_data(data.as_slice()) {
         Ok(commands) => {
             // Convert RawCommand to Elixir terms: {db, name, [args...]}
-            let result: Vec<Term<'a>> = commands.iter()
+            let result: Vec<Term<'a>> = commands
+                .iter()
                 .map(|cmd| {
                     // Create binary for command name
                     let mut name_bin = NewBinary::new(env, cmd.name.len());
@@ -1804,7 +1831,9 @@ fn feed_data<'a>(
                     let name_binary: Binary = name_bin.into();
 
                     // Create binaries for all args
-                    let args: Vec<Binary> = cmd.args.iter()
+                    let args: Vec<Binary> = cmd
+                        .args
+                        .iter()
                         .map(|arg| {
                             let mut arg_bin = NewBinary::new(env, arg.len());
                             arg_bin.as_mut_slice().copy_from_slice(arg);

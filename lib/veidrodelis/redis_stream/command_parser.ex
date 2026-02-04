@@ -47,7 +47,8 @@ defmodule Vdr.RedisStream.CommandParser do
     {:ok, {:setbit, key, String.to_integer(offset), bit_value}, [key]}
   end
 
-  def parse(["INCR", key]), do: {:ok, {:incr, key}, [key]}
+  def parse(["INCR", key]),
+    do: {:ok, {:incr, key}, [key]}
 
   def parse(["INCRBY", key, increment]),
     do: {:ok, {:incrby, key, String.to_integer(increment)}, [key]}

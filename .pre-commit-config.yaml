@@ -1,0 +1,30 @@
+# See https://pre-commit.com for more information
+# See https://pre-commit.com/hooks.html for more hooks
+repos:
+  - repo: 'https://github.com/pre-commit/pre-commit-hooks'
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files
+  - repo: local
+    hooks:
+      - id: cargo-fmt-redis-nif
+        name: cargo fmt (vdr_redis_nif)
+        entry: cargo fmt --manifest-path native/vdr_redis_nif/Cargo.toml --
+        language: system
+        files: 'native/vdr_redis_nif/.*\.rs$'
+        pass_filenames: true
+      - id: cargo-fmt-ts-nif
+        name: cargo fmt (vdr_ts_nif)
+        entry: cargo fmt --manifest-path native/vdr_ts_nif/Cargo.toml --
+        language: system
+        files: 'native/vdr_ts_nif/.*\.rs$'
+        pass_filenames: true
+      - id: mix-format
+        name: mix format
+        entry: mix format
+        language: system
+        files: '\.exs?$'
+        pass_filenames: true

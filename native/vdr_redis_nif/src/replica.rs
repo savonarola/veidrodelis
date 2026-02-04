@@ -1,5 +1,5 @@
-use rustler::{Binary, Encoder, Env, LocalPid, NewBinary, Resource, ResourceArc, Term};
 use bytes::{Buf, BufMut, BytesMut};
+use rustler::{Binary, Encoder, Env, LocalPid, NewBinary, Resource, ResourceArc, Term};
 use std::cell::RefCell;
 use std::panic::{RefUnwindSafe, UnwindSafe};
 
@@ -23,8 +23,8 @@ enum ReplicaState {
 /// Will be converted to Vdr.Command structs in Elixir
 #[derive(Debug, Clone)]
 struct RawCommand {
-    db: u32,           // Database number
-    name: Vec<u8>,     // Command name like "SET", "RPUSH", etc.
+    db: u32,            // Database number
+    name: Vec<u8>,      // Command name like "SET", "RPUSH", etc.
     args: Vec<Vec<u8>>, // Command arguments
 }
 
@@ -101,11 +101,15 @@ impl ReplicaParser {
         loop {
             match state.parse_next(self.pid)? {
                 Some(mut cmds) => commands.append(&mut cmds),
-                None => break,  // Need more data
+                None => break, // Need more data
             }
         }
 
-        Ok((commands, state.ping_received, state.replconf_getack_received))
+        Ok((
+            commands,
+            state.ping_received,
+            state.replconf_getack_received,
+        ))
     }
 }
 
@@ -139,10 +143,8 @@ impl ParserState {
         let buf_slice = self.buffer.as_ref();
         if let Some(pos) = find_crlf(buf_slice) {
             // Parse size
-            let size_str = std::str::from_utf8(&buf_slice[1..pos])
-                .map_err(|_| "invalid_size")?;
-            let size = size_str.parse::<usize>()
-                .map_err(|_| "invalid_size")?;
+            let size_str = std::str::from_utf8(&buf_slice[1..pos]).map_err(|_| "invalid_size")?;
+            let size = size_str.parse::<usize>().map_err(|_| "invalid_size")?;
 
             // Consume header
             self.buffer.advance(pos + 2);
@@ -158,7 +160,7 @@ impl ParserState {
             // Continue parsing
             self.parse_next(pid)
         } else {
-            Ok(None)  // Need more data
+            Ok(None) // Need more data
         }
     }
 
@@ -173,7 +175,7 @@ impl ParserState {
 
         let bytes_available = self.buffer.len();
         if bytes_available == 0 {
-            return Ok(None);  // Need more data
+            return Ok(None); // Need more data
         }
 
         let bytes_to_feed = bytes_available.min(bytes_remaining);
@@ -187,7 +189,8 @@ impl ParserState {
             Ok(rdb_commands) => {
                 // Convert RDB commands to replica commands
                 // RDB commands are the raw tuples we need to re-wrap
-                let commands: Vec<RawCommand> = rdb_commands.into_iter()
+                let commands: Vec<RawCommand> = rdb_commands
+                    .into_iter()
                     .map(|rdb_cmd| {
                         // The RDB RawCommand has the same structure, just need to copy fields
                         RawCommand {
@@ -233,21 +236,20 @@ impl ParserState {
         let buf_slice = self.buffer.as_ref();
         let count_end = match find_crlf(buf_slice) {
             Some(pos) => pos,
-            None => return Ok(None),  // Need more data
+            None => return Ok(None), // Need more data
         };
 
-        let count_str = std::str::from_utf8(&buf_slice[1..count_end])
-            .map_err(|_| "invalid_count")?;
-        let count = count_str.parse::<usize>()
-            .map_err(|_| "invalid_count")?;
+        let count_str =
+            std::str::from_utf8(&buf_slice[1..count_end]).map_err(|_| "invalid_count")?;
+        let count = count_str.parse::<usize>().map_err(|_| "invalid_count")?;
 
         // Try to parse all elements
-        let mut cursor = count_end + 2;  // Skip *<count>\r\n
+        let mut cursor = count_end + 2; // Skip *<count>\r\n
         let mut elements = Vec::new();
 
         for _ in 0..count {
             if cursor >= buf_slice.len() {
-                return Ok(None);  // Need more data
+                return Ok(None); // Need more data
             }
 
             if buf_slice[cursor] != b'$' {
@@ -258,24 +260,23 @@ impl ParserState {
             let len_start = cursor + 1;
             let len_end = match find_crlf_from(&buf_slice[len_start..]) {
                 Some(pos) => len_start + pos,
-                None => return Ok(None),  // Need more data
+                None => return Ok(None), // Need more data
             };
 
             let len_str = std::str::from_utf8(&buf_slice[len_start..len_end])
                 .map_err(|_| "invalid_length")?;
-            let len = len_str.parse::<usize>()
-                .map_err(|_| "invalid_length")?;
+            let len = len_str.parse::<usize>().map_err(|_| "invalid_length")?;
 
             // Read bulk string data
             let data_start = len_end + 2;
             let data_end = data_start + len;
 
             if data_end + 2 > buf_slice.len() {
-                return Ok(None);  // Need more data
+                return Ok(None); // Need more data
             }
 
             elements.push(buf_slice[data_start..data_end].to_vec());
-            cursor = data_end + 2;  // Skip data + \r\n
+            cursor = data_end + 2; // Skip data + \r\n
         }
 
         // Consume the parsed data
@@ -362,11 +363,7 @@ fn create_parser(env: Env, skip_rdb: bool) -> ResourceArc<ReplicaParser> {
 ///
 /// Commands are tuples: {db, name, [args...]}
 #[rustler::nif(name = "replica_data")]
-fn feed_data<'a>(
-    env: Env<'a>,
-    parser: ResourceArc<ReplicaParser>,
-    data: Binary,
-) -> Term<'a> {
+fn feed_data<'a>(env: Env<'a>, parser: ResourceArc<ReplicaParser>, data: Binary) -> Term<'a> {
     // Verify parser ownership
     if parser.pid != env.pid() {
         return (atoms::error(), "parser_not_owned".to_string()).encode(env);
@@ -375,7 +372,8 @@ fn feed_data<'a>(
     match parser.feed_data(data.as_slice()) {
         Ok((commands, ping_received, replconf_getack_received)) => {
             // Convert RawCommand to Elixir terms: {db, name, [args...]}
-            let result: Vec<Term<'a>> = commands.iter()
+            let result: Vec<Term<'a>> = commands
+                .iter()
                 .map(|cmd| {
                     // Create binary for command name
                     let mut name_bin = NewBinary::new(env, cmd.name.len());
@@ -383,7 +381,9 @@ fn feed_data<'a>(
                     let name_binary: Binary = name_bin.into();
 
                     // Create binaries for all args
-                    let args: Vec<Binary> = cmd.args.iter()
+                    let args: Vec<Binary> = cmd
+                        .args
+                        .iter()
                         .map(|arg| {
                             let mut arg_bin = NewBinary::new(env, arg.len());
                             arg_bin.as_mut_slice().copy_from_slice(arg);
@@ -403,10 +403,14 @@ fn feed_data<'a>(
                 (atoms::finished(), result).encode(env)
             } else {
                 // Build flags map with ping and replconf_getack flags
-                let flags = rustler::Term::map_from_pairs(env, &[
-                    (atoms::ping(), ping_received),
-                    (atoms::replconf_getack(), replconf_getack_received),
-                ]).expect("failed to create flags map");
+                let flags = rustler::Term::map_from_pairs(
+                    env,
+                    &[
+                        (atoms::ping(), ping_received),
+                        (atoms::replconf_getack(), replconf_getack_received),
+                    ],
+                )
+                .expect("failed to create flags map");
 
                 // Return {:ok, commands, parser, %{ping: boolean, replconf_getack: boolean}} - more data needed
                 (atoms::ok(), result, parser, flags).encode(env)
