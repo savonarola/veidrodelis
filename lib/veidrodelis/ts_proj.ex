@@ -56,9 +56,7 @@ defmodule Vdr.TSProj do
         :command_filter
       ])
 
-    callback_opts = Keyword.get(opts, :callback_opts, [])
-    callback_opts = Keyword.put(callback_opts, :id, id)
-
+    callback_opts = [id: id]
     callback_module = __MODULE__
 
     replica_opts =

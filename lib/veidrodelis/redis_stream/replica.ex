@@ -9,60 +9,80 @@ defmodule Vdr.RedisStream.Replica do
   3. Authenticate (if password provided)
   4. Negotiate PSYNC
   5. Receive and parse RDB snapshot
-  6. Stream commands and invoke callbacks
+  6. Receive stream of commands
 
-  ## Direct Connection Example
+  Replica is parametrized by a callback module that implements the `Vdr.RedisStream.Callback` behaviour.
 
-      defmodule MyCallback do
-        @behaviour Veidrodelis.RedisStream.Callback
+  This module is a part of public API to allow users to implement their own replication handlers.
+  However, be aware that the RDB snapshot parser currently skips data entries that are not
+  related to string, list, set, sorted set or hash data types.
 
-        alias Vdr.RedisStream.Command, as: RedisCommand
+  In this project, this module is used with `Vdr.TSProj` callback module that builds an in-memory
+  projection of the Redis data related to the string, list, set, sorted set or hash data types.
 
-        @impl true
-        def handle_commands(state, commands) do
-          Enum.reduce(commands, state, fn
-            %Vdr.RedisStream.ReplicaCommand{db: db, command: %RedisCommand.Set{key: key, value: value}}, acc ->
-              IO.puts("SET \#{key} = \#{value} in DB \#{db}")
-              Map.update(acc, :count, 1, &(&1 + 1))
-            _command, acc ->
-              Map.update(acc, :count, 1, &(&1 + 1))
-          end)
-          |> then(&{:ok, &1})
-        end
-      end
 
-      # Direct connection
-      opts = [
-        host: "localhost",
-        port: 6379,
-        callback_module: MyCallback,
-        callback_state: %{count: 0}
-      ]
-      {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+  ### Simple Logging Replica
 
-  ## Sentinel Connection Example
+  Example callback module that logs all replicated commands
 
-      # Connect via Redis Sentinel for automatic failover
-      opts = [
-        sentinel: [
-          sentinels: [
-            [host: "sentinel1", port: 26379],
-            [host: "sentinel2", port: 26379]
-          ],
-          group: "mymaster"
-        ],
-        callback_module: MyCallback,
-        callback_state: %{count: 0}
-      ]
-      {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+  ```elixir
+  defmodule LoggingCallback do
+    @behaviour Vdr.RedisStream.Callback
+    require Logger
 
-  ## API Usage
+    @impl Vdr.RedisStream.Callback
+    def init(_opts) do
+      {:ok, %{}}
+    end
 
-      # Get current replication offset
-      offset = Vdr.RedisStream.Replica.get_offset(replica)
+    @impl Vdr.RedisStream.Callback
+    def handle_replication_start(state) do
+      Logger.info("Replication started")
+      {:ok, state}
+    end
 
-      # Get callback state
-      state = Vdr.RedisStream.Replica.get_callback_state(replica)
+    @impl Vdr.RedisStream.Callback
+    def handle_streaming_start(state) do
+      Logger.info("Command streaming started")
+      {:ok, state}
+    end
+
+    @impl Vdr.RedisStream.Callback
+    def handle_commands(state, replica_commands) do
+      # Log each command as it arrives
+      Enum.each(replica_commands, fn cmd ->
+        Logger.debug("Received command: db=\#{cmd.db} cmd=\#{inspect(cmd.command)}")
+      end)
+
+      {:ok, state}
+    end
+
+    @impl Vdr.RedisStream.Callback
+    def handle_call(state, _message) do
+      {:reply, :ok, state}
+    end
+
+    @impl Vdr.RedisStream.Callback
+    def handle_info(state, _message) do
+      {:noreply, state}
+    end
+
+    @impl Vdr.RedisStream.Callback
+    def handle_destroy(_state) do
+      Logger.info("Replica shutting down")
+      :ok
+    end
+  end
+
+  # Start the logging replica
+  {:ok, replica} = Vdr.RedisStream.Replica.start_link(
+    host: "localhost",
+    port: 6379,
+    callback_module: LoggingCallback,
+    callback_opts: %{}
+  )
+  ```
+
   """
 
   use GenServer
@@ -77,7 +97,7 @@ defmodule Vdr.RedisStream.Replica do
   # Client API
 
   @doc """
-  Creates a child specification for the replica.
+  Creates a child specification for the replica for running it under a supervisor.
   """
   @spec child_spec(keyword()) :: Supervisor.Spec.spec()
   def child_spec(opts) do
@@ -118,7 +138,7 @@ defmodule Vdr.RedisStream.Replica do
   ### Callback Options
 
     * `:callback_module` - Module implementing `Vdr.RedisStream.Callback` (required)
-    * `:callback_state` - Initial state for callbacks (required)
+    * `:callback_opts` - Options for the callback module (required)
 
   ### Other Options
 
@@ -126,7 +146,7 @@ defmodule Vdr.RedisStream.Replica do
     * `:reconnect` - Enable automatic reconnection (default: true)
     * `:reconnect_delay_ms` - Initial delay before reconnection in ms (default: 1000)
     * `:max_reconnect_delay_ms` - Maximum delay between reconnection attempts in ms (default: 30000)
-    * `:ack_interval_ms` - Interval for sending periodic REPLCONF ACK to master in ms (default: 1000). Set to nil to disable periodic ACKs.
+    * `:ack_interval_ms` - Interval for sending periodic REPLCONF ACK to master in ms (default: 1000).
     * `:command_filter` - Command filter to apply to commands (default: none)
 
   ## Authentication
@@ -162,57 +182,69 @@ defmodule Vdr.RedisStream.Replica do
 
   ### Direct Connection
 
-      # Basic connection
-      opts = [
-        host: "localhost",
-        port: 6379,
-        callback_module: MyCallback,
-        callback_state: %{}
-      ]
-      {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+  Basic connection
+  ```elixir
+  opts = [
+    host: "localhost",
+    port: 6379,
+    callback_module: MyCallback,
+    callback_opts: %{}
+  ]
+  {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+  ```
 
-      # With ACL authentication
-      opts = [
-        host: "localhost",
-        port: 6379,
-        username: "myuser",
-        password: "mypassword",
-        callback_module: MyCallback,
-        callback_state: %{}
-      ]
-      {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+  With ACL authentication
+  ```elixir
+  opts = [
+    host: "localhost",
+    port: 6379,
+    username: "myuser",
+    password: "mypassword",
+    callback_module: MyCallback,
+    callback_opts: %{}
+  ]
+  {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+  ```
 
   ### Sentinel Connection
 
-      # Connect to primary via sentinel
-      opts = [
-        sentinel: [
-          sentinels: [
-            [host: "sentinel1", port: 26379],
-            [host: "sentinel2", port: 26379],
-            [host: "sentinel3", port: 26379]
-          ],
-          group: "mymaster",
-          role: :primary,
-          timeout: 500
-        ],
-        password: "redis_password",
-        callback_module: MyCallback,
-        callback_state: %{}
-      ]
-      {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+  Connect to primary via sentinel
+  ```elixir
+  opts = [
+    sentinel: [
+      sentinels: [
+        [host: "sentinel1", port: 26379],
+        [host: "sentinel2", port: 26379],
+        [host: "sentinel3", port: 26379]
+      ],
+      group: "mymaster",
+      role: :primary
+    ],
+    password: "redis_password",
+    callback_module: MyCallback,
+    callback_opts: %{}
+  ]
+  {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+  ```
 
-      # Connect to replica via sentinel
-      opts = [
-        sentinel: [
-          sentinels: [[host: "sentinel1", port: 26379]],
-          group: "mymaster",
-          role: :replica
-        ],
-        callback_module: MyCallback,
-        callback_state: %{}
-      ]
-      {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+  Connect to replica via sentinel
+  ```elixir
+  opts = [
+    sentinel: [
+      sentinels: [
+        [host: "sentinel1", port: 26379],
+        [host: "sentinel2", port: 26379],
+        [host: "sentinel3", port: 26379]
+      ],
+      group: "mymaster",
+      role: :replica
+    ],
+    password: "redis_password",
+    callback_module: MyCallback,
+    callback_opts: %{}
+  ]
+  {:ok, replica} = Vdr.RedisStream.Replica.start_link(opts)
+  ```
 
   ## Returns
 
@@ -299,16 +331,14 @@ defmodule Vdr.RedisStream.Replica do
 
   # Server callbacks
 
-  @impl true
+  @impl GenServer
   def init(opts) do
     Logger.debug("Initializing replica with opts: #{inspect(opts)}")
     Process.flag(:trap_exit, true)
 
-    # Check sentinel configuration
     sentinel_opts = Keyword.get(opts, :sentinel)
 
     if sentinel_opts do
-      # Check Redix availability
       unless Code.ensure_loaded?(Redix) do
         raise RuntimeError, """
         Sentinel support requires :redix dependency.
@@ -316,10 +346,8 @@ defmodule Vdr.RedisStream.Replica do
         """
       end
 
-      # Validate sentinel configuration
       validate_sentinel_opts!(sentinel_opts)
 
-      # Ensure host/port not specified with sentinel
       if Keyword.has_key?(opts, :host) or Keyword.has_key?(opts, :port) do
         raise ArgumentError, ":host or :port cannot be specified with :sentinel"
       end
@@ -380,7 +408,7 @@ defmodule Vdr.RedisStream.Replica do
     end
   end
 
-  @impl true
+  @impl GenServer
   def handle_continue(:connect, state) do
     case connect(state) do
       {:ok, new_state} ->
@@ -399,13 +427,13 @@ defmodule Vdr.RedisStream.Replica do
     end
   end
 
-  @impl true
+  @impl GenServer
   def handle_continue(:reconnect, state) do
     Logger.info("Attempting to reconnect...")
     handle_continue(:connect, state)
   end
 
-  @impl true
+  @impl GenServer
   def handle_call(:get_offset, _from, state) do
     {:reply, state.replication_offset, state}
   end
@@ -441,7 +469,7 @@ defmodule Vdr.RedisStream.Replica do
     end
   end
 
-  @impl true
+  @impl GenServer
   def handle_info({:tcp, socket, data}, %{socket: socket} = state) do
     handle_data(data, state)
   end
@@ -504,7 +532,7 @@ defmodule Vdr.RedisStream.Replica do
     end
   end
 
-  @impl true
+  @impl GenServer
   def terminate(_reason, state) do
     # Cancel ACK timer
     cancel_ack_timer(state)
@@ -582,14 +610,12 @@ defmodule Vdr.RedisStream.Replica do
     {:noreply, new_state}
   end
 
-  defp connect(state) do
-    case state.connection_mode do
-      :direct ->
-        connect_directly(state.host, state.port, state)
+  defp connect(%{connection_mode: :direct} = state) do
+    connect_directly(state.host, state.port, state)
+  end
 
-      :sentinel ->
-        discover_and_connect_via_sentinel(state)
-    end
+  defp connect(%{connection_mode: :sentinel} = state) do
+    discover_and_connect_via_sentinel(state)
   end
 
   defp discover_and_connect_via_sentinel(state) do
@@ -670,13 +696,11 @@ defmodule Vdr.RedisStream.Replica do
     # Support both ACL (username + password) and legacy (password only) authentication
     cmd =
       if state.username do
-        # Redis 6+ ACL authentication: AUTH <username> <password>
         username_len = byte_size(state.username)
         password_len = byte_size(state.password)
 
         "*3\r\n$4\r\nAUTH\r\n$#{username_len}\r\n#{state.username}\r\n$#{password_len}\r\n#{state.password}\r\n"
       else
-        # Legacy authentication: AUTH <password>
         password_len = byte_size(state.password)
         "*2\r\n$4\r\nAUTH\r\n$#{password_len}\r\n#{state.password}\r\n"
       end
@@ -693,8 +717,8 @@ defmodule Vdr.RedisStream.Replica do
   defp send_replconf_listening_port(state) do
     Logger.debug("Sending REPLCONF listening-port")
 
-    # Send a fake listening port (we're not actually listening)
-    cmd = "*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n6380\r\n"
+    # Send a fake and invalid listening port
+    cmd = "*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n99999\r\n"
 
     case transport_send(state.transport, state.socket, cmd) do
       :ok ->
@@ -724,16 +748,15 @@ defmodule Vdr.RedisStream.Replica do
     # Try partial resync if we have saved replication state
     {repl_id, repl_offset} =
       if state.saved_replication_id do
+        Logger.debug(
+          "Sending PSYNC for partial resync (#{state.saved_replication_id} #{state.saved_replication_offset})"
+        )
+
         {state.saved_replication_id, state.saved_replication_offset}
       else
+        Logger.debug("Sending PSYNC for full sync")
         {"?", -1}
       end
-
-    if repl_id == "?" do
-      Logger.debug("Sending PSYNC for full sync")
-    else
-      Logger.debug("Sending PSYNC for partial resync (#{repl_id} #{repl_offset})")
-    end
 
     # Build PSYNC command
     repl_id_len = byte_size(repl_id)
@@ -799,7 +822,7 @@ defmodule Vdr.RedisStream.Replica do
     result =
       case state.state do
         :replication ->
-          # After PSYNC, all data goes to the replica parser (no buffering)
+          # After PSYNC, all data goes to the replica parser
           handle_replication_data(data, state)
 
         other ->
