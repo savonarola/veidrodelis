@@ -1,6 +1,6 @@
 defmodule Vdr.RedisStream.CommandFilter do
   @moduledoc """
-  Defines a filter for processing Redis commands before and after callback execution.
+  Defines a filter for processing Redis commands in replica before and after callback execution.
 
   Filters can modify commands, add context, or skip commands entirely. The context
   map in ReplicaCommand can be used to pass data between pre_handle and post_handle.
@@ -59,6 +59,9 @@ defmodule Vdr.RedisStream.CommandFilter do
     }
   end
 
+  @doc """
+  Applies the filter to the list of replica commands. Used internally by the replica.
+  """
   def apply_pre(filter, replica_commands, filtered_commands \\ [])
 
   def apply_pre(_filter, [], filtered_commands) do
@@ -75,6 +78,9 @@ defmodule Vdr.RedisStream.CommandFilter do
     end
   end
 
+  @doc """
+  Applies the filter to the list of replica commands. Used internally by the replica.
+  """
   def apply_post(filter, replica_commands, result) do
     do_apply_post(filter, Enum.reverse(replica_commands), result)
   end
