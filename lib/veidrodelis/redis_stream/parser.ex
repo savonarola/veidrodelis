@@ -2,47 +2,16 @@ defmodule Vdr.RedisStream.Parser do
   @moduledoc """
   Redis replication stream parser implemented in Rust.
 
-  This module provides a streaming parser for Redis replication protocol
-  that handles RDB snapshot transfer and command streaming.
+  This module provides a streaming parser for Redis replication protocol.
+  (except for few greeting commands)
+  The parser handles RDB snapshot transfer and command subsequent online command streaming.
 
-  The parser manages state transitions:
+  The parser main states are:
   - WaitingRdb: Initial state, waiting for RDB data
   - ReadingRdb: Parsing RDB snapshot
   - Streaming: Processing command stream after RDB
 
-  ## Example - Basic Usage
-
-      alias Vdr.RedisStream.Command
-
-      # Create parser
-      parser = Vdr.RedisStream.Parser.create()
-
-      # Feed data chunks from replication stream
-      case Vdr.RedisStream.Parser.data(parser, chunk1) do
-        {:ok, commands, parser, flags} ->
-          # Check if PING was received
-          if flags.ping, do: IO.puts("Received PING")
-
-          # Process commands from RDB or stream
-          Enum.each(commands, fn {db, command, raw_command} ->
-            IO.inspect({db, command, raw_command})
-          end)
-
-          # Continue feeding more data
-          Vdr.RedisStream.Parser.data(parser, chunk2)
-
-        {:finished, commands} ->
-          # Parser finished (connection closed)
-          process_final_commands(commands)
-
-        {:error, reason} ->
-          IO.puts("Error: \#{inspect(reason)}")
-      end
-
-  ## Example - Integration with Replica
-
-      # This parser is designed to be used internally by Vdr.RedisStream.Replica
-      # For normal use cases, use Vdr.RedisStream.Replica instead.
+  This parser is designed to be used internally by Vdr.RedisStream.Replica
   """
 
   alias Vdr.RedisStream.CommandParser
@@ -59,16 +28,6 @@ defmodule Vdr.RedisStream.Parser do
   ## Returns
 
   A parser resource that can be used with `data/2`.
-
-  ## Examples
-
-      # Standard mode - expects RDB followed by command stream
-      parser = Vdr.RedisStream.Parser.create()
-      {:ok, commands, parser, flags} = Vdr.RedisStream.Parser.data(parser, chunk)
-
-      # Streaming mode - no RDB expected (for partial resync)
-      parser = Vdr.RedisStream.Parser.create(rdb: false)
-      {:ok, commands, parser, flags} = Vdr.RedisStream.Parser.data(parser, chunk)
   """
   @spec create(keyword()) :: reference()
   def create(opts \\ []) do
@@ -119,24 +78,6 @@ defmodule Vdr.RedisStream.Parser do
   - `:replconf_getack` - `true` if a REPLCONF GETACK command was encountered during this chunk processing
 
   Note: PING and REPLCONF commands are not returned as commands - they are signaled via flags only.
-
-  ## Example
-
-      parser = Vdr.RedisStream.Parser.create()
-      case Vdr.RedisStream.Parser.data(parser, chunk) do
-        {:ok, commands, parser, flags} ->
-          # More data expected
-          if flags.ping, do: IO.puts("Received PING")
-          process_commands(commands)
-          # Continue with next chunk...
-
-        {:finished, commands} ->
-          # Finished
-          process_final_commands(commands)
-
-        {:error, reason} ->
-          handle_error(reason)
-      end
   """
   @spec data(reference(), binary()) ::
           {:ok, list(), reference(), flags()} | {:finished, list()} | {:error, term()}
