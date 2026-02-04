@@ -3,20 +3,17 @@ HOST := `hostname`
 format:
     mix format
 
-# Run tests excluding slow tests (reconnection and ack tests)
 test:
     mix test --trace
 
-# Run all tests including slow tests
 test-all:
     mix test --trace --include slow
 
 compile:
     mix compile
 
-# Run tests with coverage report (HTML)
 cov:
-    mix coveralls.html # --include slow
+    mix coveralls.html --include slow
     cd native/vdr_ts_nif && ./cover.sh
     cd native/vdr_redis_nif && ./cover.sh
     @echo "Coverage report: http://{{HOST}}:8000"
@@ -38,45 +35,28 @@ clean:
 clean-all: clean
     mix clean --deps
 
-# Start Redis in Docker for testing
 dc-start:
     cd test/assets && docker compose up -d
 
-# Stop Redis Docker container
 dc-stop:
-    cd test/assets && docker compose down --remove-orphans
+    cd test/assets && docker compose down -v
 
-dc-restart:
-    cd test/assets && docker compose down -v --remove-orphans && docker compose up -d
-
-# Stop Redis and remove volumes
-dc-clean:
-    cd test/assets && docker compose down -v --remove-orphans
+dc-restart: dc-stop dc-start
 
 dc-logs:
     cd test/assets && docker compose logs -f
 
-# Start Sentinel services in Docker for testing
 dc-sentinel-start:
     cd test/assets && docker compose -f docker-compose-sentinel.yml up -d
 
-# Stop Sentinel Docker services
 dc-sentinel-stop:
-    cd test/assets && docker compose -f docker-compose-sentinel.yml down --remove-orphans
+    cd test/assets && docker compose -f docker-compose-sentinel.yml down -v
 
-# Restart Sentinel Docker services
-dc-sentinel-restart:
-    cd test/assets && docker compose -f docker-compose-sentinel.yml down -v --remove-orphans && docker compose -f docker-compose-sentinel.yml up -d
+dc-sentinel-restart: dc-sentinel-stop dc-sentinel-start
 
-# Stop Sentinel services and remove volumes
-dc-sentinel-clean:
-    cd test/assets && docker compose -f docker-compose-sentinel.yml down -v --remove-orphans
-
-# View Sentinel service logs
 dc-sentinel-logs:
     cd test/assets && docker compose -f docker-compose-sentinel.yml logs -f
 
-# List available benchmark scenarios
 bench-list:
     mix benchmark --list
 
@@ -85,7 +65,6 @@ duration := '30'
 intensity := '50000'
 readers := '1'
 
-# Run benchmark with profiling and generate flamegraphs
 # Requires: sudo access for perf, perf tools installed
 bench-profile scenario=default_scenario:
     ./scripts/bench-profile.sh {{scenario}} {{duration}} {{intensity}} {{readers}}

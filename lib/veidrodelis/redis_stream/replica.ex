@@ -1,6 +1,6 @@
 defmodule Vdr.RedisStream.Replica do
   @moduledoc """
-  Redis replication client that connects to a Redis master and receives
+  Redis replication client that connects to a Redis and receives
   replication stream via PSYNC.
 
   The replica manages a state machine for the replication protocol:
@@ -19,7 +19,6 @@ defmodule Vdr.RedisStream.Replica do
 
   In this project, this module is used with `Vdr.TSProj` callback module that builds an in-memory
   projection of the Redis data related to the string, list, set, sorted set or hash data types.
-
 
   ### Simple Logging Replica
 
@@ -124,16 +123,17 @@ defmodule Vdr.RedisStream.Replica do
       * `:sentinels` - List of sentinel nodes (required), each with `:host` and `:port`
       * `:group` - Name of the primary group in sentinel (required)
       * `:role` - Server role to discover: `:primary` or `:replica` (default: `:primary`)
-      * `:timeout` - Timeout for sentinel operations in ms (default: 500)
-      * `:ssl` - Use SSL for sentinel connections (default: false)
-      * `:password` - Password for sentinel authentication (default: nil)
+      * `:connect_opts` - Redix connection options for sentinel connections (optional).
+        Supports all Redix options like `:timeout`, `:ssl`, `:password`, etc.
+      * `:replica_connect_opts` - Redix connection options for discovered Redis server (optional).
+        Supports all Redix options like `:username`, `:password`, `:ssl`, `:socket_opts`, etc.
 
-  ### Redis Server Options (apply to discovered or direct server)
+  ### Redis Server Options (apply to direct connections only)
 
-    * `:username` - Redis username for ACL authentication (default: nil)
-    * `:password` - Redis password (default: nil)
-    * `:ssl` - Use SSL/TLS for Redis connection (default: false)
-    * `:ssl_opts` - SSL options (default: [])
+    * `:username` - Redis username for ACL authentication (default: nil). Not used with sentinel.
+    * `:password` - Redis password (default: nil). Not used with sentinel.
+    * `:ssl` - Use SSL/TLS for Redis connection (default: false). Not used with sentinel.
+    * `:ssl_opts` - SSL options (default: []). Not used with sentinel.
 
   ### Callback Options
 
@@ -146,7 +146,7 @@ defmodule Vdr.RedisStream.Replica do
     * `:reconnect` - Enable automatic reconnection (default: true)
     * `:reconnect_delay_ms` - Initial delay before reconnection in ms (default: 1000)
     * `:max_reconnect_delay_ms` - Maximum delay between reconnection attempts in ms (default: 30000)
-    * `:ack_interval_ms` - Interval for sending periodic REPLCONF ACK to master in ms (default: 1000).
+    * `:ack_interval_ms` - Interval for sending periodic REPLCONF ACK to the primary in ms (default: 1000).
     * `:command_filter` - Command filter to apply to commands (default: none)
 
   ## Authentication
@@ -217,10 +217,13 @@ defmodule Vdr.RedisStream.Replica do
         [host: "sentinel2", port: 26379],
         [host: "sentinel3", port: 26379]
       ],
-      group: "mymaster",
-      role: :primary
+      group: "myprimary",
+      role: :primary,
+      # Optional: Connection options for sentinel connections
+      connect_opts: [timeout: 1000, ssl: true],
+      # Optional: Connection options for replica connections
+      replica_connect_opts: [password: "redis_password", ssl: true]
     ],
-    password: "redis_password",
     callback_module: MyCallback,
     callback_opts: %{}
   ]
@@ -236,10 +239,10 @@ defmodule Vdr.RedisStream.Replica do
         [host: "sentinel2", port: 26379],
         [host: "sentinel3", port: 26379]
       ],
-      group: "mymaster",
-      role: :replica
+      group: "myprimary",
+      role: :replica,
+      replica_connect_opts: [password: "redis_password"]
     ],
-    password: "redis_password",
     callback_module: MyCallback,
     callback_opts: %{}
   ]
@@ -622,15 +625,7 @@ defmodule Vdr.RedisStream.Replica do
     group = state.sentinel[:group]
     Logger.info("Starting sentinel discovery for group: #{group}")
 
-    redis_opts = [
-      username: state.username,
-      password: state.password,
-      ssl: state.ssl,
-      ssl_opts: state.ssl_opts,
-      timeout: @default_timeout
-    ]
-
-    case Vdr.RedisStream.SentinelConnector.discover_server(state.sentinel, redis_opts) do
+    case Vdr.RedisStream.SentinelConnector.discover_server(state.sentinel) do
       {:ok, {host, port}} ->
         Logger.info("Sentinel discovered server at #{host}:#{port}")
 
@@ -1077,7 +1072,7 @@ defmodule Vdr.RedisStream.Replica do
         end
 
       {:finished, commands} ->
-        # Parser finished (connection closed by master)
+        # Parser finished (connection closed)
         # Process any final commands and then stop
         Logger.info("Replica parser finished (connection closed)")
 

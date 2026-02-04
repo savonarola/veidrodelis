@@ -45,11 +45,16 @@ defmodule Veidrodelis do
     * `:id` - Veidrodelis instance ID, required
     * `:host` - Redis host (default: "localhost"). Cannot be used with `:sentinel`.
     * `:port` - Redis port (default: 6379). Cannot be used with `:sentinel`.
-    * `:sentinel` - Sentinel configuration. See `Vdr.RedisStream.Replica` for details.
-    * `:username` - Redis username for ACL authentication (default: nil)
-    * `:password` - Redis password (default: nil)
-    * `:ssl` - Use SSL/TLS (default: false)
-    * `:ssl_opts` - SSL options (default: [])
+    * `:sentinel` - Sentinel configuration (keyword list). Cannot be used with `:host`/`:port`.
+      * `:sentinels` - List of sentinel nodes (required), each with `:host` and `:port`
+      * `:group` - Name of the primary group in sentinel (required)
+      * `:role` - Server role to discover: `:primary` or `:replica` (default: `:primary`)
+      * `:connect_opts` - Redix connection options for sentinel connections (optional)
+      * `:replica_connect_opts` - Redix connection options for discovered Redis server (optional)
+    * `:username` - Redis username for ACL authentication (default: nil). Only for direct connections.
+    * `:password` - Redis password (default: nil). Only for direct connections.
+    * `:ssl` - Use SSL/TLS (default: false). Only for direct connections.
+    * `:ssl_opts` - SSL options (default: []). Only for direct connections.
     * `:reconnect` - Enable automatic reconnection (default: true)
     * `:reconnect_delay_ms` - Initial delay before reconnection in ms (default: 1000)
     * `:max_reconnect_delay_ms` - Maximum delay between reconnection attempts in ms (default: 30000)
@@ -88,7 +93,12 @@ defmodule Veidrodelis do
             [host: "sentinel1", port: 26379],
             [host: "sentinel2", port: 26379]
           ],
-          group: "mymaster"
+          group: "myprimary",
+          role: :primary,
+          # Optional: Connection options for sentinel
+          connect_opts: [timeout: 1000],
+          # Optional: Connection options for Redis server
+          replica_connect_opts: [password: "redis_password", ssl: true]
         ]
       ]
       {:ok, pid} = Veidrodelis.start_link(opts)

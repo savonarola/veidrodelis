@@ -10,7 +10,7 @@ defmodule Vdr.SentinelIntegrationTest do
 
   @sentinel_host "localhost"
   @sentinel_ports [27379, 27380, 27381]
-  @sentinel_group "mymaster"
+  @sentinel_group "myprimary"
   @primary_host "localhost"
   @primary_port 16390
   @host_map %{
@@ -95,7 +95,7 @@ defmodule Vdr.SentinelIntegrationTest do
           ],
           group: @sentinel_group,
           role: :primary,
-          timeout: 1000,
+          connect_opts: [timeout: 1000],
           host_map: @host_map
         ],
         callback_module: CollectorCallback,
@@ -141,7 +141,7 @@ defmodule Vdr.SentinelIntegrationTest do
           ],
           group: @sentinel_group,
           role: :primary,
-          timeout: 500,
+          connect_opts: [timeout: 500],
           host_map: @host_map
         ],
         callback_module: CollectorCallback,
@@ -268,27 +268,27 @@ defmodule Vdr.SentinelIntegrationTest do
       end)
 
       # Wait for sentinel to complete failover and promote replica
-      # Use docker exec to query sentinel directly to avoid Redix connection issues
       new_primary_result = :erlang.make_ref()
 
       assert_within 60_000 do
-        # Query sentinel using docker exec
-        {output, 0} =
-          System.cmd("docker", [
-            "exec",
-            "veidrodelis-sentinel-1",
-            "redis-cli",
-            "-p",
-            "27379",
-            "SENTINEL",
-            "get-master-addr-by-name",
-            @sentinel_group
-          ])
+        # Query sentinel using Redix
+        {:ok, sentinel_conn} =
+          Redix.start_link(
+            host: @sentinel_host,
+            port: Enum.at(@sentinel_ports, 0),
+            timeout: 5_000,
+            sync_connect: true
+          )
 
-        lines = String.split(output, "\n", trim: true)
+        result =
+          Redix.command(sentinel_conn, ["SENTINEL", "get-master-addr-by-name", @sentinel_group],
+            timeout: 5_000
+          )
 
-        case lines do
-          [host, port_str] ->
+        Redix.stop(sentinel_conn)
+
+        case result do
+          {:ok, [host, port_str]} ->
             port = String.to_integer(port_str)
 
             # Skip if sentinel still reports the old primary
@@ -325,11 +325,11 @@ defmodule Vdr.SentinelIntegrationTest do
 
                   {{:ok, ["master" | _]}, _} ->
                     Process.sleep(1000)
-                    raise "Master but not writable yet"
+                    raise "Primary but not writable yet"
 
                   _ ->
                     Process.sleep(1000)
-                    raise "Not a master yet"
+                    raise "Not a primary yet"
                 end
 
               {:error, reason} ->
@@ -337,9 +337,13 @@ defmodule Vdr.SentinelIntegrationTest do
                 raise "Cannot connect: #{inspect(reason)}"
             end
 
+          {:error, reason} ->
+            Process.sleep(1000)
+            raise "Sentinel query failed: #{inspect(reason)}"
+
           _ ->
             Process.sleep(1000)
-            raise "Invalid sentinel response: #{inspect(lines)}"
+            raise "Invalid sentinel response: #{inspect(result)}"
         end
       end
 
@@ -392,7 +396,7 @@ defmodule Vdr.SentinelIntegrationTest do
           ],
           group: @sentinel_group,
           role: :primary,
-          timeout: 100,
+          connect_opts: [timeout: 100],
           host_map: @host_map
         ],
         callback_module: CollectorCallback,
@@ -423,7 +427,7 @@ defmodule Vdr.SentinelIntegrationTest do
             end),
           group: "nonexistent_group",
           role: :primary,
-          timeout: 1000,
+          connect_opts: [timeout: 1000],
           host_map: @host_map
         ],
         callback_module: CollectorCallback,

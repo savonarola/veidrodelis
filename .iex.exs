@@ -1,6 +1,5 @@
 # Redis Sentinel connection helpers
 defmodule RS do
-
   def primary() do
     redix_start_link(
       host: "localhost",
@@ -23,26 +22,28 @@ defmodule RS do
   end
 
   def veidrodelis(id \\ :v) do
-    {:ok, pid} = Veidrodelis.start_link(
-      id: id,
-      sentinel: [
-        sentinels: [
-          [host: "localhost", port: 27379],
-          [host: "localhost", port: 27380],
-          [host: "localhost", port: 27381]
-        ],
-        group: "mymaster",
-        role: :primary,
-        timeout: 5000,
-        host_map: %{
-          "172.28.0.20" => "localhost",
-          "172.28.0.21" => "localhost",
-          "172.28.0.31" => "localhost",
-          "172.28.0.32" => "localhost",
-          "172.28.0.33" => "localhost"
-        }
-      ]
-    )
+    {:ok, pid} =
+      Veidrodelis.start_link(
+        id: id,
+        sentinel: [
+          sentinels: [
+            [host: "localhost", port: 27379],
+            [host: "localhost", port: 27380],
+            [host: "localhost", port: 27381]
+          ],
+          group: "myprimary",
+          role: :primary,
+          timeout: 5000,
+          host_map: %{
+            "172.28.0.20" => "localhost",
+            "172.28.0.21" => "localhost",
+            "172.28.0.31" => "localhost",
+            "172.28.0.32" => "localhost",
+            "172.28.0.33" => "localhost"
+          }
+        ]
+      )
+
     pid
   end
 
@@ -56,5 +57,4 @@ defmodule RS do
     {:ok, pid} = Redix.start_link(opts)
     pid
   end
-
 end

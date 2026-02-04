@@ -68,7 +68,7 @@ Veidrodelis uses a Rust-based storage backend (TSProj) for high-performance, thr
 ### Replication Flow
 
 ```
-Redis Master → TCP/SSL → Vdr.RedisStream.Replica →
+Redis Primary or Replica → TCP/SSL → Vdr.RedisStream.Replica →
   RDB/Command Stream → Vdr.RedisStream.Parser (Rust) →
   Commands → Callback (TSProj) →
   Storage (TS Rust NIF)
@@ -228,4 +228,3 @@ Veidrodelis API → Registry Lookup →
 - Compile automatically via `mix compile` (handled by Rustler)
 - LZF compression uses legacy C code, wrapped by Rust NIF
 - Rust code should handle errors gracefully and return proper Elixir error tuples
-

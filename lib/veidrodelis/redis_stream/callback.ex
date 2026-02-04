@@ -34,19 +34,19 @@ defmodule Vdr.RedisStream.Callback do
   @callback init(opts()) :: {:ok, state()} | {:error, term()}
 
   @doc """
-  Called when the replica has established a connection to the Redis master
+  Called when the replica has established a connection to the Redis
   and is about to start replicating.
   """
   @callback handle_replication_start(state()) :: {:ok, state()} | {:error, term()}
 
   @doc """
-  Called when the replica has read and handle the RDB snapshot from the Redis master
+  Called when the replica has read and handle the RDB snapshot from the Redis
   and starts to stream online commands.
   """
   @callback handle_streaming_start(state()) :: {:ok, state()} | {:error, term()}
 
   @doc """
-  Called when the replica has received and handled a batch of commands from the Redis master.
+  Called when the replica has received and handled a batch of commands from the Redis.
   RDB snapshot and online commands are both handled by this callback.
 
   RDB snapshot data is converted to corresponding ReplicaCommand structs.

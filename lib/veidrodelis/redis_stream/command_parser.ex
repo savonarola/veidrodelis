@@ -23,8 +23,8 @@ defmodule Vdr.RedisStream.CommandParser do
   """
   @spec parse([binary()]) :: {:ok, tuple(), [binary()]}
   def parse(["SET", key, value | options]) when length(options) > 0 do
-    ## We ignore expiration, because we never become a master node.
-    ## All deletion of keys must be issued by the master node.
+    ## We ignore expiration, because we never become a primary node.
+    ## All deletion of keys must be issued by the node we are replica of.
     {:ok, {:set, key, value}, [key]}
   end
 
@@ -532,7 +532,7 @@ defmodule Vdr.RedisStream.CommandParser do
     cond do
       # Check for exclusive prefix "("
       String.starts_with?(str, "(") ->
-        score_str = String.slice(str, 1..-1)
+        score_str = String.slice(str, 1..-1//1)
         score = parse_score_to_float(score_str)
         {:excluded, score}
 

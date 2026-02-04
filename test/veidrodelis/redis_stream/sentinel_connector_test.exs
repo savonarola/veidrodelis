@@ -10,7 +10,7 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
 
   @sentinel_host "localhost"
   @sentinel_ports [27379, 27380, 27381]
-  @sentinel_group "mymaster"
+  @sentinel_group "myprimary"
   @host_map %{
     "172.28.0.20" => "localhost",
     "172.28.0.21" => "localhost",
@@ -33,20 +33,13 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
         ],
         group: @sentinel_group,
         role: :primary,
-        timeout: 5000,
+        connect_opts: [timeout: 5000],
+        replica_connect_opts: [timeout: 5000],
         host_map: @host_map
       ]
 
-      redis_opts = [
-        password: nil,
-        username: nil,
-        ssl: false,
-        ssl_opts: [],
-        timeout: 5000
-      ]
-
       assert_within 10_000 do
-        assert {:ok, {host, port}} = SentinelConnector.discover_server(sentinel_opts, redis_opts)
+        assert {:ok, {host, port}} = SentinelConnector.discover_server(sentinel_opts)
         assert is_binary(host)
         assert is_integer(port)
         assert port > 0
@@ -64,21 +57,14 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
         ],
         group: @sentinel_group,
         role: :primary,
-        timeout: 100,
+        connect_opts: [timeout: 100],
+        replica_connect_opts: [timeout: 5000],
         host_map: @host_map
-      ]
-
-      redis_opts = [
-        password: nil,
-        username: nil,
-        ssl: false,
-        ssl_opts: [],
-        timeout: 5000
       ]
 
       assert_within 10_000 do
         assert {:error, :no_viable_sentinel_connection} =
-                 SentinelConnector.discover_server(sentinel_opts, redis_opts)
+                 SentinelConnector.discover_server(sentinel_opts)
       end
     end
 
@@ -95,21 +81,14 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
         ],
         group: @sentinel_group,
         role: :primary,
-        timeout: 500,
+        connect_opts: [timeout: 500],
+        replica_connect_opts: [timeout: 5000],
         host_map: @host_map
-      ]
-
-      redis_opts = [
-        password: nil,
-        username: nil,
-        ssl: false,
-        ssl_opts: [],
-        timeout: 5000
       ]
 
       assert_within 10_000 do
         # Should successfully connect through second sentinel
-        assert {:ok, {host, port}} = SentinelConnector.discover_server(sentinel_opts, redis_opts)
+        assert {:ok, {host, port}} = SentinelConnector.discover_server(sentinel_opts)
         assert is_binary(host)
         assert is_integer(port)
         assert port > 0
@@ -126,21 +105,14 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
         ],
         group: "nonexistent_group",
         role: :primary,
-        timeout: 1000,
+        connect_opts: [timeout: 1000],
+        replica_connect_opts: [timeout: 5000],
         host_map: @host_map
-      ]
-
-      redis_opts = [
-        password: nil,
-        username: nil,
-        ssl: false,
-        ssl_opts: [],
-        timeout: 5000
       ]
 
       assert_within 10_000 do
         assert {:error, :no_viable_sentinel_connection} =
-                 SentinelConnector.discover_server(sentinel_opts, redis_opts)
+                 SentinelConnector.discover_server(sentinel_opts)
       end
     end
 
@@ -154,20 +126,13 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
         ],
         group: @sentinel_group,
         role: :replica,
-        timeout: 5000,
+        connect_opts: [timeout: 5000],
+        replica_connect_opts: [timeout: 5000],
         host_map: @host_map
       ]
 
-      redis_opts = [
-        password: nil,
-        username: nil,
-        ssl: false,
-        ssl_opts: [],
-        timeout: 5000
-      ]
-
       assert_within 10_000 do
-        assert {:ok, {host, port}} = SentinelConnector.discover_server(sentinel_opts, redis_opts)
+        assert {:ok, {host, port}} = SentinelConnector.discover_server(sentinel_opts)
         assert is_binary(host)
         assert is_integer(port)
         assert port > 0

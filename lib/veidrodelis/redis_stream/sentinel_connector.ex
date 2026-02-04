@@ -16,19 +16,16 @@ defmodule Vdr.RedisStream.SentinelConnector do
       * `:sentinels` - List of sentinel nodes (required)
       * `:group` - Primary group name (required)
       * `:role` - `:primary` or `:replica` (default: `:primary`)
-      * `:timeout` - Timeout in ms (default: 500)
-      * `:ssl` - Use SSL for sentinel connections (default: false)
-      * `:password` - Sentinel authentication password (optional)
+      * `:connect_opts` - Redix connection options for sentinels (optional)
+      * `:replica_connect_opts` - Redix connection options for replica verification (optional)
       * `:host_map` - Map for translating sentinel-returned hostnames (for testing)
-
-    * `redis_opts` - Redis server connection options (used for role verification)
 
   ## Returns
 
     * `{:ok, {host, port}}` - Successfully discovered server
     * `{:error, reason}` - All sentinels failed or other error
   """
-  def discover_server(sentinel_opts, redis_opts) do
+  def discover_server(sentinel_opts) do
     sentinels = Keyword.fetch!(sentinel_opts, :sentinels)
     group = Keyword.fetch!(sentinel_opts, :group)
     role = Keyword.get(sentinel_opts, :role, :primary)
@@ -36,15 +33,15 @@ defmodule Vdr.RedisStream.SentinelConnector do
 
     Logger.debug("Discovering #{role} for group: #{group}")
 
-    try_sentinels(sentinels, sentinel_opts, redis_opts, host_map, 1, length(sentinels))
+    try_sentinels(sentinels, sentinel_opts, host_map, 1, length(sentinels))
   end
 
   # Tries each sentinel in the list sequentially
-  defp try_sentinels([], _sentinel_opts, _redis_opts, _host_map, _index, _total) do
+  defp try_sentinels([], _sentinel_opts, _host_map, _index, _total) do
     {:error, :no_viable_sentinel_connection}
   end
 
-  defp try_sentinels([sentinel | rest], sentinel_opts, redis_opts, host_map, index, total) do
+  defp try_sentinels([sentinel | rest], sentinel_opts, host_map, index, total) do
     host = Keyword.fetch!(sentinel, :host)
     port = Keyword.fetch!(sentinel, :port)
     group = Keyword.fetch!(sentinel_opts, :group)
@@ -58,12 +55,11 @@ defmodule Vdr.RedisStream.SentinelConnector do
           with {:ok, {server_host, server_port}} <- query_server_address(conn, group, role),
                # Map the hostname if needed (for testing)
                mapped_host = Map.get(host_map, server_host, server_host),
-               :ok <- verify_role(mapped_host, server_port, role, redis_opts) do
+               :ok <- verify_role(mapped_host, server_port, role, sentinel_opts) do
             Logger.info("Verified server role: #{role}")
             {:ok, {mapped_host, server_port}}
           end
 
-        # Always close sentinel connection
         Redix.stop(conn)
 
         case result do
@@ -73,7 +69,7 @@ defmodule Vdr.RedisStream.SentinelConnector do
           {:error, reason} ->
             Logger.warning("Sentinel #{host}:#{port} failed: #{inspect(reason)}, trying next")
 
-            try_sentinels(rest, sentinel_opts, redis_opts, host_map, index + 1, total)
+            try_sentinels(rest, sentinel_opts, host_map, index + 1, total)
         end
 
       {:error, reason} ->
@@ -81,7 +77,7 @@ defmodule Vdr.RedisStream.SentinelConnector do
           "Failed to connect to sentinel #{host}:#{port}: #{inspect(reason)}, trying next"
         )
 
-        try_sentinels(rest, sentinel_opts, redis_opts, host_map, index + 1, total)
+        try_sentinels(rest, sentinel_opts, host_map, index + 1, total)
     end
   end
 
@@ -89,31 +85,9 @@ defmodule Vdr.RedisStream.SentinelConnector do
   defp connect_to_sentinel(sentinel, sentinel_opts) do
     host = Keyword.fetch!(sentinel, :host)
     port = Keyword.fetch!(sentinel, :port)
-    timeout = Keyword.get(sentinel_opts, :timeout, 500)
-    ssl = Keyword.get(sentinel_opts, :ssl, false)
-    password = Keyword.get(sentinel_opts, :password)
+    connect_opts = Keyword.get(sentinel_opts, :connect_opts, [])
 
-    # Build Redix connection options
-    redix_opts = [
-      host: to_string(host),
-      port: port,
-      timeout: timeout,
-      sync_connect: true
-    ]
-
-    redix_opts =
-      if ssl do
-        Keyword.put(redix_opts, :ssl, true)
-      else
-        redix_opts
-      end
-
-    redix_opts =
-      if password do
-        Keyword.put(redix_opts, :password, password)
-      else
-        redix_opts
-      end
+    redix_opts = build_redix_opts(host, port, connect_opts)
 
     Logger.debug("Connecting to sentinel with opts: #{inspect(redix_opts)}")
 
@@ -125,6 +99,22 @@ defmodule Vdr.RedisStream.SentinelConnector do
       {:error, reason} ->
         {:error, reason}
     end
+  end
+
+  # Builds Redix connection options from host, port, and optional connection config
+  defp build_redix_opts(host, port, opts) do
+    # Start with base options
+    base_opts = [
+      host: to_string(host),
+      port: port,
+      sync_connect: true
+    ]
+
+    # Merge user-provided options, allowing them to override defaults
+    # Set default timeout if not provided
+    opts_with_defaults = Keyword.put_new(opts, :timeout, 500)
+
+    Keyword.merge(base_opts, opts_with_defaults)
   end
 
   # Queries sentinel for server address based on role
@@ -158,7 +148,7 @@ defmodule Vdr.RedisStream.SentinelConnector do
   defp query_replica_address(conn, group) do
     Logger.debug("Querying sentinel for replica address")
 
-    case Redix.command(conn, ["SENTINEL", "slaves", group]) do
+    case Redix.command(conn, ["SENTINEL", "replicas", group]) do
       {:ok, replicas} when is_list(replicas) and replicas != [] ->
         # Parse replica info (list of lists with field-value pairs)
         case parse_and_pick_replica(replicas) do
@@ -179,14 +169,15 @@ defmodule Vdr.RedisStream.SentinelConnector do
     end
   end
 
-  # Parses replica info from SENTINEL slaves response and picks one at random
+  # Parses replica info from SENTINEL replicas response and picks one at random
   defp parse_and_pick_replica(replicas) do
     # Each replica is a list like: ["name", "...", "ip", "127.0.0.1", "port", "6380", ...]
     parsed_replicas =
       Enum.reduce(replicas, [], fn replica, acc ->
-        case extract_host_port(replica) do
-          {:ok, {host, port}} -> [{host, port} | acc]
-          {:error, _} -> acc
+        case parse_replica(replica) do
+          %{"hostname" => hostname, "port" => port} -> [{hostname, String.to_integer(port)} | acc]
+          %{"ip" => ip, "port" => port} -> [{ip, String.to_integer(port)} | acc]
+          _ -> acc
         end
       end)
 
@@ -200,58 +191,23 @@ defmodule Vdr.RedisStream.SentinelConnector do
     end
   end
 
-  # Extracts host and port from replica info list
-  defp extract_host_port(replica_info) do
-    # Find "ip" and "port" in the list
-    case {find_value(replica_info, "ip"), find_value(replica_info, "port")} do
-      {nil, _} ->
-        {:error, :ip_not_found}
+  defp parse_replica(replica_info, acc \\ %{}) do
+    case replica_info do
+      [key, value | rest] ->
+        parse_replica(rest, Map.put(acc, key, value))
 
-      {_, nil} ->
-        {:error, :port_not_found}
-
-      {host, port} ->
-        {:ok, {host, String.to_integer(port)}}
-    end
-  end
-
-  # Finds value after a key in a flat list
-  defp find_value(list, key) do
-    case Enum.find_index(list, &(&1 == key)) do
-      nil -> nil
-      index -> Enum.at(list, index + 1)
+      [] ->
+        acc
     end
   end
 
   # Verifies server role by connecting and running ROLE command
-  defp verify_role(host, port, expected_role, redis_opts) do
+  defp verify_role(host, port, expected_role, sentinel_opts) do
     Logger.debug("Verifying server role at #{host}:#{port}")
 
-    # Build Redix connection options for the server
-    redix_opts = [
-      host: to_string(host),
-      port: port,
-      timeout: Keyword.get(redis_opts, :timeout, 5000),
-      sync_connect: true
-    ]
-
-    # Add optional connection parameters
-    # Note: Redix uses :socket_opts, not :ssl_opts
-    redix_opts =
-      [:username, :password, :ssl]
-      |> Enum.reduce(redix_opts, fn key, acc ->
-        case Keyword.get(redis_opts, key) do
-          nil -> acc
-          value -> Keyword.put(acc, key, value)
-        end
-      end)
-
-    # Map ssl_opts to socket_opts for Redix
-    redix_opts =
-      case Keyword.get(redis_opts, :ssl_opts) do
-        nil -> redix_opts
-        ssl_opts -> Keyword.put(redix_opts, :socket_opts, ssl_opts)
-      end
+    # Use replica_connect_opts for verification connection
+    replica_connect_opts = Keyword.get(sentinel_opts, :replica_connect_opts, [])
+    redix_opts = build_redix_opts(host, port, replica_connect_opts)
 
     case Redix.start_link(redix_opts) do
       {:ok, conn} ->

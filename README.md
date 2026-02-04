@@ -237,7 +237,7 @@ local results = {}
 local first_score, first_member = ts.zfirst('leaderboard')
 if first_score then
   table.insert(results, {first_member, first_score})
-  
+
   local next_score, next_member = ts.znext('leaderboard', first_score, first_member)
   while next_score do
     table.insert(results, {next_member, next_score})
@@ -383,7 +383,7 @@ For high-availability setups, connect via Redis Sentinel:
       [host: "sentinel2.example.com", port: 26379],
       [host: "sentinel3.example.com", port: 26379]
     ],
-    group: "mymaster",
+    group: "myprimary",
     role: :primary,
     timeout: 1000
   ],
@@ -405,4 +405,3 @@ The project name is a diacritic-less form of the Lithuanian word "veidrodėlis",
 ## License
 
 [Apache 2.0](LICENSE)
-
