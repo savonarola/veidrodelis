@@ -1,12 +1,8 @@
 defmodule Vdr.RedisStream.CommandParser do
   @moduledoc """
-  Parses Redis replication stream commands (as RESP arrays) into command tuples.
+  This is an internal module for parsing Redis commands into command tuples.
 
-  This parser is specifically designed for Redis replication streams and handles
-  all commands that can appear during replication when only strings, sets, hashes,
-  zsets, and lists are used.
-
-  Commands are parsed directly into tuple format for efficient processing.
+  Parses Redis replication stream commands into command tuples.
   """
 
   @doc """
@@ -26,12 +22,9 @@ defmodule Vdr.RedisStream.CommandParser do
       {:ok, {:generic, ["UNKNOWN", "arg"]}, []}
   """
   @spec parse([binary()]) :: {:ok, tuple(), [binary()]}
-  # SET with options (Redis 8.x replicates INCRBYFLOAT, SETEX, PSETEX as SET with options)
-  # SET key value [KEEPTTL | PXAT timestamp]
   def parse(["SET", key, value | options]) when length(options) > 0 do
-    # For now, we ignore the options and just use the key-value
-    # KEEPTTL means keep existing TTL, PXAT means expire at timestamp
-    # Since we don't implement expiration yet, we can ignore these
+    ## We ignore expiration, because we never become a master node.
+    ## All deletion of keys must be issued by the master node.
     {:ok, {:set, key, value}, [key]}
   end
 
@@ -54,7 +47,6 @@ defmodule Vdr.RedisStream.CommandParser do
     {:ok, {:setbit, key, String.to_integer(offset), bit_value}, [key]}
   end
 
-  # Numeric string commands
   def parse(["INCR", key]), do: {:ok, {:incr, key}, [key]}
 
   def parse(["INCRBY", key, increment]),
@@ -65,7 +57,6 @@ defmodule Vdr.RedisStream.CommandParser do
   def parse(["DECRBY", key, decrement]),
     do: {:ok, {:decrby, key, String.to_integer(decrement)}, [key]}
 
-  # Conditional set commands
   def parse(["SETNX", key, value]), do: {:ok, {:setnx, key, value}, [key]}
 
   def parse(["MSETNX" | args]) do
@@ -74,18 +65,24 @@ defmodule Vdr.RedisStream.CommandParser do
     {:ok, {:msetnx, pairs}, keys}
   end
 
-  # Get-and-modify commands
   def parse(["GETSET", key, value]), do: {:ok, {:getset, key, value}, [key]}
+
   def parse(["GETDEL", key]), do: {:ok, {:getdel, key}, [key]}
 
-  # List commands
   def parse(["LPUSH", key | values]), do: {:ok, {:lpush, key, values}, [key]}
+
   def parse(["RPUSH", key | values]), do: {:ok, {:rpush, key, values}, [key]}
+
   def parse(["LPUSHX", key | values]), do: {:ok, {:lpushx, key, values}, [key]}
+
   def parse(["RPUSHX", key | values]), do: {:ok, {:rpushx, key, values}, [key]}
+
   def parse(["LPOP", key]), do: {:ok, {:lpop, key}, [key]}
+
   def parse(["LPOP", key, count]), do: {:ok, {:lpop_count, key, String.to_integer(count)}, [key]}
+
   def parse(["RPOP", key]), do: {:ok, {:rpop, key}, [key]}
+
   def parse(["RPOP", key, count]), do: {:ok, {:rpop_count, key, String.to_integer(count)}, [key]}
 
   def parse(["LREM", key, count, value]) do
@@ -132,6 +129,7 @@ defmodule Vdr.RedisStream.CommandParser do
 
   # Set commands
   def parse(["SADD", key | members]), do: {:ok, {:sadd, key, members}, [key]}
+
   def parse(["SREM", key | members]), do: {:ok, {:srem, key, members}, [key]}
 
   def parse(["SMOVE", source_key, dest_key, member]) do
@@ -183,46 +181,34 @@ defmodule Vdr.RedisStream.CommandParser do
   end
 
   def parse(["ZREMRANGEBYSCORE", key, min_str, max_str]) do
-    # Parse min and max as floats (they come as strings from Redis)
-    # Handle exclusive ranges like "(1.0" - the "(" prefix indicates exclusivity
-    # Convert to Bound tuples: :unbounded | {:included, score} | {:excluded, score}
     min_bound = parse_score_bound(min_str)
     max_bound = parse_score_bound(max_str)
     {:ok, {:zremrangebyscore, key, min_bound, max_bound}, [key]}
   end
 
   def parse(["ZREMRANGEBYLEX", key, min_str, max_str]) do
-    # Parse lexicographic bounds
-    # Syntax: - (min unbounded), + (max unbounded), [value (inclusive), (value (exclusive)
     min_bound = parse_lex_bound(min_str)
     max_bound = parse_lex_bound(max_str)
     {:ok, {:zremrangebylex, key, min_bound, max_bound}, [key]}
   end
 
   def parse(["ZRANGESTORE", dest_key, source_key, min_str, max_str | options]) do
-    # ZRANGESTORE supports BYSCORE, BYLEX, REV, and LIMIT options
-    # Pass min/max as strings so Rust can parse them based on the mode
-    # Convert options list to uppercase strings
     opts = (options || []) |> Enum.map(&String.upcase/1)
     {:ok, {:zrangestore, dest_key, source_key, min_str, max_str, opts}, [dest_key, source_key]}
   end
 
   def parse(["ZUNIONSTORE", destination, _numkeys | rest]) do
-    # Parse ZUNIONSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]
     parse_zstore_command(destination, rest, :union)
   end
 
   def parse(["ZINTERSTORE", destination, _numkeys | rest]) do
-    # Parse ZINTERSTORE destination numkeys key [key ...] [WEIGHTS weight [weight ...]] [AGGREGATE SUM|MIN|MAX]
     parse_zstore_command(destination, rest, :inter)
   end
 
   def parse(["ZDIFFSTORE", dest_key, _numkeys | source_keys]) do
-    # Parse ZDIFFSTORE destination numkeys key [key ...]
     {:ok, {:zdiffstore, dest_key, source_keys}, [dest_key | source_keys]}
   end
 
-  # Hash commands
   def parse(["HSET", key | args]) do
     fields = parse_pairs(args)
     {:ok, {:hmset, key, fields}, [key]}
@@ -249,56 +235,44 @@ defmodule Vdr.RedisStream.CommandParser do
 
   def parse(["HDEL", key | fields]), do: {:ok, {:hdel, key, fields}, [key]}
 
-  # HGETEX key [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | PERSIST] FIELDS numfields field [field ...]
   def parse(["HGETEX", key | rest]) do
     {ttl_option, fields} = parse_hgetex_args(rest)
     {:ok, {:hgetex, key, ttl_option, fields}, [key]}
   end
 
-  # Hash field expiration commands (Redis 7.4.0+)
-  # HEXPIRE key seconds [NX | XX | GT | LT] FIELDS numfields field [field ...]
   def parse(["HEXPIRE", key, seconds | rest]) do
     {condition, fields} = parse_hexpire_args(rest)
     {:ok, {:hexpire, key, String.to_integer(seconds), condition, fields}, [key]}
   end
 
-  # HEXPIREAT key unix-time-seconds [NX | XX | GT | LT] FIELDS numfields field [field ...]
   def parse(["HEXPIREAT", key, timestamp | rest]) do
     {condition, fields} = parse_hexpire_args(rest)
     {:ok, {:hexpireat, key, String.to_integer(timestamp), condition, fields}, [key]}
   end
 
-  # HPEXPIRE key milliseconds [NX | XX | GT | LT] FIELDS numfields field [field ...]
   def parse(["HPEXPIRE", key, milliseconds | rest]) do
     {condition, fields} = parse_hexpire_args(rest)
     {:ok, {:hpexpire, key, String.to_integer(milliseconds), condition, fields}, [key]}
   end
 
-  # HPEXPIREAT key unix-time-milliseconds [NX | XX | GT | LT] FIELDS numfields field [field ...]
   def parse(["HPEXPIREAT", key, timestamp_ms | rest]) do
     {condition, fields} = parse_hexpire_args(rest)
     {:ok, {:hpexpireat, key, String.to_integer(timestamp_ms), condition, fields}, [key]}
   end
 
-  # HPERSIST key FIELDS numfields field [field ...]
   def parse(["HPERSIST", key | rest]) do
     {_condition, fields} = parse_hexpire_args(rest)
     {:ok, {:hpersist, key, fields}, [key]}
   end
 
-  # HSETEX - extended HSET with options (used in replication for HINCRBYFLOAT)
-  # Format: HSETEX key [FNX | FXX] [EX seconds | PX milliseconds | EXAT unix-time-seconds | PXAT unix-time-milliseconds | KEEPTTL] FIELDS numfields field value [field value ...]
-  # We ignore TTL options and treat FNX/FXX as regular HSET
   def parse(["HSETEX", key | args]) do
     parse_hsetex(key, args)
   end
 
-  # Generic key commands
   def parse(["DEL" | keys]), do: {:ok, {:del, keys}, keys}
-  # UNLINK is semantically equivalent to DEL
+
   def parse(["UNLINK" | keys]), do: {:ok, {:del, keys}, keys}
 
-  # COPY source destination [DB destination-db] [REPLACE]
   def parse(["COPY", source, destination | options]) do
     replace = "REPLACE" in Enum.map(options, &String.upcase/1)
     {:ok, {:copy, source, destination, replace}, [source, destination]}
@@ -320,7 +294,6 @@ defmodule Vdr.RedisStream.CommandParser do
     {:ok, {:pexpireat, key, String.to_integer(timestamp_ms)}, [key]}
   end
 
-  # EXPIRE/PEXPIRE/EXPIREAT are replicated as PEXPIREAT, but we parse them if they appear
   def parse(["EXPIRE", key, seconds | _options]) do
     timestamp_ms = (System.os_time(:second) + String.to_integer(seconds)) * 1000
     {:ok, {:pexpireat, key, timestamp_ms}, [key]}
@@ -340,34 +313,19 @@ defmodule Vdr.RedisStream.CommandParser do
     {:ok, {:persist, key}, [key]}
   end
 
-  # Server commands
-  # FLUSHALL [ASYNC|SYNC]
   def parse(["FLUSHALL" | _options]) do
     {:ok, {:flushall}, []}
   end
 
-  # FLUSHDB [ASYNC|SYNC]
   def parse(["FLUSHDB" | _options]) do
     {:ok, {:flushdb}, []}
   end
 
-  # SWAPDB db1 db2
   def parse(["SWAPDB", db1, db2]) do
     {:ok, {:swapdb, String.to_integer(db1), String.to_integer(db2)}, []}
   end
 
-  # Unknown command - wrap in Generic tuple
   def parse(args) do
-    require Logger
-
-    if is_list(args) and length(args) > 0 do
-      cmd = hd(args)
-
-      if is_binary(cmd) and String.upcase(cmd) =~ ~r/HINCR/ do
-        Logger.warning("HINCR command fell through to Generic: #{inspect(args)}")
-      end
-    end
-
     {:ok, {:generic, args}, []}
   end
 
@@ -573,7 +531,7 @@ defmodule Vdr.RedisStream.CommandParser do
     cond do
       # Check for exclusive prefix "("
       String.starts_with?(str, "(") ->
-        score_str = String.slice(str, 1..-1//1)
+        score_str = String.slice(str, 1..-1)
         score = parse_score_to_float(score_str)
         {:excluded, score}
 
