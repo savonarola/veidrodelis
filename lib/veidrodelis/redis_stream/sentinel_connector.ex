@@ -1,6 +1,9 @@
 defmodule Vdr.RedisStream.SentinelConnector do
   @moduledoc false
   # Internal module for Redis Sentinel discovery and connection.
+  #
+  # Note: we have to use "master/slave" variants of commands
+  # in several places here for compatibility reasons.
 
   require Logger
 
@@ -18,7 +21,8 @@ defmodule Vdr.RedisStream.SentinelConnector do
       * `:role` - `:primary` or `:replica` (default: `:primary`)
       * `:connect_opts` - Redix connection options for sentinels (optional)
       * `:replica_connect_opts` - Redix connection options for replica verification (optional)
-      * `:host_map` - Map for translating sentinel-returned hostnames (for testing)
+      * `:host_map` - Mapping for translating sentinel-returned hostnames (for testing).
+        Can be a map or a function that takes a hostname and returns a new hostname.
 
   ## Returns
 
@@ -54,7 +58,7 @@ defmodule Vdr.RedisStream.SentinelConnector do
         result =
           with {:ok, {server_host, server_port}} <- query_server_address(conn, group, role),
                # Map the hostname if needed (for testing)
-               mapped_host = Map.get(host_map, server_host, server_host),
+               mapped_host = map_host(server_host, host_map),
                :ok <- verify_role(mapped_host, server_port, role, sentinel_opts) do
             Logger.info("Verified server role: #{role}")
             {:ok, {mapped_host, server_port}}
@@ -243,5 +247,13 @@ defmodule Vdr.RedisStream.SentinelConnector do
       {:error, reason} ->
         {:error, {:role_command_failed, reason}}
     end
+  end
+
+  defp map_host(host, host_map) when is_map(host_map) do
+    Map.get(host_map, host, host)
+  end
+
+  defp map_host(host, host_map) when is_function(host_map) do
+    host_map.(host)
   end
 end

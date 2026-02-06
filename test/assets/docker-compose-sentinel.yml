@@ -15,9 +15,9 @@ services:
       veidrodelis-net:
         ipv4_address: 172.28.0.20
 
-  redis-sentinel-replica:
+  redis-sentinel-replica-1:
     image: redis:7.2-alpine
-    container_name: veidrodelis-sentinel-replica
+    container_name: veidrodelis-sentinel-replica-1
     ports:
       - "16391:16391"
     command: >
@@ -32,6 +32,24 @@ services:
     networks:
       veidrodelis-net:
         ipv4_address: 172.28.0.21
+
+  redis-sentinel-replica-2:
+    image: redis:7.2-alpine
+    container_name: veidrodelis-sentinel-replica-2
+    ports:
+      - "16392:16392"
+    command: >
+      redis-server
+      --port 16392
+      --replicaof 172.28.0.20 16390
+      --repl-diskless-sync yes
+      --save ""
+      --loglevel debug
+    depends_on:
+      - redis-sentinel-primary
+    networks:
+      veidrodelis-net:
+        ipv4_address: 172.28.0.22
 
   redis-sentinel-1:
     image: redis:7.2-alpine
@@ -54,7 +72,8 @@ services:
       - ./sentinel.conf:/etc/redis/sentinel.conf:ro
     depends_on:
       - redis-sentinel-primary
-      - redis-sentinel-replica
+      - redis-sentinel-replica-1
+      - redis-sentinel-replica-2
     networks:
       veidrodelis-net:
         ipv4_address: 172.28.0.31
@@ -80,7 +99,8 @@ services:
       - ./sentinel.conf:/etc/redis/sentinel.conf:ro
     depends_on:
       - redis-sentinel-primary
-      - redis-sentinel-replica
+      - redis-sentinel-replica-1
+      - redis-sentinel-replica-2
     networks:
       veidrodelis-net:
         ipv4_address: 172.28.0.32
@@ -106,7 +126,8 @@ services:
       - ./sentinel.conf:/etc/redis/sentinel.conf:ro
     depends_on:
       - redis-sentinel-primary
-      - redis-sentinel-replica
+      - redis-sentinel-replica-1
+      - redis-sentinel-replica-2
     networks:
       veidrodelis-net:
         ipv4_address: 172.28.0.33

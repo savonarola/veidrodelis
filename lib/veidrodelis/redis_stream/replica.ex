@@ -127,6 +127,8 @@ defmodule Vdr.RedisStream.Replica do
         Supports all Redix options like `:timeout`, `:ssl`, `:password`, etc.
       * `:replica_connect_opts` - Redix connection options for discovered Redis server (optional).
         Supports all Redix options like `:username`, `:password`, `:ssl`, `:socket_opts`, etc.
+      * `:host_map` - Mapping for translating sentinel-returned hostnames (helpful for testing).
+        Can be a map or a function that takes a hostname and returns a new hostname.
 
   ### Redis Server Options (apply to direct connections only)
 
@@ -306,6 +308,24 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   @doc """
+  Get the host and port of the currently connected Redis server.
+
+  Returns the actual host and port that the replica is connected to. For sentinel-based
+  connections, this returns the discovered server address. For direct connections, this
+  returns the configured host and port.
+
+  ## Returns
+
+    * `{:ok, {host, port}}` - The connected host (string) and port (integer)
+    * `{:error, :not_connected}` - Replica is not currently connected
+  """
+  @spec connected_to(GenServer.server()) ::
+          {:ok, {String.t(), non_neg_integer()}} | {:error, :not_connected}
+  def connected_to(server) do
+    GenServer.call(server, :connected_to)
+  end
+
+  @doc """
   Make a synchronous call to the replica's callback module.
 
   This will invoke the callback module's `handle_call/2` function with the provided
@@ -420,13 +440,7 @@ defmodule Vdr.RedisStream.Replica do
         {:noreply, new_state}
 
       {:error, reason} ->
-        Logger.error("Failed to connect: #{inspect(reason)}")
-
-        if state.reconnect_enabled do
-          schedule_reconnect(state)
-        else
-          {:stop, {:connection_failed, reason}, state}
-        end
+        schedule_reconnect({:connection_failed, reason}, state)
     end
   end
 
@@ -451,6 +465,19 @@ defmodule Vdr.RedisStream.Replica do
 
   def handle_call(:get_replication_state, _from, state) do
     {:reply, replication_state(state), state}
+  end
+
+  def handle_call(:connected_to, _from, state) do
+    # Return discovered host/port if available (sentinel mode), otherwise configured host/port
+    host = state.discovered_host || state.host
+    port = state.discovered_port || state.port
+
+    # Check if we have an active socket connection
+    if state.socket != nil do
+      {:reply, {:ok, {host, port}}, state}
+    else
+      {:reply, {:error, :not_connected}, state}
+    end
   end
 
   def handle_call({:callback_call, message}, _from, state) do
@@ -594,23 +621,37 @@ defmodule Vdr.RedisStream.Replica do
         state: :init
     }
 
-    if new_state.reconnect_enabled do
-      Logger.info("Will attempt to reconnect after #{new_state.current_reconnect_delay_ms}ms")
-      schedule_reconnect(new_state)
-    else
-      {:stop, reason, new_state}
-    end
+    schedule_reconnect(reason, new_state)
   end
 
-  defp schedule_reconnect(state) do
-    # Schedule reconnection with current delay
-    Process.send_after(self(), :reconnect_timeout, state.current_reconnect_delay_ms)
+  defp schedule_reconnect(reason, state) do
+    if state.socket do
+      transport_close(state.transport, state.socket)
+    end
 
-    # Calculate next delay with exponential backoff (capped at max)
-    next_delay = min(state.current_reconnect_delay_ms * 2, state.max_reconnect_delay_ms)
-    new_state = %{state | current_reconnect_delay_ms: next_delay}
+    if state.reconnect_enabled do
+      Logger.info(
+        "Will attempt to reconnect after #{state.current_reconnect_delay_ms}ms, reason: #{inspect(reason)}"
+      )
 
-    {:noreply, new_state}
+      Process.send_after(self(), :reconnect_timeout, state.current_reconnect_delay_ms)
+
+      # Calculate next delay with exponential backoff (capped at max)
+      next_delay = min(state.current_reconnect_delay_ms * 2, state.max_reconnect_delay_ms)
+
+      new_state = %{
+        state
+        | current_reconnect_delay_ms: next_delay,
+          buffer: [],
+          buffer_size: 0,
+          state: :init
+      }
+
+      {:noreply, new_state}
+    else
+      Logger.info("Reconnection disabled, stopping: #{inspect(reason)}")
+      {:stop, reason, state}
+    end
   end
 
   defp connect(%{connection_mode: :direct} = state) do
@@ -849,6 +890,9 @@ defmodule Vdr.RedisStream.Replica do
         :ok = transport_setopts(state.transport, state.socket, active: :once)
         {:noreply, state}
 
+      {:reconnect, reason, state} ->
+        schedule_reconnect(reason, state)
+
       other ->
         other
     end
@@ -869,7 +913,7 @@ defmodule Vdr.RedisStream.Replica do
         {:noreply, state}
 
       {:error, reason} ->
-        {:stop, {:ping_failed, reason}, state}
+        {:reconnect, {:ping_failed, reason}, state}
     end
   end
 
@@ -881,14 +925,14 @@ defmodule Vdr.RedisStream.Replica do
         # After AUTH, send PING
         case send_ping(new_state) do
           {:ok, new_state} -> {:noreply, new_state}
-          {:error, reason} -> {:stop, {:ping_failed, reason}, new_state}
+          {:error, reason} -> {:reconnect, {:ping_failed, reason}, new_state}
         end
 
       :incomplete ->
         {:noreply, state}
 
       {:error, reason} ->
-        {:stop, {:auth_failed, reason}, state}
+        {:reconnect, {:auth_failed, reason}, state}
     end
   end
 
@@ -915,7 +959,7 @@ defmodule Vdr.RedisStream.Replica do
         {:noreply, state}
 
       {:error, reason} ->
-        {:stop, {:replconf_failed, reason}, state}
+        {:reconnect, {:replconf_failed, reason}, state}
     end
   end
 
@@ -928,7 +972,7 @@ defmodule Vdr.RedisStream.Replica do
         {:noreply, state}
 
       {:error, reason} ->
-        {:stop, {:psync_failed, reason}, state}
+        {:reconnect, {:psync_failed, reason}, state}
 
       {:ok, psync_completed} ->
         case handle_psync_completed(psync_completed) do

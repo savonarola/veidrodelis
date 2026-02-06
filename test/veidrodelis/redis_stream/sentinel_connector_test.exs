@@ -11,13 +11,6 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
   @sentinel_host "localhost"
   @sentinel_ports [27379, 27380, 27381]
   @sentinel_group "myprimary"
-  @host_map %{
-    "172.28.0.20" => "localhost",
-    "172.28.0.21" => "localhost",
-    "172.28.0.31" => "localhost",
-    "172.28.0.32" => "localhost",
-    "172.28.0.33" => "localhost"
-  }
 
   setup_all do
     System.cmd("just", ["dc-sentinel-restart"], cd: Path.join([__DIR__, "..", "..", ".."]))
@@ -35,7 +28,7 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
         role: :primary,
         connect_opts: [timeout: 5000],
         replica_connect_opts: [timeout: 5000],
-        host_map: @host_map
+        host_map: fn _host -> "localhost" end
       ]
 
       assert_within 10_000 do
@@ -59,7 +52,7 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
         role: :primary,
         connect_opts: [timeout: 100],
         replica_connect_opts: [timeout: 5000],
-        host_map: @host_map
+        host_map: fn _host -> "localhost" end
       ]
 
       assert_within 10_000 do
@@ -83,7 +76,7 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
         role: :primary,
         connect_opts: [timeout: 500],
         replica_connect_opts: [timeout: 5000],
-        host_map: @host_map
+        host_map: fn _host -> "localhost" end
       ]
 
       assert_within 10_000 do
@@ -107,7 +100,7 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
         role: :primary,
         connect_opts: [timeout: 1000],
         replica_connect_opts: [timeout: 5000],
-        host_map: @host_map
+        host_map: fn _host -> "localhost" end
       ]
 
       assert_within 10_000 do
@@ -128,7 +121,7 @@ defmodule Vdr.RedisStream.SentinelConnectorTest do
         role: :replica,
         connect_opts: [timeout: 5000],
         replica_connect_opts: [timeout: 5000],
-        host_map: @host_map
+        host_map: fn _host -> "localhost" end
       ]
 
       assert_within 10_000 do

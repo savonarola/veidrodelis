@@ -135,6 +135,47 @@ defmodule Veidrodelis do
   end
 
   @doc """
+  Gets the host and port of the currently connected Redis server.
+
+  Returns the actual host and port that the Veidrodelis instance is connected to.
+  For sentinel-based connections, this returns the discovered server address.
+  For direct connections, this returns the configured host and port.
+
+  ## Parameters
+
+    * `pid_or_id` - Either the Replica GenServer PID or the Veidrodelis instance ID
+
+  ## Returns
+
+    * `{:ok, {host, port}}` - The connected host (string) and port (integer)
+    * `{:error, :not_connected}` - Replica is not currently connected
+
+  ## Examples
+
+      # Using instance ID
+      {:ok, {host, port}} = Veidrodelis.get_connected_to(:my_instance)
+
+      # Using PID directly
+      {:ok, pid} = Veidrodelis.start_link(id: :test, host: "localhost", port: 6379)
+      {:ok, {host, port}} = Veidrodelis.get_connected_to(pid)
+  """
+  @spec get_connected_to(pid() | instance_id()) ::
+          {:ok, {String.t(), non_neg_integer()}} | {:error, :not_connected}
+  def get_connected_to(pid) when is_pid(pid) do
+    Replica.connected_to(pid)
+  end
+
+  def get_connected_to(id) do
+    case Vdr.Registry.lookup(id) do
+      {:ok, %Vdr.Handle{pid: pid}} ->
+        Replica.connected_to(pid)
+
+      :not_found ->
+        raise "Veidrodelis instance with id #{id} not found"
+    end
+  end
+
+  @doc """
   Subscribes to updates for a specific key in a database.
 
   When the key is modified, the calling process will receive a message:

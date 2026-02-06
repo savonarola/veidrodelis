@@ -21,7 +21,7 @@ defmodule RS do
     )
   end
 
-  def veidrodelis(id \\ :v) do
+  def vdr(id \\ :v) do
     {:ok, pid} =
       Veidrodelis.start_link(
         id: id,
@@ -34,22 +34,43 @@ defmodule RS do
           group: "myprimary",
           role: :primary,
           timeout: 5000,
-          host_map: %{
-            "172.28.0.20" => "localhost",
-            "172.28.0.21" => "localhost",
-            "172.28.0.31" => "localhost",
-            "172.28.0.32" => "localhost",
-            "172.28.0.33" => "localhost"
-          }
+          host_map: fn _host -> "localhost" end
         ]
       )
 
     pid
   end
 
-  def veidrodelis_n(n \\ 1) do
+  # Replica
+  def vdr_r(id \\ :v) do
+    {:ok, pid} =
+      Veidrodelis.start_link(
+        id: id,
+        sentinel: [
+          sentinels: [
+            [host: "localhost", port: 27379],
+            [host: "localhost", port: 27380],
+            [host: "localhost", port: 27381]
+          ],
+          group: "myprimary",
+          role: :replica,
+          timeout: 5000,
+          host_map: fn _host -> "localhost" end
+        ]
+      )
+
+    pid
+  end
+
+  def vdr_n(n \\ 1) do
     for i <- 1..n do
-      veidrodelis(:"v#{i}")
+      vdr(:"v#{i}")
+    end
+  end
+
+  def vdr_r_n(n \\ 1) do
+    for i <- 1..n do
+      vdr_r(:"v#{i}")
     end
   end
 

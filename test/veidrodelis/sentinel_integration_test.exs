@@ -13,13 +13,6 @@ defmodule Vdr.SentinelIntegrationTest do
   @sentinel_group "myprimary"
   @primary_host "localhost"
   @primary_port 16390
-  @host_map %{
-    "172.28.0.20" => "localhost",
-    "172.28.0.21" => "localhost",
-    "172.28.0.31" => "localhost",
-    "172.28.0.32" => "localhost",
-    "172.28.0.33" => "localhost"
-  }
 
   defmodule CollectorCallback do
     @behaviour Vdr.RedisStream.Callback
@@ -96,7 +89,7 @@ defmodule Vdr.SentinelIntegrationTest do
           group: @sentinel_group,
           role: :primary,
           connect_opts: [timeout: 1000],
-          host_map: @host_map
+          host_map: fn _host -> "localhost" end
         ],
         callback_module: CollectorCallback,
         callback_opts: []
@@ -142,7 +135,7 @@ defmodule Vdr.SentinelIntegrationTest do
           group: @sentinel_group,
           role: :primary,
           connect_opts: [timeout: 500],
-          host_map: @host_map
+          host_map: fn _host -> "localhost" end
         ],
         callback_module: CollectorCallback,
         callback_opts: []
@@ -177,7 +170,7 @@ defmodule Vdr.SentinelIntegrationTest do
             end),
           group: @sentinel_group,
           role: :primary,
-          host_map: @host_map
+          host_map: fn _host -> "localhost" end
         ],
         callback_module: CollectorCallback,
         callback_opts: []
@@ -215,6 +208,108 @@ defmodule Vdr.SentinelIntegrationTest do
   end
 
   describe "failover" do
+    test "reconnects to another replica when connected replica fails", %{conn: conn} do
+      # Set up test data on primary
+      Redix.command!(conn, ["SET", "before_replica_failure", "value1"])
+      Process.sleep(1000)
+      Redix.command!(conn, ["SAVE"])
+
+      # Start Veidrodelis replica connecting to a Redis replica via sentinel
+      opts = [
+        sentinel: [
+          sentinels:
+            Enum.map(@sentinel_ports, fn port ->
+              [host: @sentinel_host, port: port]
+            end),
+          group: @sentinel_group,
+          role: :replica,
+          host_map: fn _host -> "localhost" end
+        ],
+        callback_module: CollectorCallback,
+        callback_opts: []
+      ]
+
+      {:ok, replica} = Replica.start_link(opts)
+
+      # Wait for initial replication
+      assert_within 5000 do
+        assert {:ok, state} = CollectorCallback.get_state(replica)
+        assert state.streaming_starts > 0
+      end
+
+      # Issue a command before replica failure
+      Redix.command!(conn, ["SET", "pre_replica_failure", "test"])
+
+      # Wait for the command to be replicated
+      assert_within 2000 do
+        assert {:ok, state} = CollectorCallback.get_state(replica)
+
+        assert command_in_list(
+                 %Vdr.RedisStream.ReplicaCommand{command: {:set, "pre_replica_failure", "test"}},
+                 state.commands
+               )
+      end
+
+      # Get the connected replica host and port
+      {:ok, {_connected_host, connected_port}} = Replica.connected_to(replica)
+
+      # Map port to container name
+      replica_container =
+        case connected_port do
+          16391 -> "veidrodelis-sentinel-replica-1"
+          16392 -> "veidrodelis-sentinel-replica-2"
+          _ -> raise "Unknown replica port: #{connected_port}"
+        end
+
+      # Stop the connected replica
+      {_output, 0} = System.cmd("docker", ["stop", replica_container])
+
+      # Register cleanup to restore replica
+      on_exit(fn ->
+        {_output, 0} = System.cmd("docker", ["start", replica_container])
+        # Wait for replica to be back up
+        Process.sleep(2000)
+      end)
+
+      # Wait a moment for sentinel and Veidrodelis to detect the failure
+      Process.sleep(2000)
+
+      # Issue a new command to the primary after replica failure
+      Redix.command!(conn, ["SET", "after_replica_failure", "value2"])
+
+      # Wait for the command to be replicated through the new replica
+      assert_within 10_000 do
+        assert {:ok, state} = CollectorCallback.get_state(replica)
+
+        assert command_in_list(
+                 %Vdr.RedisStream.ReplicaCommand{
+                   command: {:set, "after_replica_failure", "value2"}
+                 },
+                 state.commands
+               )
+      end
+
+      # Verify we're now connected to a different replica
+      {:ok, {_new_host, new_port}} = Replica.connected_to(replica)
+      assert new_port != connected_port, "Should be connected to a different replica"
+
+      # Verify replica is still receiving commands
+      Redix.command!(conn, ["SET", "final_replica_test", "success"])
+
+      assert_within 2000 do
+        assert {:ok, state} = CollectorCallback.get_state(replica)
+
+        assert command_in_list(
+                 %Vdr.RedisStream.ReplicaCommand{
+                   command: {:set, "final_replica_test", "success"}
+                 },
+                 state.commands
+               )
+      end
+
+      Replica.stop(replica)
+    end
+
     test "reconnects to new primary after failover", %{conn: conn} do
       # Set up test data
       Redix.command!(conn, ["SET", "before_failover", "value1"])
@@ -230,7 +325,7 @@ defmodule Vdr.SentinelIntegrationTest do
             end),
           group: @sentinel_group,
           role: :primary,
-          host_map: @host_map
+          host_map: fn _host -> "localhost" end
         ],
         callback_module: CollectorCallback,
         callback_opts: []
@@ -288,7 +383,7 @@ defmodule Vdr.SentinelIntegrationTest do
         Redix.stop(sentinel_conn)
 
         case result do
-          {:ok, [host, port_str]} ->
+          {:ok, [_host, port_str]} ->
             port = String.to_integer(port_str)
 
             # Skip if sentinel still reports the old primary
@@ -298,7 +393,7 @@ defmodule Vdr.SentinelIntegrationTest do
             end
 
             # Sentinel returns the IP address, map it to localhost
-            mapped_host = Map.get(@host_map, host, "localhost")
+            mapped_host = "localhost"
 
             # Verify it's actually writable (promoted to primary)
             case Redix.start_link(
@@ -397,7 +492,7 @@ defmodule Vdr.SentinelIntegrationTest do
           group: @sentinel_group,
           role: :primary,
           connect_opts: [timeout: 100],
-          host_map: @host_map
+          host_map: fn _host -> "localhost" end
         ],
         callback_module: CollectorCallback,
         callback_opts: [],
@@ -428,7 +523,7 @@ defmodule Vdr.SentinelIntegrationTest do
           group: "nonexistent_group",
           role: :primary,
           connect_opts: [timeout: 1000],
-          host_map: @host_map
+          host_map: fn _host -> "localhost" end
         ],
         callback_module: CollectorCallback,
         callback_opts: [],

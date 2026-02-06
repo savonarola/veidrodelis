@@ -57,6 +57,10 @@ dc-sentinel-restart: dc-sentinel-stop dc-sentinel-start
 dc-sentinel-logs:
     cd test/assets && docker compose -f docker-compose-sentinel.yml logs -f
 
+dc-clean:
+    cd test/assets && docker compose down -v --remove-orphans
+    cd test/assets && docker compose -f docker-compose-sentinel.yml down -v --remove-orphans
+
 bench-list:
     mix benchmark --list
 
