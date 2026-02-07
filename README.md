@@ -43,7 +43,7 @@ Veidrodelis connects to Redis or Valkey as a replica and builds a local, read-on
 
 ## General Idea
 
-Veidrodelis implements the Redis replication protocol to receive all write operations happening on a Redis/Valkey primary. It builds and maintains a local, in-memory projection of the data using high-performance Rust-based storage.
+Veidrodelis implements the Redis replication protocol to receive all write operations happening on a Redis/Valkey primary. It builds and maintains a local, in-memory projection of the data using high-performance storage.
 
 **Benefits:**
 - **Ultra-low latency reads**: Data is local to your Erlang node, no network round-trip

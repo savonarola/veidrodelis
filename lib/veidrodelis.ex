@@ -1,31 +1,46 @@
 defmodule Veidrodelis do
   @moduledoc """
-  Veidrodelis - Redis replication stream processor.
+  This is the main module for managing in-process replicas of Redis/Valkey data.
 
-  This module provides a simple interface for processing Redis replication streams
-  using high-performance Rust-based storage.
+  This module provides a simple interface for starting/stopping/inspecting replica instances,
+  as well as commands for accessing the replicated data.
 
-  ## Features
+  Veidrodelis instance is a single GenServer process that connects to Redis/Valkey, fetches
+  the data via replication protocol and builds an in-memory projection of the data.
 
-    * High-performance Rust-native storage
-    * Thread-safe operations with direct NIF access
-    * Support for all Redis data types: strings, lists, sets, sorted sets, hashes
-    * Lua transaction interface for atomic read operations
-    * Raw binary storage for keys and values
+  The process is registered under global id which is used for reading the replicated
+  data without calls to the replicating GenServer.
 
-  ## Usage
+  ## Sample Usage
 
-      # Start a Veidrodelis instance
-      {:ok, pid} = Veidrodelis.start_link(
-        id: :my_instance,
-        host: "localhost",
-        port: 6379
-      )
+  ```elixir
+    # Start a Veidrodelis instance
+    {:ok, pid} = Veidrodelis.start_link(
+      id: :my_instance,
+      host: "localhost",
+      port: 6379
+    )
 
-      # Query data using accessor functions
-      value = Veidrodelis.get(:my_instance, 0, "mykey")
-      len = Veidrodelis.llen(:my_instance, 0, "mylist")
-      members = Veidrodelis.smembers(:my_instance, 0, "myset")
+    # Query data using accessor functions
+    {:ok, value} = Veidrodelis.get(:my_instance, 0, "mykey")
+    {:ok, len} = Veidrodelis.llen(:my_instance, 0, "mylist")
+
+    # Read ransacitons
+    {:ok, [{:ok, debit}, {:ok, credit}]} = Veidrodelis.read_tx(:my_instance, 0, [
+      {:get, "account:123:debit"},
+      {:get, "account:123:credit"}
+    ])
+
+    # Read transactions via Lua script
+    {:ok, [debit, credit]} = Veidrodelis.read_tx(
+      :my_instance,
+      0,
+      "return {ts.get('account:123:debit'), ts.get('account:123:credit')}"
+    )
+
+    # Stop the instance
+    :ok = Veidrodelis.stop(pid)
+  ```
   """
 
   alias Vdr.RedisStream.Replica
@@ -70,38 +85,35 @@ defmodule Veidrodelis do
 
   ### Direct Connection
 
-      opts = [
-        id: :my_instance,
-        host: "localhost",
-        port: 6379
-      ]
-      {:ok, pid} = Veidrodelis.start_link(opts)
-
-      # Query data
-      value = Veidrodelis.get(pid, 0, "mykey")
-      len = Veidrodelis.llen(pid, 0, "mylist")
-
-      # Stop when done
-      :ok = Veidrodelis.stop(pid)
+  ```elixir
+  opts = [
+    id: :my_instance,
+    host: "localhost",
+    port: 6379
+  ]
+  {:ok, pid} = Veidrodelis.start_link(opts)
+  ```
 
   ### Sentinel Connection
 
-      opts = [
-        id: :my_instance,
-        sentinel: [
-          sentinels: [
-            [host: "sentinel1", port: 26379],
-            [host: "sentinel2", port: 26379]
-          ],
-          group: "myprimary",
-          role: :primary,
-          # Optional: Connection options for sentinel
-          connect_opts: [timeout: 1000],
-          # Optional: Connection options for Redis server
-          replica_connect_opts: [password: "redis_password", ssl: true]
-        ]
-      ]
-      {:ok, pid} = Veidrodelis.start_link(opts)
+  ```elixir
+  opts = [
+    id: :my_instance,
+    sentinel: [
+      sentinels: [
+        [host: "sentinel1", port: 26379],
+        [host: "sentinel2", port: 26379]
+      ],
+      group: "myprimary",
+      role: :primary,
+      # Optional: Connection options for sentinel
+      connect_opts: [timeout: 1000],
+      # Optional: Connection options for Redis server
+      replica_connect_opts: [password: "redis_password", ssl: true]
+    ]
+  ]
+  {:ok, pid} = Veidrodelis.start_link(opts)
+  ```
   """
   @spec start_link(keyword()) :: {:ok, pid()} | {:error, term()}
   def start_link(opts) do
@@ -119,7 +131,7 @@ defmodule Veidrodelis do
   @doc """
   Gets the current replication state of a Veidrodelis instance.
   """
-  @spec get_replication_state(pid() | instance_id()) :: atom()
+  @spec get_replication_state(pid() | instance_id()) :: Replica.replica_state()
   def get_replication_state(pid) when is_pid(pid) do
     Replica.get_replication_state(pid)
   end
@@ -152,12 +164,14 @@ defmodule Veidrodelis do
 
   ## Examples
 
-      # Using instance ID
-      {:ok, {host, port}} = Veidrodelis.get_connected_to(:my_instance)
+  ```elixir
+  # Using instance ID
+  {:ok, {host, port}} = Veidrodelis.get_connected_to(:my_instance)
 
-      # Using PID directly
-      {:ok, pid} = Veidrodelis.start_link(id: :test, host: "localhost", port: 6379)
-      {:ok, {host, port}} = Veidrodelis.get_connected_to(pid)
+  # Using PID directly
+  {:ok, pid} = Veidrodelis.start_link(id: :test, host: "localhost", port: 6379)
+  {:ok, {host, port}} = Veidrodelis.get_connected_to(pid)
+  ```
   """
   @spec get_connected_to(pid() | instance_id()) ::
           {:ok, {String.t(), non_neg_integer()}} | {:error, :not_connected}
@@ -199,17 +213,19 @@ defmodule Veidrodelis do
 
   ## Example
 
-      # Subscribe to key updates
-      :ok = Veidrodelis.watch(:my_instance, 0, "user:123", :my_watch_ref)
+  ```elixir
+  # Subscribe to key updates
+  :ok = Veidrodelis.watch(:my_instance, 0, "user:123", :my_watch_ref)
 
-      # Receive notifications
-      receive do
-        {:my_watch_ref, %Vdr.WatchEvent.Update{command: cmd, db: db}} ->
-          IO.inspect({:update, cmd, db})
+  # Receive notifications
+  receive do
+    {:my_watch_ref, %Vdr.WatchEvent.Update{command: cmd, db: db}} ->
+      IO.inspect({:update, cmd, db})
 
-        {:my_watch_ref, %Vdr.WatchEvent.Init{}} ->
-          IO.puts("Streaming mode started")
-      end
+    {:my_watch_ref, %Vdr.WatchEvent.Init{}} ->
+      IO.puts("Streaming mode started")
+  end
+  ```
   """
   @spec watch(instance_id(), db(), key(), term()) :: :ok | {:error, term()}
   def watch(id, db, key, ref) when is_integer(db) and is_binary(key) do
@@ -242,7 +258,10 @@ defmodule Veidrodelis do
 
   ## Example
 
-      :ok = Veidrodelis.unwatch(:my_instance, 0, "user:123")
+  ```elixir
+  # Unsubscribe from key updates
+  :ok = Veidrodelis.unwatch(:my_instance, 0, "user:123")
+  ```
   """
   @spec unwatch(instance_id(), db(), key()) :: :ok | {:error, term()}
   def unwatch(id, db, key) when is_integer(db) and is_binary(key) do
@@ -259,7 +278,7 @@ defmodule Veidrodelis do
     end
   end
 
-  # Redis accessor functions
+  # Data access methods
 
   @doc """
   Gets the value of a string key.
@@ -310,15 +329,17 @@ defmodule Veidrodelis do
   end
 
   @doc """
-  Gets the first (minimum) member from a set.
+  Gets the first (lexicographically minimum) member from a set.
 
   Returns the member or nil if the set is empty/doesn't exist.
 
   ## Examples
 
-      {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
-      first = Veidrodelis.sfirst(:my_instance, 0, "myset")
-      # Returns: "a" (assuming set contains ["a", "b", "c"])
+  ```elixir
+  {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
+  {:ok, first} = Veidrodelis.sfirst(:my_instance, 0, "myset")
+  # Returns: "a" (assuming set contains ["a", "b", "c"])
+  ```
   """
   @spec sfirst(instance_id(), db(), key()) :: binary() | nil | {:error, term()}
   def sfirst(id, db, key) do
@@ -326,15 +347,17 @@ defmodule Veidrodelis do
   end
 
   @doc """
-  Gets the last (maximum) member from a set.
+  Gets the last (lexicographically maximum) member from a set.
 
   Returns the member or nil if the set is empty/doesn't exist.
 
   ## Examples
 
-      {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
-      last = Veidrodelis.slast(:my_instance, 0, "myset")
-      # Returns: "c" (assuming set contains ["a", "b", "c"])
+  ```elixir
+    {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
+    {:ok, last} = Veidrodelis.slast(:my_instance, 0, "myset")
+    # Returns: "c" (assuming set contains ["a", "b", "c"])
+  ```
   """
   @spec slast(instance_id(), db(), key()) :: binary() | nil | {:error, term()}
   def slast(id, db, key) do
@@ -348,9 +371,11 @@ defmodule Veidrodelis do
 
   ## Examples
 
-      {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
-      next = Veidrodelis.snext(:my_instance, 0, "myset", "a")
-      # Returns: "b" (assuming set contains ["a", "b", "c"])
+  ```elixir
+  {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
+  {:ok, next} = Veidrodelis.snext(:my_instance, 0, "myset", "a")
+  # Returns: "b" (assuming set contains ["a", "b", "c"])
+  ```
   """
   @spec snext(instance_id(), db(), key(), any()) :: binary() | nil | {:error, term()}
   def snext(id, db, key, member) do
@@ -364,9 +389,11 @@ defmodule Veidrodelis do
 
   ## Examples
 
-      {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
-      prev = Veidrodelis.sprev(:my_instance, 0, "myset", "c")
-      # Returns: "b" (assuming set contains ["a", "b", "c"])
+  ```elixir
+  {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
+  {:ok, prev} = Veidrodelis.sprev(:my_instance, 0, "myset", "c")
+  # Returns: "b" (assuming set contains ["a", "b", "c"])
+  ```
   """
   @spec sprev(instance_id(), db(), key(), any()) :: binary() | nil | {:error, term()}
   def sprev(id, db, key, member) do
@@ -457,12 +484,14 @@ defmodule Veidrodelis do
 
   ## Examples
 
-      {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
-      members = Veidrodelis.zrangebyscore(:my_instance, 0, "myzset", 1.0, 3.0, true)
-      # Returns: [{"one", 1.0}, {"two", 2.0}, {"three", 3.0}]
+  ```elixir
+  {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
+  {:ok, members} = Veidrodelis.zrangebyscore(:my_instance, 0, "myzset", 1.0, 3.0, true)
+  # Returns: [{"one", 1.0}, {"two", 2.0}, {"three", 3.0}]
 
-      members = Veidrodelis.zrangebyscore(:my_instance, 0, "myzset", 1.0, 3.0, false)
-      # Returns: ["one", "two", "three"]
+  {:ok, members} = Veidrodelis.zrangebyscore(:my_instance, 0, "myzset", 1.0, 3.0, false)
+  # Returns: ["one", "two", "three"]
+  ```
   """
   @spec zrangebyscore(instance_id(), db(), key(), float(), float(), boolean()) ::
           [{any(), float()}] | [any()] | {:error, term()}
@@ -471,8 +500,6 @@ defmodule Veidrodelis do
   end
 
   @doc """
-  Returns the rank (0-based index) of member in the sorted set stored at key (ascending order).
-
   Returns the rank (0-based index) where the member would be in the sorted set,
   ordered from lowest to highest score. Returns `nil` if the member or key doesn't exist.
   """
@@ -482,8 +509,6 @@ defmodule Veidrodelis do
   end
 
   @doc """
-  Returns the reverse rank (0-based index) of member in the sorted set stored at key (descending order).
-
   Returns the rank (0-based index) where the member would be in the sorted set,
   ordered from highest to lowest score. Returns `nil` if the member or key doesn't exist.
   """
@@ -497,9 +522,8 @@ defmodule Veidrodelis do
 
   ## With a list of commands
 
-  Executes multiple read-only commands atomically under a single mutex lock.
-  Commands are executed in order and their results are returned as a list.
-  Only read-only commands are allowed; write commands will return `{:error, :readonly_violation}`.
+  Executes multiple read commands atomically.
+  Commands are executed in order and their results are returned as a list of tuples.
 
   ### Supported Commands
 
@@ -524,11 +548,12 @@ defmodule Veidrodelis do
     * `{:zcount, key, min, max}` - Count sorted set members in score range
 
   ### Example
-
-      {:ok, [value1, value2]} = Veidrodelis.read_tx(:my_instance, 0, [
-        {:get, "key1"},
-        {:hget, "hash1", "field1"}
-      ])
+  ```elixir
+    {:ok, [value1, value2]} = Veidrodelis.read_tx(:my_instance, 0, [
+      {:get, "key1"},
+      {:hget, "hash1", "field1"}
+    ])
+  ```
 
   ## With a Lua script
 
