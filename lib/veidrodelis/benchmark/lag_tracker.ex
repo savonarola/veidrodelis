@@ -55,7 +55,7 @@ defmodule Vdr.Benchmark.LagTracker do
     GenServer.call(__MODULE__, :reset)
   end
 
-  @impl true
+  @impl GenServer
   def init(opts) do
     vdr_id = Keyword.fetch!(opts, :vdr_id)
     tracker_key = Keyword.get(opts, :tracker_key, "lagmon")
@@ -75,13 +75,13 @@ defmodule Vdr.Benchmark.LagTracker do
     {:ok, state}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call(:get_lag_samples, _from, state) do
     samples = fetch_lag_samples(state)
     {:reply, samples, state}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call(:reset, _from, state) do
     new_state = %{
       state
@@ -93,7 +93,7 @@ defmodule Vdr.Benchmark.LagTracker do
     {:reply, :ok, new_state}
   end
 
-  @impl true
+  @impl GenServer
   def handle_info(:inject_timestamp, state) do
     inject_timestamp(state)
     schedule_timestamp_injection(state.timestamp_interval_ms)

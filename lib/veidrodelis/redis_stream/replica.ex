@@ -884,7 +884,6 @@ defmodule Vdr.RedisStream.Replica do
           end
       end
 
-    # Re-enable socket for next packet (backpressure)
     case result do
       {:noreply, state} ->
         :ok = transport_setopts(state.transport, state.socket, active: :once)

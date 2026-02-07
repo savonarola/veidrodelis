@@ -35,7 +35,7 @@ defmodule CommandMatchers do
   defmodule AssertWithinFail do
     defexception [:message, :cause]
 
-    @impl true
+    @impl Exception
     def message(t) do
       "#{t.message}, cause: #{Exception.message(t.cause)}"
     end

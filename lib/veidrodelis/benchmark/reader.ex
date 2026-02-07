@@ -64,7 +64,7 @@ defmodule Vdr.Benchmark.Reader do
     GenServer.call(__MODULE__, :get_metrics)
   end
 
-  @impl true
+  @impl GenServer
   def init(opts) do
     vdr_id = Keyword.fetch!(opts, :vdr_id)
     reader_count = Keyword.get(opts, :reader_count, 4)
@@ -89,7 +89,7 @@ defmodule Vdr.Benchmark.Reader do
     {:ok, state}
   end
 
-  @impl true
+  @impl GenServer
   def handle_call(:start_readers, _from, state) do
     if state.running do
       {:reply, {:error, :already_running}, state}
@@ -110,7 +110,7 @@ defmodule Vdr.Benchmark.Reader do
     end
   end
 
-  @impl true
+  @impl GenServer
   def handle_call(:stop_readers, _from, state) do
     if not state.running do
       {:reply, {:error, :not_running}, state}
@@ -140,7 +140,7 @@ defmodule Vdr.Benchmark.Reader do
     end
   end
 
-  @impl true
+  @impl GenServer
   def handle_call(:get_metrics, _from, state) do
     if state.running do
       end_time = System.monotonic_time(:microsecond)
@@ -151,7 +151,7 @@ defmodule Vdr.Benchmark.Reader do
     end
   end
 
-  @impl true
+  @impl GenServer
   def terminate(_reason, _state) do
     :ok
   end

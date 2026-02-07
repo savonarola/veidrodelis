@@ -17,37 +17,37 @@ defmodule Vdr.SentinelIntegrationTest do
   defmodule CollectorCallback do
     @behaviour Vdr.RedisStream.Callback
 
-    @impl true
+    @impl Vdr.RedisStream.Callback
     def init(_opts), do: {:ok, %{commands: [], replication_starts: 0, streaming_starts: 0}}
 
-    @impl true
+    @impl Vdr.RedisStream.Callback
     def handle_replication_start(state) do
       new_state = Map.update!(state, :replication_starts, &(&1 + 1))
       {:ok, new_state}
     end
 
-    @impl true
+    @impl Vdr.RedisStream.Callback
     def handle_streaming_start(state) do
       new_state = Map.update!(state, :streaming_starts, &(&1 + 1))
       {:ok, new_state}
     end
 
-    @impl true
+    @impl Vdr.RedisStream.Callback
     def handle_commands(state, commands) do
       new_state = Map.update!(state, :commands, &(commands ++ &1))
       {:ok, new_state}
     end
 
-    @impl true
+    @impl Vdr.RedisStream.Callback
     def handle_call(state, {:get_test_state}), do: {:reply, state, state}
 
-    @impl true
+    @impl Vdr.RedisStream.Callback
     def handle_call(state, _message), do: {:reply, :ok, state}
 
-    @impl true
+    @impl Vdr.RedisStream.Callback
     def handle_info(state, _message), do: {:noreply, state}
 
-    @impl true
+    @impl Vdr.RedisStream.Callback
     def handle_destroy(_state), do: :ok
 
     def get_state(pid) do
