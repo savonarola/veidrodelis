@@ -77,3 +77,8 @@ bench-profile scenario=default_scenario:
 
 bench scenario=default_scenario:
     mix benchmark {{scenario}} --duration {{duration}} --intensity {{intensity}} --readers {{readers}}
+
+default_level := 'patch'
+
+bump level=default_level:
+    bump2version {{level}}

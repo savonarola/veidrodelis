@@ -1,12 +1,16 @@
 defmodule Veidrodelis.MixProject do
   use Mix.Project
 
+  @version "0.1.0"
+  @github_url "https://github.com/savonarola/veidrodelis"
+
   def project do
     [
       app: :veidrodelis,
-      version: "0.1.0",
-      elixir: "~> 1.14",
+      version: @version,
+      elixir: "~> 1.18",
       start_permanent: Mix.env() == :prod,
+      description: "In-memory projection of Redis/Valkey data",
       deps: deps(),
       erlc_paths: ["src"],
       compilers: Mix.compilers(),
@@ -16,7 +20,25 @@ defmodule Veidrodelis.MixProject do
         tool: ExCoveralls,
         ignore_paths: ["benchmark", "test", "lib/mix/tasks"]
       ],
-      preferred_cli_env: [
+      package: [
+        files: ~w(lib mix.exs README.md LICENCE),
+        licenses: ["Apache-2.0"],
+        links: %{
+          "GitHub" => @github_url
+        }
+      ],
+      docs: [
+        main: "Veidrodelis",
+        extras: ["README.md"],
+        source_ref: "v#{@version}",
+        source_url: @github_url
+      ]
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
         coveralls: :test,
         "coveralls.detail": :test,
         "coveralls.post": :test,
