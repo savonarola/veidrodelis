@@ -63,7 +63,8 @@ defmodule Veidrodelis.MixProject do
       {:redix, "~> 1.5", optional: true},
       {:castore, only: [:dev, :test]},
       {:req, "~> 0.5", only: :test},
-      {:excoveralls, "~> 0.18", only: :test}
+      {:excoveralls, "~> 0.18", only: :test},
+      {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end
 end
