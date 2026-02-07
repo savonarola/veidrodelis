@@ -278,6 +278,7 @@ defmodule Vdr.TS do
   **Hash operations:**
   - `{:hget, key, field}`, `{:hmget, key, fields}`, `{:hgetall, key}`
   - `{:hkeys, key}`, `{:hvals, key}`, `{:hlen, key}`, `{:hexists, key, field}`
+  - `{:hfirst, key}`, `{:hlast, key}`, `{:hnext, key, field}`, `{:hprev, key, field}`
 
   **Sorted set operations:**
   - `{:zscore, key, member}`, `{:zcard, key}`, `{:zrank, key, member}`, `{:zrevrank, key, member}`

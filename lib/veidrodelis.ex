@@ -449,6 +449,45 @@ defmodule Veidrodelis do
   end
 
   @doc """
+  Returns the lexicographically first field/value pair in the hash stored at key.
+
+  Returns `{:ok, {field, value}}` when a field exists, `{:ok, nil}` when the hash is empty or
+  missing, or `{:error, reason}` on wrong-type errors.
+  """
+  @spec hfirst(instance_id(), db(), key()) ::
+          {:ok, {binary(), binary()}} | {:ok, nil} | {:error, term()}
+  def hfirst(id, db, key) do
+    with_single_command_read_tx(id, db, {:hfirst, key})
+  end
+
+  @doc """
+  Returns the lexicographically last field/value pair in the hash stored at key.
+  """
+  @spec hlast(instance_id(), db(), key()) ::
+          {:ok, {binary(), binary()}} | {:ok, nil} | {:error, term()}
+  def hlast(id, db, key) do
+    with_single_command_read_tx(id, db, {:hlast, key})
+  end
+
+  @doc """
+  Returns the field/value pair immediately after `field` in the hash stored at key.
+  """
+  @spec hnext(instance_id(), db(), key(), binary()) ::
+          {:ok, {binary(), binary()}} | {:ok, nil} | {:error, term()}
+  def hnext(id, db, key, field) do
+    with_single_command_read_tx(id, db, {:hnext, key, field})
+  end
+
+  @doc """
+  Returns the field/value pair immediately before `field` in the hash stored at key.
+  """
+  @spec hprev(instance_id(), db(), key(), binary()) ::
+          {:ok, {binary(), binary()}} | {:ok, nil} | {:error, term()}
+  def hprev(id, db, key, field) do
+    with_single_command_read_tx(id, db, {:hprev, key, field})
+  end
+
+  @doc """
   Returns the specified range of elements in the sorted set stored at key.
 
   If `with_scores` is `true`, returns a list of `{member, score}` tuples.
@@ -534,6 +573,14 @@ defmodule Veidrodelis do
     * `{:hkeys, key}` - Get hash field names
     * `{:hvals, key}` - Get hash values
     * `{:hlen, key}` - Get hash length
+    * `{:hfirst, key}` - Get the lexicographically first field and its value
+    * `{:hlast, key}` - Get the lexicographically last field and its value
+    * `{:hnext, key, field}` - Get the field/value pair immediately after `field`
+    * `{:hprev, key, field}` - Get the field/value pair immediately before `field`
+    * `{:hfirst, key}` - Get the lexicographically first field and its value
+    * `{:hlast, key}` - Get the lexicographically last field and its value
+    * `{:hnext, key, field}` - Get the field/value pair immediately after `field`
+    * `{:hprev, key, field}` - Get the field/value pair immediately before `field`
     * `{:llen, key}` - Get list length
     * `{:lrange, key, start, stop}` - Get list range
     * `{:smembers, key}` - Get set members
