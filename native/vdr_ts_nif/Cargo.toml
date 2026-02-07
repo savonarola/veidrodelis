@@ -14,8 +14,3 @@ indexset = "0.12.3"
 ordered-float = "4.2"
 mlua = { version = "0.10", features = ["luajit", "vendored", "send"] }
 rand = "0.8"
-
-[profile.release]
-debug = 2
-strip = false
-opt-level = 2
