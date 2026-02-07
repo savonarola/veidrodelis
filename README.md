@@ -11,38 +11,7 @@ Veidrodelis connects to Redis or Valkey as a replica and builds a local, read-on
 
 ## Architecture
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│                      Redis/Valkey                            │
-│                      (Primary)                               │
-└──────────────┬───────────────────────────────────────────────┘
-               │                          ▲
-               │ Replication (RO)         │ Commands (RW)
-               │                          │
-┌──────────────|──────────────────────────|────────────────────┐
-│              |   Erlang/Elixir Node     |                    │
-│              ▼                          ▼                    │
-│  ┌────────────────────────┐    ┌──────────────────────────┐  │
-│  │   Veidrodelis          │    │   Redix                  │  │
-│  │   (Replica Connection) │    │   (Client Connection)    │  │
-│  │   Mode: RO             │    │   Mode: RW               │  │
-│  └───────────┬────────────┘    └──────────────────────────┘  │
-│              │                                               │
-│              │ Builds Local Projection                       │
-│              ▼                                               │
-│  ┌────────────────────────┐                                  │
-│  │   Local Data Store     │                                  │
-│  │   (Rust-based)         │                                  │
-│  │   • Strings            │                                  │
-│  │   • Lists              │                                  │
-│  │   • Sets               │                                  │
-│  │   • Sorted Sets        │                                  │
-│  │   • Hashes             │                                  │
-│  └────────────────────────┘                                  │
-│                                                              │
-│  Your Application: Write via Redix, Read via Veidrodelis     │
-└──────────────────────────────────────────────────────────────┘
-```
+![Architecture](doc/veidrodelis.png)
 
 ## General Idea
 
