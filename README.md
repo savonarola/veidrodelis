@@ -1,4 +1,7 @@
 [![CI](https://github.com/savonarola/veidrodelis/actions/workflows/ci.yml/badge.svg)](https://github.com/savonarola/veidrodelis/actions/workflows/ci.yml)
+![Hex.pm Version](https://img.shields.io/hexpm/v/veidrodelis)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/veidrodelis/)
+
 
 # Veidrodelis
 
