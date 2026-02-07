@@ -45,3 +45,17 @@ benchmark/plots/*.txt
 
 # rust-analyzer
 /target
+
+# Generated docs
+doc/*.html
+doc/*.epub
+doc/dist/
+doc/.build/
+doc/.build.*
+doc/.build
+doc/Mix*.md
+doc/Vdr*.md
+doc/api-reference.md
+doc/readme.md
+doc/llms.txt
+doc/Veidrodelis.md

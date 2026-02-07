@@ -3,6 +3,16 @@ defmodule Veidrodelis.MixProject do
 
   @version "0.1.2"
   @github_url "https://github.com/savonarola/veidrodelis"
+  @doc_extras [
+    "README.md",
+    "doc/string-write.md",
+    "doc/hash-write.md",
+    "doc/list-write.md",
+    "doc/set-write.md",
+    "doc/sorted-set-write.md",
+    "doc/acl.txt",
+    "LICENSE"
+  ]
 
   def project do
     [
@@ -21,7 +31,7 @@ defmodule Veidrodelis.MixProject do
         ignore_paths: ["benchmark", "test", "lib/mix/tasks"]
       ],
       package: [
-        files: ~w(lib mix.exs README.md LICENCE),
+        files: ~w(lib mix.exs README.md LICENSE),
         licenses: ["Apache-2.0"],
         links: %{
           "GitHub" => @github_url
@@ -29,7 +39,7 @@ defmodule Veidrodelis.MixProject do
       ],
       docs: [
         main: "Veidrodelis",
-        extras: ["README.md"],
+        extras: @doc_extras,
         source_ref: "v#{@version}",
         source_url: @github_url
       ]
