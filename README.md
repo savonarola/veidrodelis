@@ -64,7 +64,7 @@ Add to your `mix.exs`:
 ```elixir
 def deps do
   [
-    {:veidrodelis, "~> 0.1.2"},
+    {:veidrodelis, "~> 0.1.3"},
     # optional, for Sentinel support
     # however, you probably need some client to make writes to the primary
     {:redix, "~> 1.5"}
