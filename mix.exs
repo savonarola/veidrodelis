@@ -4,13 +4,7 @@ defmodule Veidrodelis.MixProject do
   @version "0.1.3"
   @github_url "https://github.com/savonarola/veidrodelis"
   @doc_extras [
-    "README.md",
-    "doc/string-write.md",
-    "doc/hash-write.md",
-    "doc/list-write.md",
-    "doc/set-write.md",
-    "doc/sorted-set-write.md",
-    "doc/acl.txt",
+    "doc/about.md",
     "LICENSE"
   ]
 
@@ -38,7 +32,7 @@ defmodule Veidrodelis.MixProject do
         }
       ],
       docs: [
-        main: "Veidrodelis",
+        main: "about",
         extras: @doc_extras,
         source_ref: "v#{@version}",
         source_url: @github_url

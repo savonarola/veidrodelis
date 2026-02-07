@@ -489,4 +489,55 @@ defmodule Veidrodelis.Integration.WatchTest do
       {:error, :not_found} = Veidrodelis.unwatch(:nonexistent, 0, "key")
     end
   end
+
+  describe "sync command emulation" do
+    @describetag timeout: 30_000
+
+    setup %{redis: redis} do
+      setup_veidrodelis(redis)
+    end
+
+    def wait_min_version(vdr_id, ref, key, min_version) do
+      receive do
+        {^ref, _command} ->
+          {:ok, version} = Veidrodelis.get(vdr_id, 0, key)
+
+          if String.to_integer(version) >= min_version do
+            :ok
+          else
+            wait_min_version(vdr_id, ref, key, min_version)
+          end
+      after
+        1000 -> {:error, :timeout}
+      end
+    end
+
+    test "sync command emulation", %{redis: redis} do
+      # Some initialization
+      Redix.command!(redis, ["SET", "events_version", "0"])
+
+      # We want to issue a command into redis and block until
+      # the command is replicated to the Veidrodelis instance.
+
+      # Here is a way to do it
+
+      # 1. Watch the key
+      ref = make_ref()
+      :ok = Veidrodelis.watch(vdr_id(), 0, "events_version", ref)
+
+      # 2. Issue the command in a multi transaction together with version increment
+      ["OK", "QUEUED", "QUEUED", [_, version]] =
+        Redix.pipeline!(redis, [
+          ["MULTI"],
+          ["LPUSH", "events", "myevent"],
+          ["INCR", "events_version"],
+          ["EXEC"]
+        ])
+
+      # 3. Wait for the version to be incremented locally
+      :ok = wait_min_version(vdr_id(), ref, "events_version", version)
+
+      # 4. Here we are sure that `["LPUSH", "events", "myevent"]` is replicated to the local Veidrodelis instance.
+    end
+  end
 end

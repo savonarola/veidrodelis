@@ -82,3 +82,9 @@ default_level := 'patch'
 
 bump level=default_level:
     bump2version {{level}}
+
+hex-publish:
+    mix hex.publish
+
+docs:
+    mix docs
