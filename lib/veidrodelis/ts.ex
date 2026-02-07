@@ -271,6 +271,10 @@ defmodule Vdr.TS do
 
   **Set operations:**
   - `{:smembers, key}`, `{:sismember, key, member}`, `{:scard, key}`
+  - `{:smismember, key, members}`, `{:srandmember, key, count}`
+  - `{:sunion, keys}`, `{:sinter, keys}`, `{:sdiff, keys}`, `{:sintercard, keys}`
+
+  - `{:sfirst, key}`, `{:slast, key}`, `{:snext, key, member}`, `{:sprev, key, member}`
 
   **List operations:**
   - `{:llen, key}`, `{:lrange, key, start, stop}`

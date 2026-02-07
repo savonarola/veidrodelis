@@ -14,10 +14,11 @@ bytes = "1.5"
 log = "0.4"
 env_logger = "0.11"
 
-[build-dependencies]
-cc = "1.0"
 
 [profile.release]
 debug = 2
 strip = false
 opt-level = 2
+
+[build-dependencies]
+cc = "1.0"

@@ -3,3 +3,8 @@ members = [
     "native/*",
 ]
 resolver = "2"
+
+[profile.release]
+debug = 2
+strip = false
+opt-level = 2

@@ -93,6 +93,36 @@ defmodule Veidrodelis.Integration.HashCommandsTest do
       end
     end
 
+    test "hash helpers include multivals and random sampler", %{redis: redis} do
+      key = "integration_hash_misc_#{:erlang.unique_integer([:positive])}"
+      Redix.command!(redis, ["HSET", key, "name", "Alice", "email", "alice@example.com"])
+
+      assert_within 1000 do
+        assert {:ok, true} == Veidrodelis.hexists(vdr_id(), 0, key, "name")
+        assert {:ok, false} == Veidrodelis.hexists(vdr_id(), 0, key, "missing")
+
+        assert {:ok, byte_size("alice@example.com")} ==
+                 Veidrodelis.hstrlen(vdr_id(), 0, key, "email")
+
+        assert {:ok, rand_fields} = Veidrodelis.hrandfield(vdr_id(), 0, key, 2, true)
+        assert length(rand_fields) <= 2
+
+        assert Enum.all?(rand_fields, fn {field, value} ->
+                 field in ["name", "email"] and is_binary(value)
+               end)
+
+        assert {:ok, rand_fields_only} = Veidrodelis.hrandfield(vdr_id(), 0, key, 1, false)
+        assert length(rand_fields_only) == 1
+
+        assert {:ok, [{:ok, tx_rand}]} =
+                 Veidrodelis.read_tx(vdr_id(), 0, [
+                   {:hrandfield, key, 1, false}
+                 ])
+
+        assert length(tx_rand) == 1
+      end
+    end
+
     test "hash helpers return nil/empty when key missing", %{redis: _redis} do
       missing = "integration_hash_missing_#{:erlang.unique_integer([:positive])}"
 

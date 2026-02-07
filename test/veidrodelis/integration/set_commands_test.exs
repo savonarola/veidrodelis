@@ -443,4 +443,111 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
       end
     end
   end
+
+  describe "set navigation helpers" do
+    @describetag timeout: 30_000
+
+    setup %{redis: redis} do
+      setup_veidrodelis(redis)
+    end
+
+    test "sfirst/slast/snext/sprev mirror Redis", %{redis: redis} do
+      key = "integration_set_nav_#{:erlang.unique_integer([:positive])}"
+      Redix.command!(redis, ["SADD", key, "alpha", "beta", "gamma"])
+
+      assert_within 1000 do
+        assert {:ok, "alpha"} == Veidrodelis.sfirst(vdr_id(), 0, key)
+        assert {:ok, "gamma"} == Veidrodelis.slast(vdr_id(), 0, key)
+      end
+
+      assert {:ok, "beta"} == Veidrodelis.snext(vdr_id(), 0, key, "alpha")
+      assert {:ok, "beta"} == Veidrodelis.sprev(vdr_id(), 0, key, "gamma")
+    end
+
+    test "read_tx accepts set navigation commands", %{redis: redis} do
+      key = "integration_set_nav_tx_#{:erlang.unique_integer([:positive])}"
+      Redix.command!(redis, ["SADD", key, "alpha", "beta", "gamma"])
+
+      assert_within 1000 do
+        assert {:ok,
+                [
+                  {:ok, "alpha"},
+                  {:ok, "gamma"},
+                  {:ok, "beta"},
+                  {:ok, "beta"},
+                  {:ok, nil},
+                  {:ok, nil}
+                ]} =
+                 Veidrodelis.read_tx(vdr_id(), 0, [
+                   {:sfirst, key},
+                   {:slast, key},
+                   {:snext, key, "alpha"},
+                   {:sprev, key, "gamma"},
+                   {:snext, key, "gamma"},
+                   {:sprev, key, "alpha"}
+                 ])
+      end
+    end
+  end
+
+  describe "set bulk helpers" do
+    @describetag timeout: 30_000
+
+    setup %{redis: redis} do
+      setup_veidrodelis(redis)
+    end
+
+    test "smismember and srandmember work via Veidrodelis", %{redis: redis} do
+      key = "integration_set_bulk_smismember_#{:erlang.unique_integer([:positive])}"
+      Redix.command!(redis, ["SADD", key, "alpha", "beta", "gamma"])
+
+      assert_within 1000 do
+        assert {:ok, [true, false, true]} ==
+                 Veidrodelis.smismember(vdr_id(), 0, key, ["alpha", "delta", "beta"])
+
+        assert {:ok, members} = Veidrodelis.srandmember(vdr_id(), 0, key, 2)
+        assert length(members) == 2
+        assert Enum.all?(members, &(&1 in ["alpha", "beta", "gamma"]))
+      end
+    end
+
+    test "sunion/sinter/sdiff/sintercard return expected results", %{redis: redis} do
+      a = "integration_set_bulk_a"
+      b = "integration_set_bulk_b"
+      Redix.command!(redis, ["SADD", a, "alpha", "beta"])
+      Redix.command!(redis, ["SADD", b, "beta", "gamma"])
+
+      assert_within 1000 do
+        assert {:ok, union} = Veidrodelis.sunion(vdr_id(), 0, [a, b])
+        assert MapSet.new(union) == MapSet.new(["alpha", "beta", "gamma"])
+
+        assert {:ok, inter} = Veidrodelis.sinter(vdr_id(), 0, [a, b])
+        assert inter == ["beta"]
+
+        assert {:ok, diff} = Veidrodelis.sdiff(vdr_id(), 0, [a, b])
+        assert MapSet.new(diff) == MapSet.new(["alpha"])
+
+        assert {:ok, 1} = Veidrodelis.sintercard(vdr_id(), 0, [a, b])
+
+        assert {:ok,
+                [
+                  {:ok, tx_union},
+                  {:ok, tx_inter},
+                  {:ok, tx_diff},
+                  {:ok, tx_card}
+                ]} =
+                 Veidrodelis.read_tx(vdr_id(), 0, [
+                   {:sunion, [a, b]},
+                   {:sinter, [a, b]},
+                   {:sdiff, [a, b]},
+                   {:sintercard, [a, b]}
+                 ])
+
+        assert MapSet.new(tx_union) == MapSet.new(["alpha", "beta", "gamma"])
+        assert tx_inter == ["beta"]
+        assert MapSet.new(tx_diff) == MapSet.new(["alpha"])
+        assert tx_card == 1
+      end
+    end
+  end
 end

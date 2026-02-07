@@ -329,6 +329,54 @@ defmodule Veidrodelis do
   end
 
   @doc """
+  Returns membership status for each member in the provided list.
+  """
+  @spec smismember(instance_id(), db(), key(), [any()]) :: [boolean()] | {:error, term()}
+  def smismember(id, db, key, members) do
+    with_single_command_read_tx(id, db, {:smismember, key, members})
+  end
+
+  @doc """
+  Returns up to `count` random members from the set stored at key.
+  """
+  @spec srandmember(instance_id(), db(), key(), integer()) :: [any()] | {:error, term()}
+  def srandmember(id, db, key, count) do
+    with_single_command_read_tx(id, db, {:srandmember, key, count})
+  end
+
+  @doc """
+  Returns the union of the provided sets.
+  """
+  @spec sunion(instance_id(), db(), [any()]) :: [any()] | {:error, term()}
+  def sunion(id, db, keys) do
+    with_single_command_read_tx(id, db, {:sunion, keys})
+  end
+
+  @doc """
+  Returns the intersection of the provided sets.
+  """
+  @spec sinter(instance_id(), db(), [any()]) :: [any()] | {:error, term()}
+  def sinter(id, db, keys) do
+    with_single_command_read_tx(id, db, {:sinter, keys})
+  end
+
+  @doc """
+  Returns the difference of the provided sets (first key minus remaining keys).
+  """
+  @spec sdiff(instance_id(), db(), [any()]) :: [any()] | {:error, term()}
+  def sdiff(id, db, keys) do
+    with_single_command_read_tx(id, db, {:sdiff, keys})
+  end
+
+  @doc """
+  Returns the cardinality of the intersection of the provided sets.
+  """
+  @spec sintercard(instance_id(), db(), [any()]) :: non_neg_integer() | {:error, term()}
+  def sintercard(id, db, keys) do
+    with_single_command_read_tx(id, db, {:sintercard, keys})
+  end
+
+  @doc """
   Gets the first (lexicographically minimum) member from a set.
 
   Returns the member or nil if the set is empty/doesn't exist.
@@ -446,6 +494,31 @@ defmodule Veidrodelis do
   @spec hlen(instance_id(), db(), key()) :: non_neg_integer() | {:error, term()}
   def hlen(id, db, key) do
     with_single_command_read_tx(id, db, {:hlen, key})
+  end
+
+  @doc """
+  Returns `true` if `field` exists in the hash stored at key.
+  """
+  @spec hexists(instance_id(), db(), key(), any()) :: boolean() | {:error, term()}
+  def hexists(id, db, key, field) do
+    with_single_command_read_tx(id, db, {:hexists, key, field})
+  end
+
+  @doc """
+  Returns the length of the value stored at `field` (string length).
+  """
+  @spec hstrlen(instance_id(), db(), key(), any()) :: non_neg_integer() | {:error, term()}
+  def hstrlen(id, db, key, field) do
+    with_single_command_read_tx(id, db, {:hstrlen, key, field})
+  end
+
+  @doc """
+  Returns up to `count` random fields (and optional values) from the hash stored at key.
+  """
+  @spec hrandfield(instance_id(), db(), key(), integer(), boolean()) ::
+          [term()] | {:error, term()}
+  def hrandfield(id, db, key, count, with_values \\ true) do
+    with_single_command_read_tx(id, db, {:hrandfield, key, count, with_values})
   end
 
   @doc """
@@ -573,10 +646,9 @@ defmodule Veidrodelis do
     * `{:hkeys, key}` - Get hash field names
     * `{:hvals, key}` - Get hash values
     * `{:hlen, key}` - Get hash length
-    * `{:hfirst, key}` - Get the lexicographically first field and its value
-    * `{:hlast, key}` - Get the lexicographically last field and its value
-    * `{:hnext, key, field}` - Get the field/value pair immediately after `field`
-    * `{:hprev, key, field}` - Get the field/value pair immediately before `field`
+    * `{:hexists, key, field}` - Check hash field existence
+    * `{:hstrlen, key, field}` - Get hash field length
+    * `{:hrandfield, key, count, with_values}` - Random hash field(s)
     * `{:hfirst, key}` - Get the lexicographically first field and its value
     * `{:hlast, key}` - Get the lexicographically last field and its value
     * `{:hnext, key, field}` - Get the field/value pair immediately after `field`
@@ -586,6 +658,16 @@ defmodule Veidrodelis do
     * `{:smembers, key}` - Get set members
     * `{:sismember, key, member}` - Check set membership
     * `{:scard, key}` - Get set cardinality
+    * `{:smismember, key, members}` - Check membership of multiple members
+    * `{:srandmember, key, count}` - Get random members
+    * `{:sunion, keys}` - Union of sets
+    * `{:sinter, keys}` - Intersection of sets
+    * `{:sdiff, keys}` - Difference of sets
+    * `{:sintercard, keys}` - Cardinality of intersection
+    * `{:sfirst, key}` - Get lexicographically first member
+    * `{:slast, key}` - Get lexicographically last member
+    * `{:snext, key, member}` - Get member immediately after `member`
+    * `{:sprev, key, member}` - Get member immediately before `member`
     * `{:zscore, key, member}` - Get sorted set member score
     * `{:zcard, key}` - Get sorted set cardinality
     * `{:zrange, key, start, stop, with_scores}` - Get sorted set range
@@ -612,11 +694,28 @@ defmodule Veidrodelis do
   - `ts.smembers(key)` - Get set members
   - `ts.sismember(key, member)` - Check set membership
   - `ts.scard(key)` - Get set cardinality
+  - `ts.smismember(key, members)` - Check multiple members
+  - `ts.srandmember(key, count)` - Get random members
+  - `ts.sunion(keys)` - Union of sets
+  - `ts.sinter(keys)` - Intersection of sets
+  - `ts.sdiff(keys)` - Difference of sets
+  - `ts.sintercard(keys)` - Intersection cardinality
+  - `ts.sfirst(key)` - Get lexicographically first member
+  - `ts.slast(key)` - Get lexicographically last member
+  - `ts.snext(key, member)` - Get next set member
+  - `ts.sprev(key, member)` - Get previous set member
   - `ts.hgetall(key)` - Get all hash fields and values
+  - `ts.hmget(key, fields)` - Get multiple hash field values
   - `ts.hkeys(key)` - Get hash field names
   - `ts.hvals(key)` - Get hash values
   - `ts.hlen(key)` - Get hash length
   - `ts.hexists(key, field)` - Check if hash field exists
+  - `ts.hstrlen(key, field)` - Get hash field length
+  - `ts.hrandfield(key, count, with_values)` - Get random hash fields
+  - `ts.hfirst(key)` - Get first hash field/value
+  - `ts.hlast(key)` - Get last hash field/value
+  - `ts.hnext(key, field)` - Get next hash field after given field
+  - `ts.hprev(key, field)` - Get previous hash field before given field
   - `ts.zscore(key, member)` - Get sorted set member score
   - `ts.zcard(key)` - Get sorted set cardinality
   - `ts.zrange(key, start, stop)` - Get sorted set range
