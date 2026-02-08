@@ -330,11 +330,7 @@ Veidrodelis handles Redis disconnections gracefully with automatic reconnection 
 
 ```elixir
 state = Veidrodelis.get_replication_state(:my_cache)
-# Possible states:
-# :initializing - Just started, no projection yet
-# :replicating  - Receiving RDB transfer
-# :streaming    - Fully synced, receiving live updates
-# :reconnecting - Disconnected, attempting to reconnect
+# Possible states: :init, :ping, :auth, :replconf_listening_port, :replconf_capa, :psync, :rdb_transfer, :streaming
 ```
 
 ### Expiration

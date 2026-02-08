@@ -1569,4 +1569,55 @@ defmodule VeidrodelisTest do
       assert values == {:ok, ["Alice", "30", nil]}
     end
   end
+
+  describe "replication state fetching" do
+    @tag :slow
+
+    def acc_status(id, deadline, acc \\ %{}) do
+      if deadline < :os.system_time(:millisecond) do
+        acc
+      else
+        try do
+          status = Veidrodelis.get_replication_state(id)
+          acc_status(id, deadline, Map.put(acc, status, true))
+        catch
+          _, _ ->
+            acc_status(id, deadline, acc)
+        end
+      end
+    end
+
+    test "fetches replication state" do
+      id = :"test_status_fetching_#{:erlang.unique_integer([:positive])}"
+
+      spawn_link(fn ->
+        {:ok, _pid} =
+          Veidrodelis.start_link(
+            id: id,
+            host: @redis_host,
+            port: @redis_port
+          )
+
+        Process.sleep(:infinity)
+      end)
+
+      statuses = acc_status(id, :os.system_time(:millisecond) + 2000)
+      assert %{streaming: true} = statuses
+
+      statuses
+      |> Map.keys()
+      |> Enum.each(fn status ->
+        assert status in [
+                 :init,
+                 :ping,
+                 :auth,
+                 :replconf_listening_port,
+                 :replconf_capa,
+                 :psync,
+                 :rdb_transfer,
+                 :streaming
+               ]
+      end)
+    end
+  end
 end

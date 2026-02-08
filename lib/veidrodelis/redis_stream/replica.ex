@@ -93,7 +93,15 @@ defmodule Vdr.RedisStream.Replica do
   @default_port 6379
   @default_timeout 5000
 
-  @type replica_state :: :init | :ping | :auth | :replconf_listening_port | :replconf_capa | :psync | :rdb_transfer | :streaming
+  @type replica_state ::
+          :init
+          | :ping
+          | :auth
+          | :replconf_listening_port
+          | :replconf_capa
+          | :psync
+          | :rdb_transfer
+          | :streaming
 
   # Client API
 
@@ -296,7 +304,7 @@ defmodule Vdr.RedisStream.Replica do
   @doc """
   Get the current callback state.
   """
-  @spec get_callback_state(GenServer.server()) :: replica_state()
+  @spec get_callback_state(GenServer.server()) :: term()
   def get_callback_state(server) do
     GenServer.call(server, :get_callback_state)
   end
@@ -304,7 +312,7 @@ defmodule Vdr.RedisStream.Replica do
   @doc """
   Get the current replication state.
   """
-  @spec get_replication_state(GenServer.server()) :: term()
+  @spec get_replication_state(GenServer.server()) :: replica_state()
   def get_replication_state(server) do
     GenServer.call(server, :get_replication_state)
   end
