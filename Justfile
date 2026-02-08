@@ -12,20 +12,16 @@ test-all:
 compile:
     mix compile
 
-cov:
-    mix coveralls.html --include slow
-    cd native/vdr_ts_nif && ./cover.sh
-    cd native/vdr_redis_nif && ./cover.sh
-    @echo "Coverage report: http://{{HOST}}:8000"
-    @cd cover && python3 -m http.server 8000 > /dev/null
+cov: clean
+    ./cover.sh
 
-cov-ex:
-    mix coveralls.html --include slow
+cov-serve: cov
     @echo "Coverage report: http://{{HOST}}:8000"
     @cd cover && python3 -m http.server 8000 > /dev/null
 
 clean:
     rm -rf native/vdr_redis_nif/target/*
+    rm -rf native/vdr_ts_nif/target/*
     rm -rf priv/native/*
     rm -f *.profraw
     sudo rm -rf benchmark/plots/*.data.old

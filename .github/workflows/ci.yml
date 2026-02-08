@@ -18,11 +18,16 @@ jobs:
       - name: Setup Elixir
         uses: erlef/setup-elixir@v1
         with:
-          elixir-version: '1.18'
-          otp-version: '27'
+          elixir-version: '1.19'
+          otp-version: '28'
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-llvm-cov
+        run: |
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov
 
       - name: Install just
         uses: extractions/setup-just@v2
@@ -31,11 +36,41 @@ jobs:
         run: mix deps.get
 
       - name: Start test services
-        run: just dc-start
+        run: |
+          just dc-start
+          just dc-sentinel-start
 
-      - name: Run tests
-        run: just test
+      - name: Run coverage
+        run: just cov
+
+      - name: Upload coverage to Coveralls (Elixir)
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: cover/elixir/lcov.info
+          format: lcov
+          flag-name: elixir
+          parallel: true
+
+      - name: Upload coverage to Coveralls (NIF)
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path-to-lcov: cover/nif/lcov.info
+          format: lcov
+          flag-name: nif
+          parallel: true
+
+      - name: Finalize Coveralls
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          parallel-finished: true
+
+
 
       - name: Stop test services
         if: always()
-        run: just dc-stop
+        run: |
+          just dc-stop
+          just dc-sentinel-stop

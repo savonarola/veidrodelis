@@ -232,7 +232,7 @@ defmodule Vdr.SentinelIntegrationTest do
       {:ok, replica} = Replica.start_link(opts)
 
       # Wait for initial replication
-      assert_within 5000 do
+      assert_within 10_000 do
         assert {:ok, state} = CollectorCallback.get_state(replica)
         assert state.streaming_starts > 0
       end
