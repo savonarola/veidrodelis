@@ -138,17 +138,17 @@ So Veidrodelis local readers never see partial transaction state.
 
 ```elixir
 # Start transaction by setting the __vdr_tx key with expiration
-# The expiration is CRITICAL - it garantees the end of the transaction
-# If you forget to delete __vdr_tx or crash, it will auto-close when it expires
-Redix.command!(rdx, ["SETEX", "__vdr_tx", "5", "in_progress"])
-
-# Perform multiple writes
-Redix.command!(rdx, ["SET", "account:123:balance", "1000"])
-Redix.command!(rdx, ["SET", "account:456:balance", "2000"])
-Redix.command!(rdx, ["SET", "transfer:789:amount", "100"])
-
-# End transaction by deleting the __vdr_tx key (or wait for expiration)
-Redix.command!(rdx, ["DEL", "__vdr_tx"])
+# The expiration is recommended - it garantees the end of the transaction
+# If you e.g. forget to delete __vdr_tx, it will auto-close when it expires
+Redix.pipeline!(rdx,[
+  ["MULTI"],
+  ["SETEX", "__vdr_tx", "5", "in_progress"],
+  ["SET", "account:123:balance", "1000"],
+  ["SET", "account:456:balance", "2000"],
+  ["SET", "transfer:789:amount", "100"],
+  ["DEL", "__vdr_tx"],
+  ["EXEC"]
+])
 ```
 
 **Important:** Always set an expiration on `__vdr_tx` (using `SETEX` or `PSETEX`)
