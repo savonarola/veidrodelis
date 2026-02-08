@@ -821,6 +821,97 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
       end
     end
 
+    test "ZADD with options: CH returns count of changed elements", %{redis: redis} do
+      # Initial setup: member1=1, member2=2
+      Redix.command!(redis, ["ZADD", "ch_test", "1", "member1", "2", "member2"])
+      # ZADD with CH: member1 score unchanged (1->1), member2 score changes (2->3)
+      # CH should return 1 (only member2 changed)
+      redis_result =
+        Redix.command!(redis, ["ZADD", "ch_test", "CH", "1", "member1", "3", "member2"])
+
+      assert 1 == redis_result
+
+      assert_within 1000 do
+        {:ok, ts_score_m1} = Veidrodelis.zscore(vdr_id(), 0, "ch_test", "member1")
+        {:ok, ts_score_m2} = Veidrodelis.zscore(vdr_id(), 0, "ch_test", "member2")
+
+        # member1 score should still be 1
+        assert 1.0 == ts_score_m1
+        # member2 score should now be 3
+        assert 3.0 == ts_score_m2
+      end
+    end
+
+    test "ZADD with options: CH with multiple changes counts all changes", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "ch_multi_test", "1", "a", "2", "b", "3", "c"])
+      # All scores change: a=1->10, b=2->20, c=3->30
+      # CH should return 3 (all changed)
+      redis_result =
+        Redix.command!(redis, ["ZADD", "ch_multi_test", "CH", "10", "a", "20", "b", "30", "c"])
+
+      assert 3 == redis_result
+
+      assert_within 1000 do
+        {:ok, ts_score_a} = Veidrodelis.zscore(vdr_id(), 0, "ch_multi_test", "a")
+        {:ok, ts_score_b} = Veidrodelis.zscore(vdr_id(), 0, "ch_multi_test", "b")
+        {:ok, ts_score_c} = Veidrodelis.zscore(vdr_id(), 0, "ch_multi_test", "c")
+
+        assert 10.0 == ts_score_a
+        assert 20.0 == ts_score_b
+        assert 30.0 == ts_score_c
+      end
+    end
+
+    test "ZADD with options: GT and CH together - CH counts only GT updates", %{redis: redis} do
+      # Setup: m1=5, m2=10
+      Redix.command!(redis, ["ZADD", "gt_ch_test", "5", "m1", "10", "m2"])
+      # GT with CH: m1 should NOT update (3 < 5), m2 SHOULD update (15 > 10)
+      # CH should return 1 (only m2 changed due to GT condition)
+      redis_result =
+        Redix.command!(redis, ["ZADD", "gt_ch_test", "GT", "CH", "3", "m1", "15", "m2"])
+
+      assert 1 == redis_result
+
+      assert_within 1000 do
+        {:ok, ts_score_m1} = Veidrodelis.zscore(vdr_id(), 0, "gt_ch_test", "m1")
+        {:ok, ts_score_m2} = Veidrodelis.zscore(vdr_id(), 0, "gt_ch_test", "m2")
+
+        # m1 score should still be 5 (not updated due to GT)
+        assert 5.0 == ts_score_m1
+        # m2 score should now be 15
+        assert 15.0 == ts_score_m2
+      end
+    end
+
+    test "ZADD with options: GT with update - CH returns 1", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "gt_update_test", "5", "member"])
+      # GT should update (10 > 5), CH should return 1
+      redis_result =
+        Redix.command!(redis, ["ZADD", "gt_update_test", "GT", "CH", "10", "member"])
+
+      assert 1 == redis_result
+
+      assert_within 1000 do
+        {:ok, ts_score} = Veidrodelis.zscore(vdr_id(), 0, "gt_update_test", "member")
+        assert 10.0 == ts_score
+      end
+    end
+
+    test "ZADD with options: GT without update - CH returns 0", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "gt_noupdate_test", "5", "member"])
+      # GT should NOT update (3 < 5), CH should return 0
+      redis_result =
+        Redix.command!(redis, ["ZADD", "gt_noupdate_test", "GT", "CH", "3", "member"])
+
+      assert 0 == redis_result
+
+      assert_within 1000 do
+        {:ok, ts_score} = Veidrodelis.zscore(vdr_id(), 0, "gt_noupdate_test", "member")
+        # Score should remain unchanged
+        assert 5.0 == ts_score
+      end
+    end
+
     test "ZINCRBY increments existing member in existing key", %{redis: redis} do
       Redix.command!(redis, ["ZADD", "zincrby_existing", "10.0", "counter"])
       # Should be 10.0 + 5.5 = 15.5
@@ -881,6 +972,21 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
 
         assert {74.5, ""} == Float.parse(redis_score)
         assert 74.5 == ts_score
+      end
+    end
+
+    test "ZINCRBY with integer increment", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "zincrby_int", "10.0", "counter"])
+      # Should be 10.0 + 5 = 15.0 (integer increment)
+      Redix.command!(redis, ["ZINCRBY", "zincrby_int", "5", "counter"])
+
+      assert_within 1000 do
+        redis_score = Redix.command!(redis, ["ZSCORE", "zincrby_int", "counter"])
+        {:ok, ts_score} = Veidrodelis.zscore(vdr_id(), 0, "zincrby_int", "counter")
+
+        # Redis stores all scores as floats, so integer 5 becomes 15.0
+        assert {15.0, ""} == Float.parse(redis_score)
+        assert 15.0 == ts_score
       end
     end
 
@@ -1155,6 +1261,30 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
         {:ok, ts_score_b} = Veidrodelis.zscore(vdr_id(), 0, "union_max_result", "b")
 
         Float.parse(redis_score_b) == {5.0, ""} and ts_score_b == 5.0
+      end
+    end
+
+    test "ZUNIONSTORE with AGGREGATE SUM", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "union_sum1", "1", "a", "5", "b"])
+      Redix.command!(redis, ["ZADD", "union_sum2", "3", "b", "2", "c"])
+
+      Redix.command!(redis, [
+        "ZUNIONSTORE",
+        "union_sum_result",
+        "2",
+        "union_sum1",
+        "union_sum2",
+        "AGGREGATE",
+        "SUM"
+      ])
+
+      assert_within 1000 do
+        # b should have sum(5, 3) = 8
+        # a = 1, c = 2, b = 5 + 3 = 8
+        redis_score_b = Redix.command!(redis, ["ZSCORE", "union_sum_result", "b"])
+        {:ok, ts_score_b} = Veidrodelis.zscore(vdr_id(), 0, "union_sum_result", "b")
+
+        Float.parse(redis_score_b) == {8.0, ""} and ts_score_b == 8.0
       end
     end
 

@@ -39,7 +39,7 @@ defmodule Vdr.SentinelIntegrationTest do
     end
 
     @impl Vdr.RedisStream.Callback
-    def handle_call(state, {:get_test_state}), do: {:reply, state, state}
+    def handle_call(state, {:get_test_state}), do: {:reply, {:ok, state}, state}
 
     @impl Vdr.RedisStream.Callback
     def handle_call(state, _message), do: {:reply, :ok, state}

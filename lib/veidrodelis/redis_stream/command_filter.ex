@@ -52,9 +52,9 @@ defmodule Vdr.RedisStream.CommandFilter do
             :skip
         end
       end,
-      post_handle: fn replica_command ->
-        :ok = inner_filter.post_handle.(replica_command)
-        :ok = outer_filter.post_handle.(replica_command)
+      post_handle: fn replica_command, result ->
+        :ok = inner_filter.post_handle.(replica_command, result)
+        :ok = outer_filter.post_handle.(replica_command, result)
       end
     }
   end

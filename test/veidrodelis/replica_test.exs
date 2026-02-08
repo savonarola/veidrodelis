@@ -2,6 +2,7 @@ defmodule Veidrodelis.ReplicaTest do
   use ExUnit.Case, async: false
 
   alias Vdr.RedisStream.Replica
+  alias Vdr.RedisStream.ReplicaCommand
   use CommandMatchers
   require Logger
 
@@ -598,6 +599,80 @@ defmodule Veidrodelis.ReplicaTest do
         {:error, _reason} ->
           assert true
       end
+    end
+  end
+
+  describe "command filters" do
+    test "applies pre and post filters to commands", %{redis: redis} do
+      Redix.command!(redis, ["SET", "a", "1"])
+      Redix.command!(redis, ["SET", "b", "2"])
+      Redix.command!(redis, ["SET", "c", "3"])
+      Redix.command!(redis, ["SET", "d", "4"])
+
+      owner_pid = self()
+
+      filter1 = %Vdr.RedisStream.CommandFilter{
+        pre_handle: fn %ReplicaCommand{command: command, context: context} = replica_command ->
+          case command do
+            {:set, "b", _} ->
+              :skip
+            _ ->
+              filters = Map.get(context, :filters, [])
+              filters = [:f1 | filters]
+              context = Map.put(context, :filters, filters)
+              {:ok, %ReplicaCommand{replica_command | context: context}}
+          end
+        end,
+        post_handle: fn %ReplicaCommand{context: context}, _result ->
+          filters = Map.get(context, :filters, [])
+          send(owner_pid, {:filters_from_f1, filters})
+          :ok
+        end
+      }
+
+      filter2 = %Vdr.RedisStream.CommandFilter{
+        pre_handle: fn %ReplicaCommand{command: command, context: context} = replica_command ->
+          case command do
+            {:set, "d", _} ->
+              :skip
+            _ ->
+              filters = Map.get(context, :filters, [])
+              filters = [:f2 | filters]
+              context = Map.put(context, :filters, filters)
+              {:ok, %ReplicaCommand{replica_command | context: context}}
+          end
+        end,
+        post_handle: fn %ReplicaCommand{context: context}, _result ->
+          filters = Map.get(context, :filters, [])
+          send(owner_pid, {:filters_from_f2, filters})
+          :ok
+        end
+      }
+
+      command_filter = Vdr.RedisStream.CommandFilter.combine(filter1, filter2)
+
+      opts = [
+        host: @redis_host,
+        port: @redis_port,
+        callback_module: CollectorCallback,
+        callback_state: %{commands: []},
+        command_filter: command_filter
+      ]
+
+      {:ok, replica} = Replica.start_link(opts)
+
+      assert_within 1500 do
+        assert :streaming == Replica.get_replication_state(replica)
+      end
+
+      callback_state = Replica.get_callback_state(replica)
+      # b is skipped by the first filter, d is skipped by the second filter
+      assert [{:set, "a", "1"}, {:set, "c", "3"}] = CollectorCallback.commands(callback_state)
+
+      # Actually each filter sends 2 such messages, one for "a", one for "b"
+      assert_receive {:filters_from_f1, [:f2, :f1]}
+      assert_receive {:filters_from_f2, [:f2, :f1]}
+
     end
   end
 end

@@ -349,6 +349,7 @@ defmodule Vdr.RedisStream.Replica do
 
     * `server` - The replica GenServer PID or name
     * `message` - The message to pass to the callback's `handle_call/2`
+    * `timeout` - The timeout for the call (default: 5000ms)
 
   ## Returns
 
@@ -357,9 +358,9 @@ defmodule Vdr.RedisStream.Replica do
     * `{:error, :not_connected}` - Replica not in valid state
     * `{:error, reason}` - Other error from callback
   """
-  @spec call(GenServer.server(), term()) :: {:ok, term()} | {:error, term()}
-  def call(server, message) do
-    GenServer.call(server, {:callback_call, message})
+  @spec call(GenServer.server(), term(), non_neg_integer()) :: {:ok, term()} | {:error, term()}
+  def call(server, message, timeout \\ @default_timeout) do
+    GenServer.call(server, {:callback_call, message}, timeout)
   end
 
   # Server callbacks
@@ -496,13 +497,13 @@ defmodule Vdr.RedisStream.Replica do
     if state.state == :replication do
       case state.callback_module.handle_call(state.callback_state, message) do
         {:reply, reply, new_callback_state} ->
-          {:reply, {:ok, reply}, %{state | callback_state: new_callback_state}}
+          {:reply, reply, %{state | callback_state: new_callback_state}}
 
         {:noreply, new_callback_state} ->
           {:noreply, %{state | callback_state: new_callback_state}}
 
-        {:error, reason} ->
-          {:reply, {:error, reason}, state}
+        {:error, _} = error ->
+          {:reply, error, state}
       end
     else
       {:reply, {:error, :not_connected}, state}

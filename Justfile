@@ -13,7 +13,7 @@ compile:
     mix compile
 
 cov: clean
-    ./cover.sh
+    ./cover.sh slow
 
 cov-serve: cov
     @echo "Coverage report: http://{{HOST}}:8000"
@@ -24,6 +24,7 @@ clean:
     rm -rf native/vdr_ts_nif/target/*
     rm -rf priv/native/*
     rm -f *.profraw
+    rm -rf cover/*
     sudo rm -rf benchmark/plots/*.data.old
     sudo rm -rf benchmark/plots/*.data benchmark/plots/*.folded benchmark/plots/*.txt
     mix clean

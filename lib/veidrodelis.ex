@@ -204,6 +204,7 @@ defmodule Veidrodelis do
     * `db` - Database number
     * `key` - The key to watch (binary)
     * `ref` - Reference value to identify this watch in notifications
+    * `timeout` - The timeout for the call (default: 5000ms)
 
   ## Returns
 
@@ -228,14 +229,10 @@ defmodule Veidrodelis do
   ```
   """
   @spec watch(instance_id(), db(), key(), term()) :: :ok | {:error, term()}
-  def watch(id, db, key, ref) when is_integer(db) and is_binary(key) do
+  def watch(id, db, key, ref, timeout \\ 5000) when is_integer(db) and is_binary(key) do
     case Vdr.Registry.lookup(id) do
       {:ok, %Vdr.Handle{pid: pid}} ->
-        case GenServer.call(pid, {:callback_call, {:watch, self(), db, key, ref}}) do
-          {:ok, :ok} -> :ok
-          {:ok, {:error, reason}} -> {:error, reason}
-          {:error, reason} -> {:error, reason}
-        end
+        Replica.call(pid, {:watch, self(), db, key, ref}, timeout)
 
       :not_found ->
         {:error, :not_found}
@@ -250,6 +247,7 @@ defmodule Veidrodelis do
     * `id` - Veidrodelis instance ID
     * `db` - Database number
     * `key` - The key to unwatch (binary)
+    * `timeout` - The timeout for the call (default: 5000ms)
 
   ## Returns
 
@@ -264,14 +262,10 @@ defmodule Veidrodelis do
   ```
   """
   @spec unwatch(instance_id(), db(), key()) :: :ok | {:error, term()}
-  def unwatch(id, db, key) when is_integer(db) and is_binary(key) do
+  def unwatch(id, db, key, timeout \\ 5000) when is_integer(db) and is_binary(key) do
     case Vdr.Registry.lookup(id) do
       {:ok, %Vdr.Handle{pid: pid}} ->
-        case GenServer.call(pid, {:callback_call, {:unwatch, self(), db, key}}) do
-          {:ok, :ok} -> :ok
-          {:ok, {:error, reason}} -> {:error, reason}
-          {:error, reason} -> {:error, reason}
-        end
+        Replica.call(pid, {:unwatch, self(), db, key}, timeout)
 
       :not_found ->
         {:error, :not_found}

@@ -66,10 +66,6 @@ defmodule Vdr.RedisStream.CommandParser do
     {:ok, {:msetnx, pairs}, keys}
   end
 
-  def parse(["GETSET", key, value]), do: {:ok, {:getset, key, value}, [key]}
-
-  def parse(["GETDEL", key]), do: {:ok, {:getdel, key}, [key]}
-
   def parse(["LPUSH", key | values]), do: {:ok, {:lpush, key, values}, [key]}
 
   def parse(["RPUSH", key | values]), do: {:ok, {:rpush, key, values}, [key]}
@@ -228,33 +224,7 @@ defmodule Vdr.RedisStream.CommandParser do
     {:ok, {:hincrby, key, field, String.to_integer(increment)}, [key]}
   end
 
-  def parse(["HINCRBYFLOAT", key, field, increment]) do
-    require Logger
-    Logger.debug("Parsing HINCRBYFLOAT: key=#{key}, field=#{field}, increment=#{increment}")
-    {:ok, {:hincrbyfloat, key, field, parse_float(increment)}, [key]}
-  end
-
   def parse(["HDEL", key | fields]), do: {:ok, {:hdel, key, fields}, [key]}
-
-  def parse(["HGETEX", key | rest]) do
-    {ttl_option, fields} = parse_hgetex_args(rest)
-    {:ok, {:hgetex, key, ttl_option, fields}, [key]}
-  end
-
-  def parse(["HEXPIRE", key, seconds | rest]) do
-    {condition, fields} = parse_hexpire_args(rest)
-    {:ok, {:hexpire, key, String.to_integer(seconds), condition, fields}, [key]}
-  end
-
-  def parse(["HEXPIREAT", key, timestamp | rest]) do
-    {condition, fields} = parse_hexpire_args(rest)
-    {:ok, {:hexpireat, key, String.to_integer(timestamp), condition, fields}, [key]}
-  end
-
-  def parse(["HPEXPIRE", key, milliseconds | rest]) do
-    {condition, fields} = parse_hexpire_args(rest)
-    {:ok, {:hpexpire, key, String.to_integer(milliseconds), condition, fields}, [key]}
-  end
 
   def parse(["HPEXPIREAT", key, timestamp_ms | rest]) do
     {condition, fields} = parse_hexpire_args(rest)
@@ -293,21 +263,6 @@ defmodule Vdr.RedisStream.CommandParser do
 
   def parse(["PEXPIREAT", key, timestamp_ms]) do
     {:ok, {:pexpireat, key, String.to_integer(timestamp_ms)}, [key]}
-  end
-
-  def parse(["EXPIRE", key, seconds | _options]) do
-    timestamp_ms = (System.os_time(:second) + String.to_integer(seconds)) * 1000
-    {:ok, {:pexpireat, key, timestamp_ms}, [key]}
-  end
-
-  def parse(["PEXPIRE", key, milliseconds | _options]) do
-    timestamp_ms = System.os_time(:millisecond) + String.to_integer(milliseconds)
-    {:ok, {:pexpireat, key, timestamp_ms}, [key]}
-  end
-
-  def parse(["EXPIREAT", key, timestamp | _options]) do
-    timestamp_ms = String.to_integer(timestamp) * 1000
-    {:ok, {:pexpireat, key, timestamp_ms}, [key]}
   end
 
   def parse(["PERSIST", key]) do
@@ -469,26 +424,6 @@ defmodule Vdr.RedisStream.CommandParser do
   defp extract_hexpire_fields(["FIELDS", _numfields | fields]), do: fields
   defp extract_hexpire_fields(_), do: []
 
-  # Parse HGETEX args: [EX seconds | PX milliseconds | EXAT unix-time | PXAT unix-time-ms | PERSIST] FIELDS numfields field [field ...]
-  defp parse_hgetex_args(args) do
-    {ttl_option, rest} = extract_hgetex_ttl_option(args)
-    fields = extract_hexpire_fields(rest)
-    {ttl_option, fields}
-  end
-
-  defp extract_hgetex_ttl_option([arg | rest]) do
-    case String.upcase(arg) do
-      "EX" -> {{:ex, String.to_integer(hd(rest))}, tl(rest)}
-      "PX" -> {{:px, String.to_integer(hd(rest))}, tl(rest)}
-      "EXAT" -> {{:exat, String.to_integer(hd(rest))}, tl(rest)}
-      "PXAT" -> {{:pxat, String.to_integer(hd(rest))}, tl(rest)}
-      "PERSIST" -> {:persist, rest}
-      _ -> {nil, [arg | rest]}
-    end
-  end
-
-  defp extract_hgetex_ttl_option([]), do: {nil, []}
-
   defp extract_hsetex_options([], nx_or_xx), do: {nx_or_xx, []}
 
   defp extract_hsetex_options([arg | rest] = all_args, nx_or_xx) do
@@ -497,9 +432,10 @@ defmodule Vdr.RedisStream.CommandParser do
       "FXX" -> extract_hsetex_options(rest, :xx)
       "KEEPTTL" -> extract_hsetex_options(rest, nx_or_xx)
       # These options have a value after them, skip both
-      "EX" -> extract_hsetex_options(Enum.drop(rest, 1), nx_or_xx)
-      "PX" -> extract_hsetex_options(Enum.drop(rest, 1), nx_or_xx)
-      "EXAT" -> extract_hsetex_options(Enum.drop(rest, 1), nx_or_xx)
+      # "EX" -> extract_hsetex_options(Enum.drop(rest, 1), nx_or_xx)
+      # "PX" -> extract_hsetex_options(Enum.drop(rest, 1), nx_or_xx)
+      # "EXAT" -> extract_hsetex_options(Enum.drop(rest, 1), nx_or_xx)
+      # in replication, all expiration options are converted to PXAT
       "PXAT" -> extract_hsetex_options(Enum.drop(rest, 1), nx_or_xx)
       # Not an option, return remaining args
       _ -> {nx_or_xx, all_args}

@@ -19,7 +19,7 @@ defmodule Veidrodelis.Integration.HashCommandsTest do
       setup_veidrodelis(redis)
     end
 
-    test "hfirst/hlast/hnext/hprev replicate correctly", %{redis: redis} do
+    test "hfirst/hlast/hnext/hprev work correctly", %{redis: redis} do
       key = "integration_hash_nav_#{:erlang.unique_integer([:positive])}"
       Redix.command!(redis, ["HSET", key, "a", "1", "b", "2", "c", "3"])
 
@@ -167,6 +167,191 @@ defmodule Veidrodelis.Integration.HashCommandsTest do
       Redix.command!(redis, ["HSET", key, "field1", "updated"])
 
       assert_within 1000 do
+        assert {:ok, "updated"} == Veidrodelis.hget(vdr_id(), 0, key, "field1")
+      end
+    end
+
+    test "HINCRBYFLOAT increments float fields correctly", %{redis: redis} do
+      key = "integration_hincrbyfloat_#{:erlang.unique_integer([:positive])}"
+      Redix.command!(redis, ["HSET", key, "score", "10.5"])
+
+      assert_within 1000 do
+        assert {:ok, "10.5"} == Veidrodelis.hget(vdr_id(), 0, key, "score")
+      end
+
+      # Increment by float
+      Redix.command!(redis, ["HINCRBYFLOAT", key, "score", "3.14"])
+
+      assert_within 1000 do
+        assert {:ok, "13.64"} == Veidrodelis.hget(vdr_id(), 0, key, "score")
+      end
+
+      # Increment by negative value (decrement)
+      Redix.command!(redis, ["HINCRBYFLOAT", key, "score", "-5.5"])
+
+      assert_within 1000 do
+        assert {:ok, "8.14"} == Veidrodelis.hget(vdr_id(), 0, key, "score")
+      end
+    end
+
+    @tag :slow
+    test "HSETEX with EX seconds expiration", %{redis: redis} do
+      key = "integration_hsetex_ex_#{:erlang.unique_integer([:positive])}"
+      Redix.command!(redis, ["HSETEX", key, "EX", "1", "FIELDS", "1", "field1", "value1"])
+
+      assert_within 1000 do
+        assert {:ok, "value1"} == Veidrodelis.hget(vdr_id(), 0, key, "field1")
+      end
+
+      assert_within 1500 do
+        assert {:ok, nil} == Veidrodelis.hget(vdr_id(), 0, key, "field1")
+      end
+    end
+
+    @tag :slow
+    test "HSETEX with PX milliseconds expiration", %{redis: redis} do
+      key = "integration_hsetex_px_#{:erlang.unique_integer([:positive])}"
+      Redix.command!(redis, ["HSETEX", key, "PX", "500", "FIELDS", "1", "field1", "value1"])
+
+      assert_within 1000 do
+        assert {:ok, "value1"} == Veidrodelis.hget(vdr_id(), 0, key, "field1")
+      end
+
+      assert_within 1000 do
+        assert {:ok, nil} == Veidrodelis.hget(vdr_id(), 0, key, "field1")
+      end
+    end
+
+    @tag :slow
+    test "HSETEX with multiple fields", %{redis: redis} do
+      key = "integration_hsetex_multi_#{:erlang.unique_integer([:positive])}"
+
+      Redix.command!(redis, [
+        "HSETEX",
+        key,
+        "EX",
+        "1",
+        "FIELDS",
+        "2",
+        "field1",
+        "value1",
+        "field2",
+        "value2"
+      ])
+
+      assert_within 1000 do
+        assert {:ok, "value1"} == Veidrodelis.hget(vdr_id(), 0, key, "field1")
+        assert {:ok, "value2"} == Veidrodelis.hget(vdr_id(), 0, key, "field2")
+        assert {:ok, 2} == Veidrodelis.hlen(vdr_id(), 0, key)
+      end
+
+      assert_within 1500 do
+        assert {:ok, 0} == Veidrodelis.hlen(vdr_id(), 0, key)
+      end
+    end
+
+    test "HSETEX with FNX only creates new field", %{redis: redis} do
+      key = "integration_hsetex_fnx_#{:erlang.unique_integer([:positive])}"
+      Redix.command!(redis, ["HSET", key, "existing", "val"])
+
+      assert_within 1000 do
+        assert {:ok, "val"} == Veidrodelis.hget(vdr_id(), 0, key, "existing")
+      end
+
+      # FNX should skip existing field
+      result =
+        Redix.command(redis, [
+          "HSETEX",
+          key,
+          "FNX",
+          "EX",
+          "10",
+          "FIELDS",
+          "1",
+          "existing",
+          "newval"
+        ])
+
+      assert {:ok, 0} == result
+
+      assert_within 1000 do
+        assert {:ok, "val"} == Veidrodelis.hget(vdr_id(), 0, key, "existing")
+      end
+
+      # FNX should add new field
+      Redix.command!(redis, [
+        "HSETEX",
+        key,
+        "FNX",
+        "EX",
+        "10",
+        "FIELDS",
+        "1",
+        "newfield",
+        "newval"
+      ])
+
+      assert_within 1000 do
+        assert {:ok, "newval"} == Veidrodelis.hget(vdr_id(), 0, key, "newfield")
+      end
+    end
+
+    test "HSETEX with FXX only updates existing field", %{redis: redis} do
+      key = "integration_hsetex_fxx_#{:erlang.unique_integer([:positive])}"
+      Redix.command!(redis, ["HSET", key, "existing", "val"])
+
+      # FXX should update existing field
+      Redix.command!(redis, [
+        "HSETEX",
+        key,
+        "FXX",
+        "EX",
+        "10",
+        "FIELDS",
+        "1",
+        "existing",
+        "updated"
+      ])
+
+      assert_within 1000 do
+        assert {:ok, "updated"} == Veidrodelis.hget(vdr_id(), 0, key, "existing")
+      end
+
+      # FXX should skip non-existing field
+      result =
+        Redix.command(redis, [
+          "HSETEX",
+          key,
+          "FXX",
+          "EX",
+          "10",
+          "FIELDS",
+          "1",
+          "newfield",
+          "newval"
+        ])
+
+      assert {:ok, 0} == result
+
+      assert_within 1000 do
+        assert {:ok, nil} == Veidrodelis.hget(vdr_id(), 0, key, "newfield")
+      end
+    end
+
+    test "HSETEX with KEEPTTL preserves existing expiration", %{redis: redis} do
+      key = "integration_hsetex_keepttl_#{:erlang.unique_integer([:positive])}"
+      # First set a field with expiration
+      Redix.command!(redis, ["HSETEX", key, "EX", "2", "FIELDS", "1", "field1", "value1"])
+
+      assert_within 1000 do
+        assert {:ok, "value1"} == Veidrodelis.hget(vdr_id(), 0, key, "field1")
+      end
+
+      # Update the field with KEEPTTL - should preserve the expiration
+      Redix.command!(redis, ["HSETEX", key, "KEEPTTL", "FIELDS", "1", "field1", "updated"])
+
+      assert_within 1000 do
+        # Value should be updated
         assert {:ok, "updated"} == Veidrodelis.hget(vdr_id(), 0, key, "field1")
       end
     end

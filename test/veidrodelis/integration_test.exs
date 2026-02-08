@@ -279,6 +279,22 @@ defmodule Veidrodelis.IntegrationTest do
     Redix.command!(redis, ["ZADD", "remrange_lex_zset", "0", "a", "0", "b", "0", "c", "0", "d"])
     Redix.command!(redis, ["ZREMRANGEBYLEX", "remrange_lex_zset", "[a", "[c"])
 
+    # ZADD with CH option - returns count of changed elements
+    Redix.command!(redis, ["ZADD", "zadd_ch_test", "1", "member1", "2", "member2"])
+    # This should return 1 (only member1 is new, member2 score changes from 2 to 3)
+    Redix.command!(redis, ["ZADD", "zadd_ch_test", "CH", "1", "member1", "3", "member2"])
+
+    # ZADD with GT option - only update if new score is greater
+    Redix.command!(redis, ["ZADD", "zadd_gt_test", "5", "member"])
+    # This should NOT update (3 < 5)
+    Redix.command!(redis, ["ZADD", "zadd_gt_test", "GT", "3", "member"])
+    # This SHOULD update (10 > 5)
+    Redix.command!(redis, ["ZADD", "zadd_gt_test", "GT", "10", "member"])
+    # ZADD with GT and CH together
+    Redix.command!(redis, ["ZADD", "zadd_gt_ch_test", "5", "m1", "10", "m2"])
+    # Only m2 should be updated (15 > 10), m1 should NOT be updated (3 < 5)
+    Redix.command!(redis, ["ZADD", "zadd_gt_ch_test", "GT", "CH", "3", "m1", "15", "m2"])
+
     # ZINCRBY tests - note: ZINCRBY is replicated as ZADD with final score
     # Test 1: ZINCRBY on existing key with existing member
     Redix.command!(redis, ["ZADD", "zincrby_test", "10.0", "counter"])
@@ -408,6 +424,70 @@ defmodule Veidrodelis.IntegrationTest do
         "FIELDS",
         "1",
         "f1"
+      ])
+
+      # HPEXPIREAT with all options (NX, XX, GT, LT) - Valkey-specific
+      # NX: Set expiry only when field has no expiry
+      Redix.command!(redis, [
+        "HSET",
+        "hpexpireat_opts",
+        "f1",
+        "v1",
+        "f2",
+        "v2",
+        "f3",
+        "v3",
+        "f4",
+        "v4"
+      ])
+
+      Redix.command!(redis, [
+        "HPEXPIREAT",
+        "hpexpireat_opts",
+        "#{System.os_time(:millisecond) + 86_400_000}",
+        "NX",
+        "FIELDS",
+        "1",
+        "f1"
+      ])
+
+      # XX: Set expiry only when field has existing expiry
+      Redix.command!(redis, ["HEXPIRE", "hpexpireat_opts", "3600", "FIELDS", "1", "f2"])
+
+      Redix.command!(redis, [
+        "HPEXPIREAT",
+        "hpexpireat_opts",
+        "#{System.os_time(:millisecond) + 172_800_000}",
+        "XX",
+        "FIELDS",
+        "1",
+        "f2"
+      ])
+
+      # GT: Set expiry only when new expiry is greater than current expiry
+      Redix.command!(redis, ["HEXPIRE", "hpexpireat_opts", "3600", "FIELDS", "1", "f3"])
+
+      Redix.command!(redis, [
+        "HPEXPIREAT",
+        "hpexpireat_opts",
+        "#{System.os_time(:millisecond) + 172_800_000}",
+        "GT",
+        "FIELDS",
+        "1",
+        "f3"
+      ])
+
+      # LT: Set expiry only when new expiry is less than current expiry
+      Redix.command!(redis, ["HEXPIRE", "hpexpireat_opts", "86400", "FIELDS", "1", "f4"])
+
+      Redix.command!(redis, [
+        "HPEXPIREAT",
+        "hpexpireat_opts",
+        "#{System.os_time(:millisecond) + 36_000_000}",
+        "LT",
+        "FIELDS",
+        "1",
+        "f4"
       ])
 
       Redix.command!(redis, ["HSET", "hpersist_hash", "f1", "v1"])
@@ -602,16 +682,16 @@ defmodule Veidrodelis.IntegrationTest do
     assert command_in_list({:msetnx, _}, commands),
            "Missing MSETNX command"
 
-    # Get-and-modify commands in Redis 8.4.0:
+    # Get-and-modify commands
     # GETSET is converted to SET in replication stream
     # GETDEL is converted to DEL in replication stream
     assert command_in_list({:set, "getset_key", "getset_value"}, commands),
-           "Missing SET from GETSET (GETSET replicates as SET in Redis 8.4)"
+           "Missing SET from GETSET (GETSET replicates as SET)"
 
     assert command_in_list({:del, ["getdel_key"]}, commands),
-           "Missing DEL from GETDEL (GETDEL replicates as DEL in Redis 8.4)"
+           "Missing DEL from GETDEL (GETDEL replicates as DEL)"
 
-    # INCRBYFLOAT, SETEX, and PSETEX are converted to SET with options in Redis 8.4.0
+    # INCRBYFLOAT, SETEX, and PSETEX are converted to SET with options
     # They will be parsed as regular SET commands (options are ignored)
     assert command_in_list({:set, "incrbyfloat_key", _}, commands),
            "Missing SET from INCRBYFLOAT"
@@ -699,6 +779,19 @@ defmodule Veidrodelis.IntegrationTest do
     assert command_in_list({:zadd, "myzset", _, _}, commands), "Missing ZADD myzset"
     assert command_in_list({:zunionstore, _, _, _, _}, commands), "Missing ZUNIONSTORE"
     assert command_in_list({:zinterstore, _, _, _, _}, commands), "Missing ZINTERSTORE"
+
+    # ZADD with CH option - verify commands are replicated
+    assert command_in_list({:zadd, "zadd_ch_test", _, _}, commands),
+           "Missing ZADD with CH option"
+
+    # ZADD with GT option - verify commands are replicated
+    assert command_in_list({:zadd, "zadd_gt_test", _, _}, commands),
+           "Missing ZADD with GT option"
+
+    # ZADD with GT and CH options together
+    assert command_in_list({:zadd, "zadd_gt_ch_test", _, _}, commands),
+           "Missing ZADD with GT and CH options"
+
     assert command_in_list({:zrem, "zset_for_rem", _}, commands), "Missing ZREM"
     assert command_in_list({:zpopmax, "pop_zset", _}, commands), "Missing ZPOPMAX"
     assert command_in_list({:zpopmin, "pop_zset", _}, commands), "Missing ZPOPMIN"
@@ -1064,6 +1157,22 @@ defmodule Veidrodelis.IntegrationTest do
       # Test 4: negative delta (100.0 - 25.5 = 74.5)
       assert {:ok, 74.5} == Veidrodelis.zscore(@id, 0, "zincrby_decr", "score")
 
+      # ZADD with CH option - verify final state
+      assert {:ok, 2} == Veidrodelis.zcard(@id, 0, "zadd_ch_test")
+      assert {:ok, 1.0} == Veidrodelis.zscore(@id, 0, "zadd_ch_test", "member1")
+      assert {:ok, 3.0} == Veidrodelis.zscore(@id, 0, "zadd_ch_test", "member2")
+
+      # ZADD with GT option - verify final state (score should be 10, not 3)
+      assert {:ok, 1} == Veidrodelis.zcard(@id, 0, "zadd_gt_test")
+      assert {:ok, 10.0} == Veidrodelis.zscore(@id, 0, "zadd_gt_test", "member")
+
+      # ZADD with GT and CH options - verify final state
+      # m1 should still be 5 (3 < 5, so not updated)
+      # m2 should be 15 (15 > 10, so updated)
+      assert {:ok, 2} == Veidrodelis.zcard(@id, 0, "zadd_gt_ch_test")
+      assert {:ok, 5.0} == Veidrodelis.zscore(@id, 0, "zadd_gt_ch_test", "m1")
+      assert {:ok, 15.0} == Veidrodelis.zscore(@id, 0, "zadd_gt_ch_test", "m2")
+
       Logger.info("=== [Veidrodelis] Phase 4: Issuing commands to DB 1 while streaming ===")
 
       issue_diverse_commands(redis, 1, backend)
@@ -1110,6 +1219,20 @@ defmodule Veidrodelis.IntegrationTest do
       assert {:ok, 7.5} == Veidrodelis.zscore(@id, 1, "zincrby_test2", "new_member")
       assert {:ok, 42.0} == Veidrodelis.zscore(@id, 1, "zincrby_new_key", "member1")
       assert {:ok, 74.5} == Veidrodelis.zscore(@id, 1, "zincrby_decr", "score")
+
+      # Verify ZADD with CH option in DB 1 (streaming replication)
+      assert {:ok, 2} == Veidrodelis.zcard(@id, 1, "zadd_ch_test")
+      assert {:ok, 1.0} == Veidrodelis.zscore(@id, 1, "zadd_ch_test", "member1")
+      assert {:ok, 3.0} == Veidrodelis.zscore(@id, 1, "zadd_ch_test", "member2")
+
+      # Verify ZADD with GT option in DB 1 (streaming replication)
+      assert {:ok, 1} == Veidrodelis.zcard(@id, 1, "zadd_gt_test")
+      assert {:ok, 10.0} == Veidrodelis.zscore(@id, 1, "zadd_gt_test", "member")
+
+      # Verify ZADD with GT and CH options in DB 1 (streaming replication)
+      assert {:ok, 2} == Veidrodelis.zcard(@id, 1, "zadd_gt_ch_test")
+      assert {:ok, 5.0} == Veidrodelis.zscore(@id, 1, "zadd_gt_ch_test", "m1")
+      assert {:ok, 15.0} == Veidrodelis.zscore(@id, 1, "zadd_gt_ch_test", "m2")
 
       Logger.info("=== [Veidrodelis] Test completed successfully ===")
 

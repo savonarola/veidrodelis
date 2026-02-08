@@ -147,17 +147,53 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
       end
     end
 
-    test "LINSERT replicates correctly", %{redis: redis} do
-      Redix.command!(redis, ["RPUSH", "insert_list", "a", "c"])
-      Redix.command!(redis, ["LINSERT", "insert_list", "BEFORE", "c", "b"])
+    test "LINSERT with BEFORE option replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["RPUSH", "insert_list_before", "a", "c"])
+      Redix.command!(redis, ["LINSERT", "insert_list_before", "BEFORE", "c", "b"])
 
       assert_within 1000 do
         expected = ["a", "b", "c"]
-        redis_list = Redix.command!(redis, ["LRANGE", "insert_list", "0", "-1"])
-        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "insert_list", 0, -1)
+        redis_list = Redix.command!(redis, ["LRANGE", "insert_list_before", "0", "-1"])
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "insert_list_before", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
+      end
+    end
+
+    test "LINSERT with AFTER option replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["RPUSH", "insert_list_after", "a", "c"])
+      Redix.command!(redis, ["LINSERT", "insert_list_after", "AFTER", "a", "b"])
+
+      assert_within 1000 do
+        expected = ["a", "b", "c"]
+        redis_list = Redix.command!(redis, ["LRANGE", "insert_list_after", "0", "-1"])
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "insert_list_after", 0, -1)
+
+        assert expected == redis_list
+        assert expected == ts_list
+      end
+    end
+
+    test "LMOVE from RIGHT to LEFT replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["RPUSH", "src_lmove_list", "a", "b", "c"])
+      Redix.command!(redis, ["RPUSH", "dest_lmove_list", "x", "y"])
+      Redix.command!(redis, ["LMOVE", "src_lmove_list", "dest_lmove_list", "RIGHT", "LEFT"])
+
+      assert_within 1000 do
+        expected_src = ["a", "b"]
+        expected_dest = ["c", "x", "y"]
+
+        redis_src = Redix.command!(redis, ["LRANGE", "src_lmove_list", "0", "-1"])
+        redis_dest = Redix.command!(redis, ["LRANGE", "dest_lmove_list", "0", "-1"])
+        {:ok, ts_src} = Veidrodelis.lrange(vdr_id(), 0, "src_lmove_list", 0, -1)
+        {:ok, ts_dest} = Veidrodelis.lrange(vdr_id(), 0, "dest_lmove_list", 0, -1)
+
+        assert expected_src == redis_src
+        assert expected_src == ts_src
+
+        assert expected_dest == redis_dest
+        assert expected_dest == ts_dest
       end
     end
 
@@ -250,6 +286,21 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
         expected = ["c", "d", "a", "b"]
         redis_list = Redix.command!(redis, ["LRANGE", "rotate_list", "0", "-1"])
         {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "rotate_list", 0, -1)
+
+        assert expected == redis_list
+        assert expected == ts_list
+      end
+    end
+
+    test "RPOP with count replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["RPUSH", "rpop_count_list", "a", "b", "c", "d", "e"])
+      # Pop 2 elements from the right
+      Redix.command!(redis, ["RPOP", "rpop_count_list", "2"])
+
+      assert_within 1000 do
+        expected = ["a", "b", "c"]
+        redis_list = Redix.command!(redis, ["LRANGE", "rpop_count_list", "0", "-1"])
+        {:ok, ts_list} = Veidrodelis.lrange(vdr_id(), 0, "rpop_count_list", 0, -1)
 
         assert expected == redis_list
         assert expected == ts_list
