@@ -320,5 +320,35 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
         assert 0 == result
       end
     end
+
+    test "handles type changes correctly", %{redis: redis} do
+      # Create a string value
+      Redix.command!(redis, ["SET", "typekey", "string_value"])
+
+      assert_within 1000 do
+        assert {:ok, "string_value"} == Veidrodelis.get(vdr_id(), 0, "typekey")
+      end
+
+      # Change to a list
+      Redix.command!(redis, ["DEL", "typekey"])
+      Redix.command!(redis, ["RPUSH", "typekey", "list_item1", "list_item2"])
+
+      assert_within 1000 do
+        # Accessing a list key with string get returns WRONGTYPE error
+        assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+                 Veidrodelis.get(vdr_id(), 0, "typekey")
+
+        assert {:ok, ["list_item1", "list_item2"]} ==
+                 Veidrodelis.lrange(vdr_id(), 0, "typekey", 0, -1)
+      end
+
+      # Change to a set
+      Redix.command!(redis, ["DEL", "typekey"])
+      Redix.command!(redis, ["SADD", "typekey", "set_member1", "set_member2"])
+
+      assert_within 1000 do
+        assert {:ok, 2} == Veidrodelis.scard(vdr_id(), 0, "typekey")
+      end
+    end
   end
 end

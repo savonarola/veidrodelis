@@ -549,5 +549,21 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         assert tx_card == 1
       end
     end
+
+    test "handles set type mismatches", %{redis: redis} do
+      # Create a string key
+      Redix.command!(redis, ["SET", "mystring", "value"])
+
+      assert_within 1000 do
+        assert {:ok, "value"} == Veidrodelis.get(vdr_id(), 0, "mystring")
+      end
+
+      # Trying to access string as set should return error
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.smembers(vdr_id(), 0, "mystring")
+
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.scard(vdr_id(), 0, "mystring")
+    end
   end
 end

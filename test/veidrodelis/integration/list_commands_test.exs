@@ -255,5 +255,50 @@ defmodule Veidrodelis.Integration.ListCommandsTest do
         assert expected == ts_list
       end
     end
+
+    test "LRANGE with various indices works correctly", %{redis: redis} do
+      Redix.command!(redis, ["RPUSH", "mylist", "a", "b", "c", "d", "e"])
+
+      assert_within 1000 do
+        # Test various range queries
+        assert {:ok, ["a", "b", "c"]} == Veidrodelis.lrange(vdr_id(), 0, "mylist", 0, 2)
+        assert {:ok, ["d", "e"]} == Veidrodelis.lrange(vdr_id(), 0, "mylist", -2, -1)
+        assert {:ok, ["b", "c", "d"]} == Veidrodelis.lrange(vdr_id(), 0, "mylist", 1, 3)
+
+        assert {:ok, ["a", "b", "c", "d", "e"]} ==
+                 Veidrodelis.lrange(vdr_id(), 0, "mylist", 0, -1)
+
+        # Non-existent list returns empty
+        assert {:ok, []} == Veidrodelis.lrange(vdr_id(), 0, "nonexistent", 0, -1)
+      end
+    end
+
+    test "handles empty list operations", %{redis: redis} do
+      # Create and then empty a list
+      Redix.command!(redis, ["RPUSH", "mylist", "a"])
+      Redix.command!(redis, ["LPOP", "mylist"])
+
+      assert_within 1000 do
+        # Verify empty list (key should be deleted)
+        assert {:ok, 0} == Veidrodelis.llen(vdr_id(), 0, "mylist")
+        assert {:ok, []} == Veidrodelis.lrange(vdr_id(), 0, "mylist", 0, -1)
+      end
+    end
+
+    test "handles list type mismatches", %{redis: redis} do
+      # Create a string key
+      Redix.command!(redis, ["SET", "mystring", "value"])
+
+      assert_within 1000 do
+        assert {:ok, "value"} == Veidrodelis.get(vdr_id(), 0, "mystring")
+      end
+
+      # Trying to access string as list should return error
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.llen(vdr_id(), 0, "mystring")
+
+      assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+               Veidrodelis.lrange(vdr_id(), 0, "mystring", 0, -1)
+    end
   end
 end

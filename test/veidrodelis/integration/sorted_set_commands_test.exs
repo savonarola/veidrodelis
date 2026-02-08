@@ -1643,5 +1643,109 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
         assert ts_rank + ts_revrank == ts_size - 1
       end
     end
+
+    test "ZRANGE with various indices works correctly", %{redis: redis} do
+      Redix.command!(redis, [
+        "ZADD",
+        "myzset",
+        "1.0",
+        "one",
+        "2.0",
+        "two",
+        "3.0",
+        "three",
+        "4.0",
+        "four"
+      ])
+
+      assert_within 1000 do
+        # Get range with scores
+        {:ok, result} = Veidrodelis.zrange(vdr_id(), 0, "myzset", 0, 2)
+        assert length(result) == 3
+        assert {"one", 1.0} in result
+        assert {"two", 2.0} in result
+        assert {"three", 3.0} in result
+
+        # Get range with negative indices
+        {:ok, result} = Veidrodelis.zrange(vdr_id(), 0, "myzset", -2, -1)
+        assert length(result) == 2
+        assert {"three", 3.0} in result
+        assert {"four", 4.0} in result
+
+        # Non-existent key returns empty list
+        assert {:ok, []} == Veidrodelis.zrange(vdr_id(), 0, "nonexistent", 0, -1)
+      end
+    end
+
+    test "ZREM removes members correctly", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "myzset", "1.0", "one", "2.0", "two", "3.0", "three"])
+
+      assert_within 1000 do
+        assert {:ok, 3} == Veidrodelis.zcard(vdr_id(), 0, "myzset")
+      end
+
+      # Remove a member
+      Redix.command!(redis, ["ZREM", "myzset", "two"])
+
+      assert_within 1000 do
+        assert {:ok, 2} == Veidrodelis.zcard(vdr_id(), 0, "myzset")
+        assert {:ok, nil} == Veidrodelis.zscore(vdr_id(), 0, "myzset", "two")
+        assert {:ok, 1.0} == Veidrodelis.zscore(vdr_id(), 0, "myzset", "one")
+        assert {:ok, 3.0} == Veidrodelis.zscore(vdr_id(), 0, "myzset", "three")
+      end
+    end
+
+    test "ZADD updates existing member scores", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "myzset", "1.0", "member"])
+
+      assert_within 1000 do
+        assert {:ok, 1.0} == Veidrodelis.zscore(vdr_id(), 0, "myzset", "member")
+      end
+
+      # Update the score
+      Redix.command!(redis, ["ZADD", "myzset", "2.5", "member"])
+
+      assert_within 1000 do
+        assert {:ok, 2.5} == Veidrodelis.zscore(vdr_id(), 0, "myzset", "member")
+        # Cardinality should still be 1
+        assert {:ok, 1} == Veidrodelis.zcard(vdr_id(), 0, "myzset")
+      end
+    end
+
+    test "handles zset with duplicate scores", %{redis: redis} do
+      Redix.command!(redis, ["ZADD", "myzset", "1.0", "a", "1.0", "b", "2.0", "c"])
+
+      assert_within 1000 do
+        assert {:ok, 3} == Veidrodelis.zcard(vdr_id(), 0, "myzset")
+
+        # All members should exist with correct scores
+        assert {:ok, 1.0} == Veidrodelis.zscore(vdr_id(), 0, "myzset", "a")
+        assert {:ok, 1.0} == Veidrodelis.zscore(vdr_id(), 0, "myzset", "b")
+        assert {:ok, 2.0} == Veidrodelis.zscore(vdr_id(), 0, "myzset", "c")
+
+        # Range should return all members
+        {:ok, result} = Veidrodelis.zrange(vdr_id(), 0, "myzset", 0, -1)
+        assert length(result) == 3
+      end
+    end
+
+    test "handles zset type mismatches", %{redis: redis} do
+      # Create a string key
+      Redix.command!(redis, ["SET", "mystring", "value"])
+
+      assert_within 1000 do
+        assert {:ok, "value"} == Veidrodelis.get(vdr_id(), 0, "mystring")
+
+        # Trying to access string as zset should return error
+        assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+                 Veidrodelis.zscore(vdr_id(), 0, "mystring", "member")
+
+        assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+                 Veidrodelis.zcard(vdr_id(), 0, "mystring")
+
+        assert {:error, "WRONGTYPE: Operation against a key holding the wrong kind of value"} ==
+                 Veidrodelis.zrange(vdr_id(), 0, "mystring", 0, -1)
+      end
+    end
   end
 end
