@@ -1,8 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet as StdBTreeSet};
-use indexset::BTreeSet;
-use im::Vector;
 use super::bytes::Bytes;
 use super::zset_index::{Score, ZSetIndexKey};
+use im::Vector;
+use indexset::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet as StdBTreeSet};
 
 /// Sorted set (zset) data structure
 /// Maintains both a sorted index and a member->score map for efficient operations

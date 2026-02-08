@@ -1,8 +1,8 @@
-use std::collections::{BTreeMap, BTreeSet as StdBTreeSet};
-use std::collections::btree_map::Entry as BTreeEntry;
 use super::bytes::Bytes;
 use super::types::StorageValue;
 use crate::storage::StorageInner;
+use std::collections::btree_map::Entry as BTreeEntry;
+use std::collections::{BTreeMap, BTreeSet as StdBTreeSet};
 
 impl StorageInner {
     /// Add members to a set.
@@ -46,7 +46,10 @@ impl StorageInner {
 
         let set = match value {
             StorageValue::Set(set) => set,
-            StorageValue::String(_) | StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::ZSet(_) => {
+            StorageValue::String(_)
+            | StorageValue::List(_)
+            | StorageValue::Hash(_)
+            | StorageValue::ZSet(_) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
         };
@@ -64,7 +67,13 @@ impl StorageInner {
     }
 
     /// Move a member from source to destination set. Deletes source if it becomes empty.
-    pub fn smove(&mut self, db: u64, source_key: &[u8], dest_key: &[u8], member: &[u8]) -> Result<(), &'static str> {
+    pub fn smove(
+        &mut self,
+        db: u64,
+        source_key: &[u8],
+        dest_key: &[u8],
+        member: &[u8],
+    ) -> Result<(), &'static str> {
         // Get mutable access to database
         let db_map = match self.map.get_mut(&db) {
             Some(map) => map,
@@ -73,8 +82,11 @@ impl StorageInner {
 
         // Check source type
         match db_map.get(source_key) {
-            Some(StorageValue::Set(_)) => {},
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+            Some(StorageValue::Set(_)) => {}
+            Some(StorageValue::String(_))
+            | Some(StorageValue::List(_))
+            | Some(StorageValue::Hash(_))
+            | Some(StorageValue::ZSet(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
             None => return Ok(()),
@@ -93,7 +105,11 @@ impl StorageInner {
         // Check if source set is now empty and should be deleted
         let should_delete_source = match db_map.get(source_key) {
             Some(StorageValue::Set(set)) => set.is_empty(),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) | None => false,
+            Some(StorageValue::String(_))
+            | Some(StorageValue::List(_))
+            | Some(StorageValue::Hash(_))
+            | Some(StorageValue::ZSet(_))
+            | None => false,
         };
 
         // Delete source if empty
@@ -103,16 +119,17 @@ impl StorageInner {
 
         // Add member to destination set
         match db_map.entry(Bytes::new(dest_key)) {
-            BTreeEntry::Occupied(mut e) => {
-                match e.get_mut() {
-                    StorageValue::Set(set) => {
-                        set.insert(member_arc);
-                    }
-                    StorageValue::String(_) | StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::ZSet(_) => {
-                        return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
-                    }
+            BTreeEntry::Occupied(mut e) => match e.get_mut() {
+                StorageValue::Set(set) => {
+                    set.insert(member_arc);
                 }
-            }
+                StorageValue::String(_)
+                | StorageValue::List(_)
+                | StorageValue::Hash(_)
+                | StorageValue::ZSet(_) => {
+                    return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
+            },
             BTreeEntry::Vacant(e) => {
                 let mut new_set = StdBTreeSet::new();
                 new_set.insert(member_arc);
@@ -124,7 +141,12 @@ impl StorageInner {
     }
 
     /// Store union of multiple sets in destination key.
-    pub fn sunionstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]]) -> Result<(), &'static str> {
+    pub fn sunionstore(
+        &mut self,
+        db: u64,
+        dest_key: &[u8],
+        source_keys: &[&[u8]],
+    ) -> Result<(), &'static str> {
         // First delete destination
         self.del(db, dest_key);
 
@@ -138,8 +160,13 @@ impl StorageInner {
                         StorageValue::Set(set) => {
                             union_set.extend(set.iter().cloned());
                         }
-                        StorageValue::String(_) | StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::ZSet(_) => {
-                            return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                        StorageValue::String(_)
+                        | StorageValue::List(_)
+                        | StorageValue::Hash(_)
+                        | StorageValue::ZSet(_) => {
+                            return Err(
+                                "WRONGTYPE Operation against a key holding the wrong kind of value",
+                            )
                         }
                     }
                 }
@@ -156,7 +183,12 @@ impl StorageInner {
     }
 
     /// Store intersection of multiple sets in destination key.
-    pub fn sinterstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]]) -> Result<(), &'static str> {
+    pub fn sinterstore(
+        &mut self,
+        db: u64,
+        dest_key: &[u8],
+        source_keys: &[&[u8]],
+    ) -> Result<(), &'static str> {
         // First delete destination
         self.del(db, dest_key);
 
@@ -171,7 +203,10 @@ impl StorageInner {
         // Start with first set - collect into a new set
         let mut intersection_set = match db_map.get(source_keys[0]) {
             Some(StorageValue::Set(set)) => set.iter().cloned().collect(),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+            Some(StorageValue::String(_))
+            | Some(StorageValue::List(_))
+            | Some(StorageValue::Hash(_))
+            | Some(StorageValue::ZSet(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
             None => StdBTreeSet::new(),
@@ -183,7 +218,10 @@ impl StorageInner {
                 Some(StorageValue::Set(set)) => {
                     intersection_set = intersection_set.intersection(set).cloned().collect();
                 }
-                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                Some(StorageValue::String(_))
+                | Some(StorageValue::List(_))
+                | Some(StorageValue::Hash(_))
+                | Some(StorageValue::ZSet(_)) => {
                     return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
                 }
                 None => {
@@ -204,7 +242,12 @@ impl StorageInner {
     }
 
     /// Store difference of sets in destination key.
-    pub fn sdiffstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]]) -> Result<(), &'static str> {
+    pub fn sdiffstore(
+        &mut self,
+        db: u64,
+        dest_key: &[u8],
+        source_keys: &[&[u8]],
+    ) -> Result<(), &'static str> {
         // First delete destination
         self.del(db, dest_key);
 
@@ -219,7 +262,10 @@ impl StorageInner {
         // Start with first set - collect into a new set
         let mut diff_set = match db_map.get(source_keys[0]) {
             Some(StorageValue::Set(set)) => set.iter().cloned().collect(),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+            Some(StorageValue::String(_))
+            | Some(StorageValue::List(_))
+            | Some(StorageValue::Hash(_))
+            | Some(StorageValue::ZSet(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
             None => StdBTreeSet::new(),
@@ -231,7 +277,10 @@ impl StorageInner {
                 Some(StorageValue::Set(set)) => {
                     diff_set = diff_set.difference(set).cloned().collect();
                 }
-                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                Some(StorageValue::String(_))
+                | Some(StorageValue::List(_))
+                | Some(StorageValue::Hash(_))
+                | Some(StorageValue::ZSet(_)) => {
                     return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
                 }
                 None => {
@@ -383,7 +432,12 @@ impl StorageInner {
 
     /// Check if multiple members exist in set.
     /// Returns a vector of booleans, one for each member.
-    pub fn smismember(&self, db: u64, key: &[u8], members: &[&[u8]]) -> Result<Vec<bool>, &'static str> {
+    pub fn smismember(
+        &self,
+        db: u64,
+        key: &[u8],
+        members: &[&[u8]],
+    ) -> Result<Vec<bool>, &'static str> {
         let Some(db_map) = self.map.get(&db) else {
             return Ok(vec![false; members.len()]);
         };
@@ -453,8 +507,13 @@ impl StorageInner {
                         StorageValue::Set(set) => {
                             union_set.extend(set.iter().cloned());
                         }
-                        StorageValue::String(_) | StorageValue::List(_) | StorageValue::Hash(_) | StorageValue::ZSet(_) => {
-                            return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                        StorageValue::String(_)
+                        | StorageValue::List(_)
+                        | StorageValue::Hash(_)
+                        | StorageValue::ZSet(_) => {
+                            return Err(
+                                "WRONGTYPE Operation against a key holding the wrong kind of value",
+                            )
                         }
                     }
                 }
@@ -477,7 +536,10 @@ impl StorageInner {
         // Start with first set - collect into a new set
         let mut intersection_set = match db_map.get(source_keys[0]) {
             Some(StorageValue::Set(set)) => set.iter().cloned().collect(),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+            Some(StorageValue::String(_))
+            | Some(StorageValue::List(_))
+            | Some(StorageValue::Hash(_))
+            | Some(StorageValue::ZSet(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
             None => StdBTreeSet::new(),
@@ -489,7 +551,10 @@ impl StorageInner {
                 Some(StorageValue::Set(set)) => {
                     intersection_set = intersection_set.intersection(set).cloned().collect();
                 }
-                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                Some(StorageValue::String(_))
+                | Some(StorageValue::List(_))
+                | Some(StorageValue::Hash(_))
+                | Some(StorageValue::ZSet(_)) => {
                     return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
                 }
                 None => {
@@ -515,7 +580,10 @@ impl StorageInner {
         // Start with first set - collect into a new set
         let mut diff_set = match db_map.get(source_keys[0]) {
             Some(StorageValue::Set(set)) => set.iter().cloned().collect(),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+            Some(StorageValue::String(_))
+            | Some(StorageValue::List(_))
+            | Some(StorageValue::Hash(_))
+            | Some(StorageValue::ZSet(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
             None => StdBTreeSet::new(),
@@ -527,7 +595,10 @@ impl StorageInner {
                 Some(StorageValue::Set(set)) => {
                     diff_set = diff_set.difference(set).cloned().collect();
                 }
-                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                Some(StorageValue::String(_))
+                | Some(StorageValue::List(_))
+                | Some(StorageValue::Hash(_))
+                | Some(StorageValue::ZSet(_)) => {
                     return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
                 }
                 None => {
@@ -553,7 +624,10 @@ impl StorageInner {
         // Start with first set - collect into a new set
         let mut intersection_set = match db_map.get(source_keys[0]) {
             Some(StorageValue::Set(set)) => set.iter().cloned().collect(),
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+            Some(StorageValue::String(_))
+            | Some(StorageValue::List(_))
+            | Some(StorageValue::Hash(_))
+            | Some(StorageValue::ZSet(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
             None => StdBTreeSet::new(),
@@ -565,7 +639,10 @@ impl StorageInner {
                 Some(StorageValue::Set(set)) => {
                     intersection_set = intersection_set.intersection(set).cloned().collect();
                 }
-                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+                Some(StorageValue::String(_))
+                | Some(StorageValue::List(_))
+                | Some(StorageValue::Hash(_))
+                | Some(StorageValue::ZSet(_)) => {
                     return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
                 }
                 None => {

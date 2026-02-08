@@ -2,15 +2,12 @@ rustler::atoms! {
     ok,
     error,
     nil,
-    wrong_type,
-    readonly_violation,
-    // Write command atoms
     set,
     mset,
     del,
     copy,
-    pexpireat,  // null handler - accepts but ignores expiration
-    persist,    // null handler - accepts but ignores persist
+    pexpireat,
+    persist,
     rename,
     renamenx,
     move_key,
@@ -61,11 +58,9 @@ rustler::atoms! {
     zinterstore,
     zdiffstore,
     zrangestore,
-    // Server command atoms
     flushall,
     flushdb,
     swapdb,
-    // Read command atoms
     get,
     smembers,
     sismember,
@@ -107,28 +102,22 @@ rustler::atoms! {
     zlast,
     znext,
     zprev,
-    // Linsert direction atoms
     before,
     after,
-    // Lmove direction atoms
     left,
     right,
-    // Aggregate atoms for sorted set operations
     sum,
     min,
     max,
-    // Bound atoms for range operations
     unbounded,
     included,
     excluded,
-    // ZADD option atoms
     nx,
     xx,
     gt,
     lt,
     ch,
     incr,
-    // Special score value atoms
     pos_inf,
     neg_inf,
     nan,

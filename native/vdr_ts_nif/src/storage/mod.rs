@@ -1,22 +1,22 @@
 // Submodule definitions
 pub mod bytes;
-pub mod zset_index;
-pub mod types;
-pub mod zsets;
-pub mod lua;
-mod strings;
-mod sets;
-mod lists;
 mod hashes;
+mod lists;
+pub mod lua;
+mod sets;
+mod strings;
+pub mod types;
+pub mod zset_index;
+pub mod zsets;
 
 // Re-export public types
 pub use bytes::Bytes;
-pub use zset_index::Score;
 pub use types::{StorageValue, ZAddOption};
+pub use zset_index::Score;
 pub use zsets::Aggregate;
 
-use std::collections::BTreeMap;
 use mlua::Lua;
+use std::collections::BTreeMap;
 
 /// Inner storage structure
 pub struct StorageInner {

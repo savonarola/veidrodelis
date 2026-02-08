@@ -385,10 +385,8 @@ fn handle_srandmember<'a>(
         return Err("SRANDMEMBER requires exactly 2 arguments: key, count");
     }
 
-    let (Ok(key), Ok(count)) = (
-        args[0].decode::<rustler::Binary>(),
-        args[1].decode::<i64>(),
-    ) else {
+    let (Ok(key), Ok(count)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<i64>())
+    else {
         return Err("SRANDMEMBER key must be a binary and count must be an integer");
     };
 

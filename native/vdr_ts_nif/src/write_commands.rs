@@ -22,7 +22,10 @@ pub fn execute<'a>(
     };
 
     if terms.len() != 2 {
-        return encode_error(env, "Command tuple must have exactly 2 elements: {db, {command_atom, ...}}");
+        return encode_error(
+            env,
+            "Command tuple must have exactly 2 elements: {db, {command_atom, ...}}",
+        );
     }
 
     // First element is db (u64)
@@ -293,7 +296,9 @@ fn handle_move_key<'a>(
 ) -> Result<(), &'static str> {
     let (Ok(key), Ok(target_db)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<u64>())
     else {
-        return Err("MOVE requires 2 arguments: key must be a binary, target_db must be an integer");
+        return Err(
+            "MOVE requires 2 arguments: key must be a binary, target_db must be an integer",
+        );
     };
     inner.move_key(db, target_db, key.as_slice())
 }
@@ -346,7 +351,9 @@ fn handle_incrby<'a>(
 ) -> Result<(), &'static str> {
     let (Ok(key), Ok(increment)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<i64>())
     else {
-        return Err("INCRBY requires 2 arguments: key must be a binary, increment must be an integer");
+        return Err(
+            "INCRBY requires 2 arguments: key must be a binary, increment must be an integer",
+        );
     };
     inner.incrby(db, key.as_slice(), increment)
 }
@@ -369,7 +376,9 @@ fn handle_decrby<'a>(
 ) -> Result<(), &'static str> {
     let (Ok(key), Ok(decrement)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<i64>())
     else {
-        return Err("DECRBY requires 2 arguments: key must be a binary, decrement must be an integer");
+        return Err(
+            "DECRBY requires 2 arguments: key must be a binary, decrement must be an integer",
+        );
     };
     inner.decrby(db, key.as_slice(), decrement)
 }
@@ -442,7 +451,9 @@ fn handle_sadd<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("SADD requires 2 arguments: key must be a binary, members must be a list of binaries");
+        return Err(
+            "SADD requires 2 arguments: key must be a binary, members must be a list of binaries",
+        );
     };
     let members_slices: Vec<&[u8]> = members.iter().map(|b| b.as_slice()).collect();
     inner.sadd(db, key.as_slice(), &members_slices)
@@ -457,7 +468,9 @@ fn handle_srem<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("SREM requires 2 arguments: key must be a binary, members must be a list of binaries");
+        return Err(
+            "SREM requires 2 arguments: key must be a binary, members must be a list of binaries",
+        );
     };
     let members_slices: Vec<&[u8]> = members.iter().map(|b| b.as_slice()).collect();
     inner.srem(db, key.as_slice(), &members_slices)
@@ -473,7 +486,9 @@ fn handle_smove<'a>(
         args[1].decode::<rustler::Binary>(),
         args[2].decode::<rustler::Binary>(),
     ) else {
-        return Err("SMOVE requires 3 arguments: source_key, dest_key, and member must be binaries");
+        return Err(
+            "SMOVE requires 3 arguments: source_key, dest_key, and member must be binaries",
+        );
     };
     inner.smove(
         db,
@@ -538,7 +553,9 @@ fn handle_lpush<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("LPUSH requires 2 arguments: key must be a binary, values must be a list of binaries");
+        return Err(
+            "LPUSH requires 2 arguments: key must be a binary, values must be a list of binaries",
+        );
     };
     let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
     inner.lpush(db, key.as_slice(), &values_slices)
@@ -553,7 +570,9 @@ fn handle_rpush<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("RPUSH requires 2 arguments: key must be a binary, values must be a list of binaries");
+        return Err(
+            "RPUSH requires 2 arguments: key must be a binary, values must be a list of binaries",
+        );
     };
     let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
     inner.rpush(db, key.as_slice(), &values_slices)
@@ -591,7 +610,9 @@ fn handle_lset<'a>(
         args[1].decode::<i64>(),
         args[2].decode::<rustler::Binary>(),
     ) else {
-        return Err("LSET requires 3 arguments: key and value must be binaries, index must be an integer");
+        return Err(
+            "LSET requires 3 arguments: key and value must be binaries, index must be an integer",
+        );
     };
     inner.lset(db, key.as_slice(), index, value.as_slice())
 }
@@ -667,7 +688,9 @@ fn handle_lpushx<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("LPUSHX requires 2 arguments: key must be a binary, values must be a list of binaries");
+        return Err(
+            "LPUSHX requires 2 arguments: key must be a binary, values must be a list of binaries",
+        );
     };
     let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
     inner.lpushx(db, key.as_slice(), &values_slices)
@@ -682,7 +705,9 @@ fn handle_rpushx<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("RPUSHX requires 2 arguments: key must be a binary, values must be a list of binaries");
+        return Err(
+            "RPUSHX requires 2 arguments: key must be a binary, values must be a list of binaries",
+        );
     };
     let values_slices: Vec<&[u8]> = values.iter().map(|b| b.as_slice()).collect();
     inner.rpushx(db, key.as_slice(), &values_slices)
@@ -698,7 +723,9 @@ fn handle_lrem<'a>(
         args[1].decode::<i64>(),
         args[2].decode::<rustler::Binary>(),
     ) else {
-        return Err("LREM requires 3 arguments: key and value must be binaries, count must be an integer");
+        return Err(
+            "LREM requires 3 arguments: key and value must be binaries, count must be an integer",
+        );
     };
     inner.lrem(db, key.as_slice(), count, value.as_slice())
 }
@@ -713,7 +740,9 @@ fn handle_ltrim<'a>(
         args[1].decode::<i64>(),
         args[2].decode::<i64>(),
     ) else {
-        return Err("LTRIM requires 3 arguments: key must be a binary, start and stop must be integers");
+        return Err(
+            "LTRIM requires 3 arguments: key must be a binary, start and stop must be integers",
+        );
     };
     inner.ltrim(db, key.as_slice(), start, stop)
 }
@@ -790,7 +819,9 @@ fn handle_hdel<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("HDEL requires 2 arguments: key must be a binary, fields must be a list of binaries");
+        return Err(
+            "HDEL requires 2 arguments: key must be a binary, fields must be a list of binaries",
+        );
     };
     let fields_slices: Vec<&[u8]> = fields.iter().map(|f| f.as_slice()).collect();
     inner.hdel(db, key.as_slice(), &fields_slices)
@@ -949,7 +980,9 @@ fn handle_zrem<'a>(
         args[0].decode::<rustler::Binary>(),
         args[1].decode::<Vec<rustler::Binary>>(),
     ) else {
-        return Err("ZREM requires 2 arguments: key must be a binary, members must be a list of binaries");
+        return Err(
+            "ZREM requires 2 arguments: key must be a binary, members must be a list of binaries",
+        );
     };
     let members_slices: Vec<&[u8]> = members.iter().map(|m| m.as_slice()).collect();
     inner.zrem(db, key.as_slice(), &members_slices)
@@ -1163,7 +1196,9 @@ fn handle_zincrby<'a>(
         args[1].decode::<f64>(),
         args[2].decode::<rustler::Binary>(),
     ) else {
-        return Err("ZINCRBY requires 3 arguments: key and member must be binaries, delta must be a float");
+        return Err(
+            "ZINCRBY requires 3 arguments: key and member must be binaries, delta must be a float",
+        );
     };
     inner.zincrby(db, key.as_slice(), OrderedFloat(delta), member.as_slice())
 }

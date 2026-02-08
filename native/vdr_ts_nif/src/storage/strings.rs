@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
-use std::collections::btree_map::Entry as BTreeEntry;
 use super::bytes::Bytes;
 use super::types::StorageValue;
 use crate::storage::StorageInner;
+use std::collections::btree_map::Entry as BTreeEntry;
+use std::collections::BTreeMap;
 
 impl StorageInner {
     /// Set a key-value pair in a specific database
@@ -23,7 +23,10 @@ impl StorageInner {
     pub fn get(&self, db: u64, key: &[u8]) -> Result<Option<Bytes>, &'static str> {
         match self.map.get(&db).and_then(|db_map| db_map.get(key)) {
             Some(StorageValue::String(value)) => Ok(Some(value.clone())),
-            Some(StorageValue::Set(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::ZSet(_)) => {
+            Some(StorageValue::Set(_))
+            | Some(StorageValue::List(_))
+            | Some(StorageValue::Hash(_))
+            | Some(StorageValue::ZSet(_)) => {
                 Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
             None => Ok(None),
@@ -40,7 +43,12 @@ impl StorageInner {
     /// Null handler for PEXPIREAT - accepts but ignores expiration timestamp
     /// In future, this could store expiration metadata and trigger background cleanup
     #[allow(dead_code)]
-    pub fn pexpireat(&mut self, _db: u64, _key: &[u8], _timestamp_ms: i64) -> Result<(), &'static str> {
+    pub fn pexpireat(
+        &mut self,
+        _db: u64,
+        _key: &[u8],
+        _timestamp_ms: i64,
+    ) -> Result<(), &'static str> {
         // For now, just accept and ignore the expiration
         // TODO: Implement actual expiration tracking and background cleanup
         Ok(())
@@ -63,7 +71,12 @@ impl StorageInner {
     }
 
     /// Rename a key only if the new key doesn't exist.
-    pub fn renamenx(&mut self, db: u64, old_key: &[u8], new_key: &[u8]) -> Result<(), &'static str> {
+    pub fn renamenx(
+        &mut self,
+        db: u64,
+        old_key: &[u8],
+        new_key: &[u8],
+    ) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(());
         };
@@ -84,7 +97,12 @@ impl StorageInner {
     }
 
     /// Move a key from one database to another. Overwrites destination key if it exists.
-    pub fn move_key(&mut self, source_db: u64, dest_db: u64, key: &[u8]) -> Result<(), &'static str> {
+    pub fn move_key(
+        &mut self,
+        source_db: u64,
+        dest_db: u64,
+        key: &[u8],
+    ) -> Result<(), &'static str> {
         // Get value from source db
         let value = {
             let Some(source_map) = self.map.get_mut(&source_db) else {
@@ -106,7 +124,13 @@ impl StorageInner {
     }
 
     /// Copy a key to another key. If replace is false, won't overwrite existing destination.
-    pub fn copy_key(&mut self, db: u64, source: &[u8], destination: &[u8], replace: bool) -> Result<(), &'static str> {
+    pub fn copy_key(
+        &mut self,
+        db: u64,
+        source: &[u8],
+        destination: &[u8],
+        replace: bool,
+    ) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(());
         };
@@ -141,7 +165,7 @@ impl StorageInner {
                         *existing = Bytes::new(&new_bytes);
                         Ok(())
                     }
-                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
                 }
             }
             BTreeEntry::Vacant(e) => {
@@ -155,7 +179,13 @@ impl StorageInner {
     /// Overwrite part of a string at the specified offset.
     /// If the key doesn't exist, creates it with zero-byte padding.
     /// If the offset is beyond the current string length, pads with zero bytes.
-    pub fn setrange(&mut self, db: u64, key: &[u8], offset: usize, value: &[u8]) -> Result<(), &'static str> {
+    pub fn setrange(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        offset: usize,
+        value: &[u8],
+    ) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         match db_map.entry(Bytes::new(key)) {
@@ -175,7 +205,7 @@ impl StorageInner {
                         *existing = Bytes::new(&bytes);
                         Ok(())
                     }
-                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
                 }
             }
             BTreeEntry::Vacant(e) => {
@@ -199,16 +229,16 @@ impl StorageInner {
                     StorageValue::String(existing) => {
                         // Parse current value as integer
                         let current_str = String::from_utf8_lossy(existing.as_slice());
-                        let current: i64 = current_str.parse()
+                        let current: i64 = current_str
+                            .parse()
                             .map_err(|_| "value is not an integer or out of range")?;
 
-                        let new_value = current.checked_add(1)
-                            .ok_or("increment would overflow")?;
+                        let new_value = current.checked_add(1).ok_or("increment would overflow")?;
 
                         *existing = Bytes::new(new_value.to_string().as_bytes());
                         Ok(())
                     }
-                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
                 }
             }
             BTreeEntry::Vacant(e) => {
@@ -229,21 +259,25 @@ impl StorageInner {
                     StorageValue::String(existing) => {
                         // Parse current value as integer
                         let current_str = String::from_utf8_lossy(existing.as_slice());
-                        let current: i64 = current_str.parse()
+                        let current: i64 = current_str
+                            .parse()
                             .map_err(|_| "value is not an integer or out of range")?;
 
-                        let new_value = current.checked_add(increment)
+                        let new_value = current
+                            .checked_add(increment)
                             .ok_or("increment would overflow")?;
 
                         *existing = Bytes::new(new_value.to_string().as_bytes());
                         Ok(())
                     }
-                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
                 }
             }
             BTreeEntry::Vacant(e) => {
                 // Key doesn't exist, start from 0 and add increment
-                e.insert(StorageValue::String(Bytes::new(increment.to_string().as_bytes())));
+                e.insert(StorageValue::String(Bytes::new(
+                    increment.to_string().as_bytes(),
+                )));
                 Ok(())
             }
         }
@@ -259,16 +293,16 @@ impl StorageInner {
                     StorageValue::String(existing) => {
                         // Parse current value as integer
                         let current_str = String::from_utf8_lossy(existing.as_slice());
-                        let current: i64 = current_str.parse()
+                        let current: i64 = current_str
+                            .parse()
                             .map_err(|_| "value is not an integer or out of range")?;
 
-                        let new_value = current.checked_sub(1)
-                            .ok_or("decrement would overflow")?;
+                        let new_value = current.checked_sub(1).ok_or("decrement would overflow")?;
 
                         *existing = Bytes::new(new_value.to_string().as_bytes());
                         Ok(())
                     }
-                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
                 }
             }
             BTreeEntry::Vacant(e) => {
@@ -289,23 +323,26 @@ impl StorageInner {
                     StorageValue::String(existing) => {
                         // Parse current value as integer
                         let current_str = String::from_utf8_lossy(existing.as_slice());
-                        let current: i64 = current_str.parse()
+                        let current: i64 = current_str
+                            .parse()
                             .map_err(|_| "value is not an integer or out of range")?;
 
-                        let new_value = current.checked_sub(decrement)
+                        let new_value = current
+                            .checked_sub(decrement)
                             .ok_or("decrement would overflow")?;
 
                         *existing = Bytes::new(new_value.to_string().as_bytes());
                         Ok(())
                     }
-                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                    _ => Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
                 }
             }
             BTreeEntry::Vacant(e) => {
                 // Key doesn't exist, start from 0 and subtract decrement
-                let neg_decrement = decrement.checked_neg()
-                    .ok_or("decrement would overflow")?;
-                e.insert(StorageValue::String(Bytes::new(neg_decrement.to_string().as_bytes())));
+                let neg_decrement = decrement.checked_neg().ok_or("decrement would overflow")?;
+                e.insert(StorageValue::String(Bytes::new(
+                    neg_decrement.to_string().as_bytes(),
+                )));
                 Ok(())
             }
         }

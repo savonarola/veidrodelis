@@ -1,8 +1,8 @@
-use std::collections::BTreeMap;
-use im::Vector;
 use super::bytes::Bytes;
 use super::types::StorageValue;
 use crate::storage::StorageInner;
+use im::Vector;
+use std::collections::BTreeMap;
 
 impl StorageInner {
     /// Push elements to the left (head) of the list.
@@ -81,7 +81,7 @@ impl StorageInner {
         };
 
         if !list.is_empty() {
-            *list = list.skip(1);  // Remove first element
+            *list = list.skip(1); // Remove first element
         }
 
         // Remove key if list is empty
@@ -169,7 +169,13 @@ impl StorageInner {
     /// count > 0: Remove elements equal to value moving from head to tail.
     /// count < 0: Remove elements equal to value moving from tail to head.
     /// count = 0: Remove all elements equal to value.
-    pub fn lrem(&mut self, db: u64, key: &[u8], count: i64, value: &[u8]) -> Result<(), &'static str> {
+    pub fn lrem(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        count: i64,
+        value: &[u8],
+    ) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(());
         };
@@ -187,7 +193,11 @@ impl StorageInner {
 
         if count == 0 {
             // Remove all occurrences
-            *list = list.iter().filter(|v| *v != &value_bytes).cloned().collect();
+            *list = list
+                .iter()
+                .filter(|v| *v != &value_bytes)
+                .cloned()
+                .collect();
         } else if count > 0 {
             // Remove from head to tail
             let max_remove = count as usize;
@@ -225,7 +235,13 @@ impl StorageInner {
     }
 
     /// Trim list to the specified range. Both start and stop are inclusive.
-    pub fn ltrim(&mut self, db: u64, key: &[u8], start: i64, stop: i64) -> Result<(), &'static str> {
+    pub fn ltrim(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        start: i64,
+        stop: i64,
+    ) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(());
         };
@@ -277,7 +293,14 @@ impl StorageInner {
     }
 
     /// Insert element before or after pivot element in list.
-    pub fn linsert(&mut self, db: u64, key: &[u8], before: bool, pivot: &[u8], value: &[u8]) -> Result<(), &'static str> {
+    pub fn linsert(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        before: bool,
+        pivot: &[u8],
+        value: &[u8],
+    ) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(());
         };
@@ -325,7 +348,13 @@ impl StorageInner {
 
     /// Get a range of elements from the list.
     /// Both start and stop are inclusive and support negative indices.
-    pub fn lrange(&self, db: u64, key: &[u8], start: i64, stop: i64) -> Result<Vec<Bytes>, &'static str> {
+    pub fn lrange(
+        &self,
+        db: u64,
+        key: &[u8],
+        start: i64,
+        stop: i64,
+    ) -> Result<Vec<Bytes>, &'static str> {
         let Some(db_map) = self.map.get(&db) else {
             return Ok(Vec::new());
         };
@@ -372,7 +401,13 @@ impl StorageInner {
     }
 
     /// Set the list element at index to value.
-    pub fn lset(&mut self, db: u64, key: &[u8], index: i64, value: &[u8]) -> Result<(), &'static str> {
+    pub fn lset(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        index: i64,
+        value: &[u8],
+    ) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(());
         };
@@ -389,11 +424,7 @@ impl StorageInner {
         let len = list.len() as i64;
 
         // Normalize index
-        let pos = if index < 0 {
-            len + index
-        } else {
-            index
-        };
+        let pos = if index < 0 { len + index } else { index };
 
         if pos >= 0 && pos < len {
             *list = list.update(pos as usize, Bytes::new(value));
@@ -403,7 +434,12 @@ impl StorageInner {
     }
 
     /// Atomically pop from the right of source and push to the left of destination.
-    pub fn rpoplpush(&mut self, db: u64, source_key: &[u8], dest_key: &[u8]) -> Result<(), &'static str> {
+    pub fn rpoplpush(
+        &mut self,
+        db: u64,
+        source_key: &[u8],
+        dest_key: &[u8],
+    ) -> Result<(), &'static str> {
         // Special case: same key means rotate
         if source_key == dest_key {
             let Some(db_map) = self.map.get_mut(&db) else {
@@ -416,7 +452,9 @@ impl StorageInner {
 
             let list = match value {
                 StorageValue::List(list) => list,
-                _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+                _ => {
+                    return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
             };
 
             if !list.is_empty() {
@@ -438,7 +476,9 @@ impl StorageInner {
 
             let list = match value {
                 StorageValue::List(list) => list,
-                _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+                _ => {
+                    return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
             };
 
             if list.is_empty() {
@@ -541,7 +581,14 @@ impl StorageInner {
     /// Atomically move element from source to destination list.
     /// from_left: true = pop from left, false = pop from right
     /// to_left: true = push to left, false = push to right
-    pub fn lmove(&mut self, db: u64, source_key: &[u8], dest_key: &[u8], from_left: bool, to_left: bool) -> Result<(), &'static str> {
+    pub fn lmove(
+        &mut self,
+        db: u64,
+        source_key: &[u8],
+        dest_key: &[u8],
+        from_left: bool,
+        to_left: bool,
+    ) -> Result<(), &'static str> {
         // Special case: same key means rotate
         if source_key == dest_key {
             let Some(db_map) = self.map.get_mut(&db) else {
@@ -554,7 +601,9 @@ impl StorageInner {
 
             let list = match value {
                 StorageValue::List(list) => list,
-                _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+                _ => {
+                    return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
             };
 
             if !list.is_empty() {
@@ -590,7 +639,9 @@ impl StorageInner {
 
             let list = match value {
                 StorageValue::List(list) => list,
-                _ => return Err("WRONGTYPE Operation against a key holding the wrong kind of value"),
+                _ => {
+                    return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
+                }
             };
 
             if list.is_empty() {

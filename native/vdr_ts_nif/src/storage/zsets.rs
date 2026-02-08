@@ -1,10 +1,10 @@
-use std::collections::{BTreeMap, HashMap};
-use std::ops::Bound;
 use super::bytes::Bytes;
-use super::types::{StorageValue, ZSet, ZAddOption};
+use super::types::{StorageValue, ZAddOption, ZSet};
 use super::zset_index::{Score, ZSetIndexKey};
 use crate::storage::StorageInner;
 use ordered_float::OrderedFloat;
+use std::collections::{BTreeMap, HashMap};
+use std::ops::Bound;
 
 /// Aggregation type for sorted set operations
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -17,7 +17,13 @@ pub enum Aggregate {
 impl StorageInner {
     /// Add members with scores to sorted set.
     /// Supports NX, XX, GT, LT, CH, and INCR options.
-    pub fn zadd(&mut self, db: u64, key: &[u8], members: &[(Score, &[u8])], options: &[ZAddOption]) -> Result<(), &'static str> {
+    pub fn zadd(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        members: &[(Score, &[u8])],
+        options: &[ZAddOption],
+    ) -> Result<(), &'static str> {
         // Parse options
         let mut nx = false;
         let mut xx = false;
@@ -31,7 +37,7 @@ impl StorageInner {
                 ZAddOption::XX => xx = true,
                 ZAddOption::GT => gt = true,
                 ZAddOption::LT => lt = true,
-                ZAddOption::CH => {}, // CH only affects return value, ignore in replication
+                ZAddOption::CH => {} // CH only affects return value, ignore in replication
                 ZAddOption::INCR => incr = true,
             }
         }
@@ -149,7 +155,12 @@ impl StorageInner {
     }
 
     /// Get the score of a member in sorted set.
-    pub fn zscore(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<Score>, &'static str> {
+    pub fn zscore(
+        &self,
+        db: u64,
+        key: &[u8],
+        member: &[u8],
+    ) -> Result<Option<Score>, &'static str> {
         let Some(db_map) = self.map.get(&db) else {
             return Ok(None);
         };
@@ -184,7 +195,14 @@ impl StorageInner {
 
     /// Get range of members by index (rank). Supports negative indices.
     /// Returns list of (member, score) tuples.
-    pub fn zrange(&self, db: u64, key: &[u8], start: i64, stop: i64, with_scores: bool) -> Result<Vec<(Bytes, Option<Score>)>, &'static str> {
+    pub fn zrange(
+        &self,
+        db: u64,
+        key: &[u8],
+        start: i64,
+        stop: i64,
+        with_scores: bool,
+    ) -> Result<Vec<(Bytes, Option<Score>)>, &'static str> {
         let Some(db_map) = self.map.get(&db) else {
             return Ok(Vec::new());
         };
@@ -238,7 +256,14 @@ impl StorageInner {
 
     /// Get range of members by score. Returns list of (member, score) tuples.
     /// Optimized to use BTreeSet::range() for O(log n + k) instead of O(n) where k is result size.
-    pub fn zrangebyscore(&self, db: u64, key: &[u8], min: Score, max: Score, with_scores: bool) -> Result<Vec<(Bytes, Option<Score>)>, &'static str> {
+    pub fn zrangebyscore(
+        &self,
+        db: u64,
+        key: &[u8],
+        min: Score,
+        max: Score,
+        with_scores: bool,
+    ) -> Result<Vec<(Bytes, Option<Score>)>, &'static str> {
         let Some(db_map) = self.map.get(&db) else {
             return Ok(Vec::new());
         };
@@ -263,15 +288,15 @@ impl StorageInner {
             .range::<_, ZSetIndexKey>((Bound::Included(&min_key), Bound::Included(&max_key)))
             .filter_map(|key| {
                 let (s, entry) = key.unwrap_key();
-                    if *s >= min && *s <= max {
-                        if with_scores {
-                            Some((entry.clone(), Some(*s)))
-                        } else {
-                            Some((entry.clone(), None))
-                        }
+                if *s >= min && *s <= max {
+                    if with_scores {
+                        Some((entry.clone(), Some(*s)))
                     } else {
-                        None
+                        Some((entry.clone(), None))
                     }
+                } else {
+                    None
+                }
             })
             .collect();
 
@@ -306,7 +331,12 @@ impl StorageInner {
     }
 
     /// Get the reverse rank (index from highest to lowest) of a member.
-    pub fn zrevrank(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<usize>, &'static str> {
+    pub fn zrevrank(
+        &self,
+        db: u64,
+        key: &[u8],
+        member: &[u8],
+    ) -> Result<Option<usize>, &'static str> {
         let Some(db_map) = self.map.get(&db) else {
             return Ok(None);
         };
@@ -336,7 +366,13 @@ impl StorageInner {
 
     /// Count members in sorted set with scores between min and max (inclusive).
     /// Optimized to use rank difference instead of iteration: O(log n) instead of O(n).
-    pub fn zcount(&self, db: u64, key: &[u8], min: Score, max: Score) -> Result<usize, &'static str> {
+    pub fn zcount(
+        &self,
+        db: u64,
+        key: &[u8],
+        min: Score,
+        max: Score,
+    ) -> Result<usize, &'static str> {
         let Some(db_map) = self.map.get(&db) else {
             return Ok(0);
         };
@@ -368,7 +404,13 @@ impl StorageInner {
     }
 
     /// Increment the score of a member by delta. Creates member if it doesn't exist.
-    pub fn zincrby(&mut self, db: u64, key: &[u8], delta: Score, member: &[u8]) -> Result<(), &'static str> {
+    pub fn zincrby(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        delta: Score,
+        member: &[u8],
+    ) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -388,7 +430,11 @@ impl StorageInner {
         };
 
         // Use direct HashMap lookup for old score with &[u8]
-        let old_score = zset.entries.get(member).copied().unwrap_or(OrderedFloat(0.0));
+        let old_score = zset
+            .entries
+            .get(member)
+            .copied()
+            .unwrap_or(OrderedFloat(0.0));
         let new_score = old_score + delta;
 
         // Remove old index entry if member existed
@@ -452,7 +498,13 @@ impl StorageInner {
 
     /// Get the next member after the given (score, member) in sorted set.
     /// Returns Some((score, member)) or None if no next element exists.
-    pub fn znext(&self, db: u64, key: &[u8], score: Score, member: &[u8]) -> Result<Option<(Score, Bytes)>, &'static str> {
+    pub fn znext(
+        &self,
+        db: u64,
+        key: &[u8],
+        score: Score,
+        member: &[u8],
+    ) -> Result<Option<(Score, Bytes)>, &'static str> {
         let Some(db_map) = self.map.get(&db) else {
             return Ok(None);
         };
@@ -467,7 +519,9 @@ impl StorageInner {
 
         let current_key = ZSetIndexKey::create(score, member);
         // Use range starting after the current key
-        let range = zset.index.range::<_, ZSetIndexKey>((Bound::Excluded(&current_key), Bound::Unbounded));
+        let range = zset
+            .index
+            .range::<_, ZSetIndexKey>((Bound::Excluded(&current_key), Bound::Unbounded));
         let result = range.take(1).next().and_then(|key| {
             let (score, entry) = key.unwrap_key();
             Some((*score, entry.clone()))
@@ -477,7 +531,13 @@ impl StorageInner {
 
     /// Get the previous member before the given (score, member) in sorted set.
     /// Returns Some((score, member)) or None if no previous element exists.
-    pub fn zprev(&self, db: u64, key: &[u8], score: Score, member: &[u8]) -> Result<Option<(Score, Bytes)>, &'static str> {
+    pub fn zprev(
+        &self,
+        db: u64,
+        key: &[u8],
+        score: Score,
+        member: &[u8],
+    ) -> Result<Option<(Score, Bytes)>, &'static str> {
         let Some(db_map) = self.map.get(&db) else {
             return Ok(None);
         };
@@ -492,7 +552,9 @@ impl StorageInner {
 
         let current_key = ZSetIndexKey::create(score, member);
         // Use range ending before the current key, get last element
-        let range = zset.index.range::<_, ZSetIndexKey>((Bound::Unbounded, Bound::Excluded(&current_key)));
+        let range = zset
+            .index
+            .range::<_, ZSetIndexKey>((Bound::Unbounded, Bound::Excluded(&current_key)));
         let result = range.last().and_then(|key| {
             let (sc, entry) = key.unwrap_key();
             if *sc == score && entry.as_slice() == member {
@@ -579,7 +641,13 @@ impl StorageInner {
     }
 
     /// Remove members by rank range (inclusive). Ranks are 0-based.
-    pub fn zremrangebyrank(&mut self, db: u64, key: &[u8], start: i64, stop: i64) -> Result<(), &'static str> {
+    pub fn zremrangebyrank(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        start: i64,
+        stop: i64,
+    ) -> Result<(), &'static str> {
         let Some(db_map) = self.map.get_mut(&db) else {
             return Ok(());
         };
@@ -642,7 +710,13 @@ impl StorageInner {
 
     /// Remove members by score range with flexible bounds (inclusive, exclusive, or unbounded).
     /// Bounds use std::ops::Bound: Unbounded, Included(score), or Excluded(score).
-    pub fn zremrangebyscore(&mut self, db: u64, key: &[u8], min_bound: std::ops::Bound<Score>, max_bound: std::ops::Bound<Score>) -> Result<(), &'static str> {
+    pub fn zremrangebyscore(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        min_bound: std::ops::Bound<Score>,
+        max_bound: std::ops::Bound<Score>,
+    ) -> Result<(), &'static str> {
         use std::ops::Bound;
 
         let Some(db_map) = self.map.get_mut(&db) else {
@@ -661,12 +735,16 @@ impl StorageInner {
         // Create boundary keys for efficient range query (similar to zrangebyscore)
         let min_key = match &min_bound {
             Bound::Unbounded => None,
-            Bound::Included(score) | Bound::Excluded(score) => Some(ZSetIndexKey::min_score_key(*score)),
+            Bound::Included(score) | Bound::Excluded(score) => {
+                Some(ZSetIndexKey::min_score_key(*score))
+            }
         };
 
         let max_key = match &max_bound {
             Bound::Unbounded => None,
-            Bound::Included(score) | Bound::Excluded(score) => Some(ZSetIndexKey::max_score_key(*score)),
+            Bound::Included(score) | Bound::Excluded(score) => {
+                Some(ZSetIndexKey::max_score_key(*score))
+            }
         };
 
         let start_bound = match &min_key {
@@ -685,7 +763,7 @@ impl StorageInner {
             .range::<_, ZSetIndexKey>((start_bound, end_bound))
             .filter_map(|index_key| {
                 let (s, entry) = index_key.unwrap_key();
-                    // Apply actual bound checks based on the original min/max bounds
+                // Apply actual bound checks based on the original min/max bounds
                 let min_ok = match min_bound {
                     Bound::Unbounded => true,
                     Bound::Included(min) => *s >= min,
@@ -723,7 +801,13 @@ impl StorageInner {
 
     /// Remove members by lexicographic range with flexible bounds (inclusive, exclusive, or unbounded).
     /// Bounds use std::ops::Bound: Unbounded, Included(value), or Excluded(value).
-    pub fn zremrangebylex(&mut self, db: u64, key: &[u8], min_bound: std::ops::Bound<Bytes>, max_bound: std::ops::Bound<Bytes>) -> Result<(), &'static str> {
+    pub fn zremrangebylex(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        min_bound: std::ops::Bound<Bytes>,
+        max_bound: std::ops::Bound<Bytes>,
+    ) -> Result<(), &'static str> {
         use std::ops::Bound;
 
         let Some(db_map) = self.map.get_mut(&db) else {
@@ -775,7 +859,14 @@ impl StorageInner {
     }
 
     /// Store union of sorted sets in destination key with weights and aggregation.
-    pub fn zunionstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]], weights: &[f64], aggregate: Aggregate) -> Result<(), &'static str> {
+    pub fn zunionstore(
+        &mut self,
+        db: u64,
+        dest_key: &[u8],
+        source_keys: &[&[u8]],
+        weights: &[f64],
+        aggregate: Aggregate,
+    ) -> Result<(), &'static str> {
         // First delete destination
         self.del(db, dest_key);
 
@@ -811,7 +902,10 @@ impl StorageInner {
                             .push(weighted_score);
                     }
                 }
-                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::Set(_)) => {
+                Some(StorageValue::String(_))
+                | Some(StorageValue::List(_))
+                | Some(StorageValue::Hash(_))
+                | Some(StorageValue::Set(_)) => {
                     return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
                 }
                 None => continue,
@@ -827,7 +921,9 @@ impl StorageInner {
                     Aggregate::Max => *scores.iter().max().unwrap(),
                 };
                 new_zset.entries.insert(member.clone(), final_score);
-                new_zset.index.insert(ZSetIndexKey::create(final_score, member.as_slice()));
+                new_zset
+                    .index
+                    .insert(ZSetIndexKey::create(final_score, member.as_slice()));
             }
 
             let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
@@ -838,7 +934,14 @@ impl StorageInner {
     }
 
     /// Store intersection of sorted sets in destination key with weights and aggregation.
-    pub fn zinterstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]], weights: &[f64], aggregate: Aggregate) -> Result<(), &'static str> {
+    pub fn zinterstore(
+        &mut self,
+        db: u64,
+        dest_key: &[u8],
+        source_keys: &[&[u8]],
+        weights: &[f64],
+        aggregate: Aggregate,
+    ) -> Result<(), &'static str> {
         // First delete destination
         self.del(db, dest_key);
 
@@ -861,7 +964,10 @@ impl StorageInner {
         // Start with first zset
         let first_zset = match db_map.get(source_keys[0]) {
             Some(StorageValue::ZSet(zset)) => zset,
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::Set(_)) => {
+            Some(StorageValue::String(_))
+            | Some(StorageValue::List(_))
+            | Some(StorageValue::Hash(_))
+            | Some(StorageValue::Set(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
             None => return Ok(()),
@@ -890,7 +996,10 @@ impl StorageInner {
                         }
                     });
                 }
-                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::Set(_)) => {
+                Some(StorageValue::String(_))
+                | Some(StorageValue::List(_))
+                | Some(StorageValue::Hash(_))
+                | Some(StorageValue::Set(_)) => {
                     return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
                 }
                 None => {
@@ -913,7 +1022,9 @@ impl StorageInner {
                     Aggregate::Max => *scores.iter().max().unwrap(),
                 };
                 new_zset.entries.insert(member.clone(), final_score);
-                new_zset.index.insert(ZSetIndexKey::create(final_score, member.as_slice()));
+                new_zset
+                    .index
+                    .insert(ZSetIndexKey::create(final_score, member.as_slice()));
             }
 
             let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
@@ -924,7 +1035,12 @@ impl StorageInner {
     }
 
     /// Store difference of sorted sets in destination key (members in first set but not in others).
-    pub fn zdiffstore(&mut self, db: u64, dest_key: &[u8], source_keys: &[&[u8]]) -> Result<(), &'static str> {
+    pub fn zdiffstore(
+        &mut self,
+        db: u64,
+        dest_key: &[u8],
+        source_keys: &[&[u8]],
+    ) -> Result<(), &'static str> {
         // First delete destination
         self.del(db, dest_key);
 
@@ -939,7 +1055,10 @@ impl StorageInner {
         // Start with first zset
         let first_zset = match db_map.get(source_keys[0]) {
             Some(StorageValue::ZSet(zset)) => zset,
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::Set(_)) => {
+            Some(StorageValue::String(_))
+            | Some(StorageValue::List(_))
+            | Some(StorageValue::Hash(_))
+            | Some(StorageValue::Set(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
             None => return Ok(()),
@@ -961,7 +1080,10 @@ impl StorageInner {
                         diff_map.remove(member);
                     }
                 }
-                Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::Set(_)) => {
+                Some(StorageValue::String(_))
+                | Some(StorageValue::List(_))
+                | Some(StorageValue::Hash(_))
+                | Some(StorageValue::Set(_)) => {
                     return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
                 }
                 None => continue,
@@ -972,7 +1094,9 @@ impl StorageInner {
             let mut new_zset = ZSet::new();
             for (member, score) in diff_map {
                 new_zset.entries.insert(member.clone(), score);
-                new_zset.index.insert(ZSetIndexKey::create(score, member.as_slice()));
+                new_zset
+                    .index
+                    .insert(ZSetIndexKey::create(score, member.as_slice()));
             }
 
             let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
@@ -1005,7 +1129,10 @@ impl StorageInner {
 
         let source_zset = match db_map.get(source_key) {
             Some(StorageValue::ZSet(zset)) => zset,
-            Some(StorageValue::String(_)) | Some(StorageValue::List(_)) | Some(StorageValue::Hash(_)) | Some(StorageValue::Set(_)) => {
+            Some(StorageValue::String(_))
+            | Some(StorageValue::List(_))
+            | Some(StorageValue::Hash(_))
+            | Some(StorageValue::Set(_)) => {
                 return Err("WRONGTYPE Operation against a key holding the wrong kind of value")
             }
             None => return Ok(()),
@@ -1050,7 +1177,9 @@ impl StorageInner {
 
             for (member, score) in collected {
                 new_zset.entries.insert(member.clone(), score);
-                new_zset.index.insert(ZSetIndexKey::create(score, member.as_slice()));
+                new_zset
+                    .index
+                    .insert(ZSetIndexKey::create(score, member.as_slice()));
             }
         } else if by_score {
             // BYSCORE: score range using index.range() for efficiency
@@ -1060,12 +1189,16 @@ impl StorageInner {
             // Create boundary keys for efficient range query
             let min_key = match &min_bound {
                 std::ops::Bound::Unbounded => None,
-                std::ops::Bound::Included(score) | std::ops::Bound::Excluded(score) => Some(ZSetIndexKey::min_score_key(*score)),
+                std::ops::Bound::Included(score) | std::ops::Bound::Excluded(score) => {
+                    Some(ZSetIndexKey::min_score_key(*score))
+                }
             };
 
             let max_key = match &max_bound {
                 std::ops::Bound::Unbounded => None,
-                std::ops::Bound::Included(score) | std::ops::Bound::Excluded(score) => Some(ZSetIndexKey::max_score_key(*score)),
+                std::ops::Bound::Included(score) | std::ops::Bound::Excluded(score) => {
+                    Some(ZSetIndexKey::max_score_key(*score))
+                }
             };
 
             let start_key_bound: std::ops::Bound<&ZSetIndexKey> = match &min_key {
@@ -1100,7 +1233,9 @@ impl StorageInner {
 
             for (member, score) in collected {
                 new_zset.entries.insert(member.clone(), score);
-                new_zset.index.insert(ZSetIndexKey::create(score, member.as_slice()));
+                new_zset
+                    .index
+                    .insert(ZSetIndexKey::create(score, member.as_slice()));
             }
         } else {
             // BYRANK (default): rank-based range
@@ -1110,8 +1245,16 @@ impl StorageInner {
             let len = source_zset.len() as i64;
 
             // Normalize negative indices
-            let start = if min_rank < 0 { ((len + min_rank).max(0)) as usize } else { min_rank.min(len) as usize };
-            let stop = if max_rank < 0 { ((len + max_rank).max(0)) as usize } else { max_rank.min(len - 1) as usize };
+            let start = if min_rank < 0 {
+                ((len + min_rank).max(0)) as usize
+            } else {
+                min_rank.min(len) as usize
+            };
+            let stop = if max_rank < 0 {
+                ((len + max_rank).max(0)) as usize
+            } else {
+                max_rank.min(len - 1) as usize
+            };
 
             if start <= stop && start < source_zset.len() {
                 let range_iter: Box<dyn Iterator<Item = &ZSetIndexKey>> = if rev {
@@ -1131,7 +1274,9 @@ impl StorageInner {
 
                 for (member, score) in collected {
                     new_zset.entries.insert(member.clone(), score);
-                    new_zset.index.insert(ZSetIndexKey::create(score, member.as_slice()));
+                    new_zset
+                        .index
+                        .insert(ZSetIndexKey::create(score, member.as_slice()));
                 }
             }
         }
@@ -1144,7 +1289,11 @@ impl StorageInner {
         Ok(())
     }
 
-    fn apply_limit(&self, items: Vec<(Bytes, Score)>, limit: Option<(i64, i64)>) -> Vec<(Bytes, Score)> {
+    fn apply_limit(
+        &self,
+        items: Vec<(Bytes, Score)>,
+        limit: Option<(i64, i64)>,
+    ) -> Vec<(Bytes, Score)> {
         if let Some((offset, count)) = limit {
             let offset = offset.max(0) as usize;
             let count = count.max(0) as usize;
@@ -1191,7 +1340,12 @@ impl StorageInner {
         }
     }
 
-    fn score_in_range(&self, score: Score, min: &std::ops::Bound<Score>, max: &std::ops::Bound<Score>) -> bool {
+    fn score_in_range(
+        &self,
+        score: Score,
+        min: &std::ops::Bound<Score>,
+        max: &std::ops::Bound<Score>,
+    ) -> bool {
         use std::ops::Bound;
 
         let min_ok = match min {
@@ -1208,5 +1362,4 @@ impl StorageInner {
 
         min_ok && max_ok
     }
-
 }

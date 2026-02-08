@@ -737,9 +737,7 @@ defmodule Veidrodelis do
   ## Returns
 
     * `{:ok, results}` - For commands: list of results. For scripts: the script's return value
-    * `{:error, :not_ready}` - Instance not ready
-    * `{:error, :readonly_violation}` - Write command detected (commands only)
-    * `{:error, reason}` - Script execution error (scripts only)
+    * `{:error, reason}` - Execution error
   """
   @spec read_tx(instance_id(), db(), [tuple()] | binary()) ::
           {:ok, [term()] | term()} | {:error, term()}

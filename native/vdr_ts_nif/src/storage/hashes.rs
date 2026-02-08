@@ -1,11 +1,17 @@
-use std::collections::BTreeMap;
 use super::bytes::Bytes;
 use super::types::StorageValue;
 use crate::storage::StorageInner;
+use std::collections::BTreeMap;
 
 impl StorageInner {
     /// Set field in hash to value. Creates hash if it doesn't exist.
-    pub fn hset(&mut self, db: u64, key: &[u8], field: &[u8], value: &[u8]) -> Result<(), &'static str> {
+    pub fn hset(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        field: &[u8],
+        value: &[u8],
+    ) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -30,7 +36,12 @@ impl StorageInner {
     }
 
     /// Set multiple fields in hash.
-    pub fn hmset(&mut self, db: u64, key: &[u8], fields: &[(&[u8], &[u8])]) -> Result<(), &'static str> {
+    pub fn hmset(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        fields: &[(&[u8], &[u8])],
+    ) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -75,7 +86,12 @@ impl StorageInner {
     }
 
     /// Get multiple field values from hash.
-    pub fn hmget(&self, db: u64, key: &[u8], fields: &[&[u8]]) -> Result<Vec<Option<Bytes>>, &'static str> {
+    pub fn hmget(
+        &self,
+        db: u64,
+        key: &[u8],
+        fields: &[&[u8]],
+    ) -> Result<Vec<Option<Bytes>>, &'static str> {
         let Some(db_map) = self.map.get(&db) else {
             return Ok(vec![None; fields.len()]);
         };
@@ -88,7 +104,10 @@ impl StorageInner {
             return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
         };
 
-        let values = fields.iter().map(|field| hash.get(*field).cloned()).collect();
+        let values = fields
+            .iter()
+            .map(|field| hash.get(*field).cloned())
+            .collect();
         Ok(values)
     }
 
@@ -220,7 +239,9 @@ impl StorageInner {
             return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
         };
 
-        let result = hash.first_key_value().map(|(field, value)| (field.clone(), value.clone()));
+        let result = hash
+            .first_key_value()
+            .map(|(field, value)| (field.clone(), value.clone()));
         Ok(result)
     }
 
@@ -239,13 +260,20 @@ impl StorageInner {
             return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
         };
 
-        let result = hash.last_key_value().map(|(field, value)| (field.clone(), value.clone()));
+        let result = hash
+            .last_key_value()
+            .map(|(field, value)| (field.clone(), value.clone()));
         Ok(result)
     }
 
     /// Get the next field after the given field in hash.
     /// Returns Some((field, value)) or None if no next element exists.
-    pub fn hnext(&self, db: u64, key: &[u8], field: &[u8]) -> Result<Option<(Bytes, Bytes)>, &'static str> {
+    pub fn hnext(
+        &self,
+        db: u64,
+        key: &[u8],
+        field: &[u8],
+    ) -> Result<Option<(Bytes, Bytes)>, &'static str> {
         use std::ops::Bound;
 
         let Some(db_map) = self.map.get(&db) else {
@@ -268,7 +296,12 @@ impl StorageInner {
 
     /// Get the previous field before the given field in hash.
     /// Returns Some((field, value)) or None if no previous element exists.
-    pub fn hprev(&self, db: u64, key: &[u8], field: &[u8]) -> Result<Option<(Bytes, Bytes)>, &'static str> {
+    pub fn hprev(
+        &self,
+        db: u64,
+        key: &[u8],
+        field: &[u8],
+    ) -> Result<Option<(Bytes, Bytes)>, &'static str> {
         use std::ops::Bound;
 
         let Some(db_map) = self.map.get(&db) else {
@@ -290,7 +323,13 @@ impl StorageInner {
     }
 
     /// Set field in hash only if it doesn't exist.
-    pub fn hsetnx(&mut self, db: u64, key: &[u8], field: &[u8], value: &[u8]) -> Result<(), &'static str> {
+    pub fn hsetnx(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        field: &[u8],
+        value: &[u8],
+    ) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -319,7 +358,13 @@ impl StorageInner {
     }
 
     /// Increment integer field value in hash.
-    pub fn hincrby(&mut self, db: u64, key: &[u8], field: &[u8], delta: i64) -> Result<(), &'static str> {
+    pub fn hincrby(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        field: &[u8],
+        delta: i64,
+    ) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -344,14 +389,16 @@ impl StorageInner {
             // Parse as integer
             let value_str = std::str::from_utf8(existing_bytes.as_slice())
                 .map_err(|_| "ERR hash value is not an integer or out of range")?;
-            value_str.parse::<i64>()
+            value_str
+                .parse::<i64>()
                 .map_err(|_| "ERR hash value is not an integer or out of range")?
         } else {
             0
         };
 
         // Calculate new value with overflow check
-        let new_value = current_value.checked_add(delta)
+        let new_value = current_value
+            .checked_add(delta)
             .ok_or("ERR hash value is not an integer or out of range")?;
 
         // Store result as string
@@ -362,7 +409,13 @@ impl StorageInner {
     }
 
     /// Increment float field value in hash.
-    pub fn hincrbyfloat(&mut self, db: u64, key: &[u8], field: &[u8], delta: f64) -> Result<(), &'static str> {
+    pub fn hincrbyfloat(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        field: &[u8],
+        delta: f64,
+    ) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -387,7 +440,8 @@ impl StorageInner {
             // Parse as float
             let value_str = std::str::from_utf8(existing_bytes.as_slice())
                 .map_err(|_| "ERR hash value is not a float")?;
-            value_str.parse::<f64>()
+            value_str
+                .parse::<f64>()
                 .map_err(|_| "ERR hash value is not a float")?
         } else {
             0.0
@@ -410,7 +464,13 @@ impl StorageInner {
     /// - None: Set all fields unconditionally
     /// - Some(HSetEXMode::NX): Only succeed if NONE of the fields exist (FNX)
     /// - Some(HSetEXMode::XX): Only succeed if ALL fields exist (FXX)
-    pub fn hsetex(&mut self, db: u64, key: &[u8], mode: Option<crate::storage::types::HSetEXMode>, fields: &[(&[u8], &[u8])]) -> Result<(), &'static str> {
+    pub fn hsetex(
+        &mut self,
+        db: u64,
+        key: &[u8],
+        mode: Option<crate::storage::types::HSetEXMode>,
+        fields: &[(&[u8], &[u8])],
+    ) -> Result<(), &'static str> {
         let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
 
         // Check if key exists and validate type
@@ -483,7 +543,13 @@ impl StorageInner {
     /// If count is 1, returns a single field (or None if hash is empty).
     /// If count > 1, returns up to count fields (may be less if hash has fewer fields).
     /// If count is negative, allows returning the same field multiple times.
-    pub fn hrandfield(&self, db: u64, key: &[u8], count: i64, with_values: bool) -> Result<Vec<(Bytes, Option<Bytes>)>, &'static str> {
+    pub fn hrandfield(
+        &self,
+        db: u64,
+        key: &[u8],
+        count: i64,
+        with_values: bool,
+    ) -> Result<Vec<(Bytes, Option<Bytes>)>, &'static str> {
         use rand::seq::SliceRandom;
         use rand::thread_rng;
 
@@ -522,14 +588,16 @@ impl StorageInner {
             // Return multiple unique random fields (up to count)
             let sample_size = (count as usize).min(fields.len());
             let samples = fields.choose_multiple(&mut rng, sample_size);
-            Ok(samples.map(|(field, value)| {
-                let val = if with_values {
-                    Some((*value).clone())
-                } else {
-                    None
-                };
-                ((*field).clone(), val)
-            }).collect())
+            Ok(samples
+                .map(|(field, value)| {
+                    let val = if with_values {
+                        Some((*value).clone())
+                    } else {
+                        None
+                    };
+                    ((*field).clone(), val)
+                })
+                .collect())
         } else if count < 0 {
             // Return |count| fields with repetition allowed
             let sample_size = (-count) as usize;
@@ -551,4 +619,3 @@ impl StorageInner {
         }
     }
 }
-

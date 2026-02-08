@@ -1,10 +1,9 @@
 defmodule Vdr.TSProj do
   @moduledoc """
-  TS-based Redis replication stream processor with typed stores.
+  Redis replication stream processor storing data in TS (Rust-based storage).
 
   This module provides Redis replication stream processing using TS (Rust-based storage)
-  for efficient key-value storage. Currently supports string operations only.
-  All keys and values are stored as raw binaries.
+  for efficient key-value storage. Currently supports sets, sorted sets, lists, hashes and strings.
   """
 
   require Logger
@@ -261,54 +260,6 @@ defmodule Vdr.TSProj do
     {:ok, new_state}
   end
 
-  @doc """
-  Executes multiple read-only commands atomically under a single mutex lock.
-
-  Commands are executed in order and their results are returned as a list.
-  Only read-only commands are allowed; write commands will return `{:error, :readonly_violation}`.
-
-  ## Parameters
-
-    * `handle_state` - The handle state map with `:ready` and `:ts_storage` keys
-    * `db` - Database number
-    * `commands` - List of read command tuples
-
-  ## Supported Commands
-
-    * `{:get, key}` - Get string value
-    * `{:hget, key, field}` - Get hash field value
-    * `{:hmget, key, fields}` - Get multiple hash field values
-    * `{:hgetall, key}` - Get all hash fields and values
-    * `{:hkeys, key}` - Get hash field names
-    * `{:hvals, key}` - Get hash values
-    * `{:hlen, key}` - Get hash length
-    * `{:llen, key}` - Get list length
-    * `{:lrange, key, start, stop}` - Get list range
-    * `{:smembers, key}` - Get set members
-    * `{:sismember, key, member}` - Check set membership
-    * `{:scard, key}` - Get set cardinality
-    * `{:zscore, key, member}` - Get sorted set member score
-    * `{:zcard, key}` - Get sorted set cardinality
-    * `{:zrange, key, start, stop, with_scores}` - Get sorted set range
-    * `{:zrangebyscore, key, min, max, with_scores}` - Get sorted set range by score
-    * `{:zrank, key, member}` - Get sorted set member rank
-    * `{:zrevrank, key, member}` - Get sorted set member reverse rank
-    * `{:zcount, key, min, max}` - Count sorted set members in score range
-
-  ## Returns
-
-    * `{:ok, results}` - List of results in same order as commands
-    * `{:error, :not_ready}` - Instance not ready
-    * `{:error, :readonly_violation}` - Write command detected
-
-  ## Examples
-
-      handle_state = %{ts_storage: storage, ready: true}
-      {:ok, [value1, value2]} = Vdr.TSProj.read_tx(handle_state, 0, [
-        {:get, "key1"},
-        {:hget, "hash1", "field1"}
-      ])
-  """
   @spec read_tx(%{ts_storage: reference(), ready: boolean()}, non_neg_integer(), [tuple()]) ::
           {:ok, [term()]} | {:error, term()}
   def read_tx(%{ready: ready, ts_storage: ts_storage}, db, commands) when is_list(commands) do
@@ -319,22 +270,6 @@ defmodule Vdr.TSProj do
     end
   end
 
-  @doc """
-  Executes a Lua script with access to ts.get and ts.hget functions.
-
-  The script is executed atomically under the storage mutex and has access to:
-  - `ts.get(key)` - Get a string value
-  - `ts.hget(key, field)` - Get a hash field value
-
-  Returns `{:ok, result}` where result is the script's return value as a binary,
-  or `{:error, reason}` if the script fails.
-
-  ## Examples
-
-      handle_state = %{ts_storage: storage}
-      script = "return ts.get('key1')"
-      {:ok, result} = Vdr.TSProj.tx(handle_state, 0, script)
-  """
   @spec tx(%{ts_storage: reference(), ready: boolean()}, non_neg_integer(), binary()) ::
           {:ok, binary()} | {:error, term()}
   def tx(%{ready: ready, ts_storage: ts_storage}, db, script) when is_binary(script) do
@@ -345,11 +280,6 @@ defmodule Vdr.TSProj do
     end
   end
 
-  @doc """
-  Compiles a Lua script to bytecode for faster execution.
-
-  The compiled bytecode can be passed to `tx/3` instead of a script string.
-  """
   @spec lua_load(%{ts_storage: reference()}, binary()) :: {:ok, binary()} | {:error, term()}
   def lua_load(%{ts_storage: ts_storage}, script) when is_binary(script) do
     Vdr.TS.lua_load(ts_storage, script)
