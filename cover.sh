@@ -3,6 +3,8 @@
 set -xe
 
 export MIX_ENV=test
+# enable trace logging to get full coverage
+export RUST_LOG=trace
 
 if [ "$1" == "slow" ]; then
     SLOW_TAG="--include slow"

@@ -100,7 +100,14 @@ impl ReplicaParser {
 
         loop {
             match state.parse_next(self.pid)? {
-                Some(mut cmds) => commands.append(&mut cmds),
+                Some(mut cmds) => {
+                    log::debug!(
+                        "parse_next is some, state: {:?}, cmds: {:?}",
+                        state.state,
+                        cmds
+                    );
+                    commands.append(&mut cmds)
+                }
                 None => break, // Need more data
             }
         }

@@ -228,8 +228,7 @@ defmodule Veidrodelis.Integration.WatchTest do
         Veidrodelis.start_link(
           id: :watch_init_test,
           host: redis_host(),
-          port: redis_port(),
-          impl: {Vdr.TSProj, []}
+          port: redis_port()
         )
 
       # Wait for replication to actually start (reach :replication internal state)

@@ -32,8 +32,7 @@ defmodule IntegrationHelpers do
       Veidrodelis.start_link(
         id: @id,
         host: @redis_host,
-        port: @redis_port,
-        impl: {Vdr.TSProj, []}
+        port: @redis_port
       )
 
     assert_within 5000 do

@@ -89,7 +89,6 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
         id: @id,
         host: @redis[:host],
         port: @redis[:port],
-        impl: {Vdr.TSProj, []}
       ]
 
       {:ok, vdr} = Veidrodelis.start_link(opts)
@@ -255,7 +254,6 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
         id: @id,
         host: @redis[:host],
         port: @redis[:port],
-        impl: {Vdr.TSProj, []}
       ]
 
       {:ok, vdr} = Veidrodelis.start_link(opts)
@@ -296,7 +294,6 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
         id: @id,
         host: @redis[:host],
         port: @redis[:port],
-        impl: {Vdr.TSProj, []}
       ]
 
       {:ok, vdr} = Veidrodelis.start_link(opts)
@@ -332,7 +329,6 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
         id: @id,
         host: @redis[:host],
         port: @redis[:port],
-        impl: {Vdr.TSProj, []}
       ]
 
       {:ok, vdr} = Veidrodelis.start_link(opts)

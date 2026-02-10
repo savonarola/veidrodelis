@@ -14,23 +14,17 @@ const RDB_OPCODE_SELECTDB: u8 = 254;
 const RDB_OPCODE_EOF: u8 = 255;
 
 // RDB Value Types
+// RDB types for modern Redis (>=7.2) and Valkey
+// Core data types: strings, lists, sets, sorted sets, hashes
 const RDB_TYPE_STRING: u8 = 0;
-const RDB_TYPE_LIST: u8 = 1;
-const RDB_TYPE_SET: u8 = 2;
-const RDB_TYPE_ZSET: u8 = 3;
 const RDB_TYPE_HASH: u8 = 4;
 const RDB_TYPE_ZSET_2: u8 = 5;
 const RDB_TYPE_SET_INTSET: u8 = 11;
-const RDB_TYPE_ZSET_ZIPLIST: u8 = 12;
-const RDB_TYPE_HASH_ZIPLIST: u8 = 13;
-const RDB_TYPE_LIST_QUICKLIST: u8 = 14;
 const RDB_TYPE_HASH_LISTPACK: u8 = 16;
 const RDB_TYPE_ZSET_LISTPACK: u8 = 17;
 const RDB_TYPE_LIST_QUICKLIST_2: u8 = 18;
 const RDB_TYPE_SET_LISTPACK: u8 = 20;
-const RDB_TYPE_HASH_METADATA: u8 = 21; // Redis/Valkey 9.0+ hash with per-field TTLs (with min_expire prefix)
-const RDB_TYPE_HASH_LISTPACK_EX: u8 = 22; // Valkey 9.0+ hash listpack with per-field TTLs
-const RDB_TYPE_HASH_METADATA_PRE_GA: u8 = 200; // Pre-GA hash with per-field TTLs (no min_expire prefix)
+const RDB_TYPE_HASH_2: u8 = 22; // Valkey 9.0+ hash with field-level expiration
 
 // Encoding types
 const RDB_ENC_INT8: u8 = 0;
@@ -146,6 +140,23 @@ impl RDBParser {
         log::debug!("feed_data, buf size: {:?}", state.buffer.len());
 
         Ok(commands)
+    }
+}
+
+// Helper function to get RDB type name for debugging
+fn rdb_type_name(value_type: u8) -> &'static str {
+    match value_type {
+        0 => "STRING",
+        1 => "LIST",
+        4 => "HASH",
+        5 => "ZSET_2",
+        11 => "SET_INTSET",
+        16 => "HASH_LISTPACK",
+        17 => "ZSET_LISTPACK",
+        18 => "LIST_QUICKLIST_2",
+        20 => "SET_LISTPACK",
+        22 => "HASH_2",
+        _ => "UNKNOWN",
     }
 }
 
@@ -342,21 +353,52 @@ impl ParserState {
         value_type: u8,
         _key_len: usize,
     ) -> Result<Option<Vec<RawCommand>>, String> {
+        log::debug!(
+            "parse_value: value_type={} (RDB_TYPE_{}), key={:?}",
+            value_type,
+            rdb_type_name(value_type),
+            String::from_utf8_lossy(&self.saved_key)
+        );
+
         // Calculate how much data we need for this entire value
         // If we don't have it all, wait for more data to avoid partial consumption
-        match self.calculate_value_size(value_type, 0)? {
-            Some(total_size) => {
-                if self.buffer.len() < total_size {
-                    return Ok(None); // Wait for complete value data
-                }
-                // We have all the data, proceed with parsing
+        let total_size = match self.calculate_value_size(value_type, 0) {
+            Ok(Some(size)) => size,
+            Ok(None) => return Ok(None), // Not enough data to determine size
+            Err(e) => {
+                // Unknown type or other error - skip this value
+                log::warn!(
+                    "parse_value: cannot parse value type {} for key {:?}: {}",
+                    value_type,
+                    String::from_utf8_lossy(&self.saved_key),
+                    e
+                );
+                // Clear state and move to next opcode
+                self.expire_ms = None;
+                self.saved_key.clear();
+                self.parse_state = ParseState::Opcode;
+                return Ok(Some(Vec::new())); // Return empty commands
             }
-            None => return Ok(None), // Not enough data to even determine size
+        };
+
+        if self.buffer.len() < total_size {
+            log::trace!(
+                "parse_value: waiting for more data, need {} bytes, have {}",
+                total_size,
+                self.buffer.len()
+            );
+            return Ok(None); // Wait for complete value data
         }
 
         let key = self.saved_key.clone();
         match self.load_object(value_type, &key)? {
             Some(mut commands) => {
+                log::debug!(
+                    "parse_value: successfully parsed {} commands for key {:?}",
+                    commands.len(),
+                    String::from_utf8_lossy(&key)
+                );
+
                 // Add expire command if needed
                 if let Some(expire_ms) = self.expire_ms {
                     let expire_cmd = RawCommand::with_args(
@@ -383,54 +425,6 @@ impl ParserState {
             RDB_TYPE_STRING => {
                 // Just need the string data
                 self.calculate_string_size(offset)
-            }
-            RDB_TYPE_LIST | RDB_TYPE_SET => {
-                // Length + N strings
-                let (count, len_bytes) = match self.peek_length_at(offset)? {
-                    Some(v) => v,
-                    None => return Ok(None),
-                };
-                let mut total = len_bytes;
-                let mut current_offset = offset + len_bytes;
-
-                for _ in 0..count {
-                    match self.calculate_string_size(current_offset)? {
-                        Some(size) => {
-                            total += size;
-                            current_offset += size;
-                        }
-                        None => return Ok(None),
-                    }
-                }
-                Ok(Some(total))
-            }
-            RDB_TYPE_ZSET => {
-                // Length + N * (string + double)
-                let (count, len_bytes) = match self.peek_length_at(offset)? {
-                    Some(v) => v,
-                    None => return Ok(None),
-                };
-                let mut total = len_bytes;
-                let mut current_offset = offset + len_bytes;
-
-                for _ in 0..count {
-                    // Member string
-                    match self.calculate_string_size(current_offset)? {
-                        Some(size) => {
-                            total += size;
-                            current_offset += size;
-                        }
-                        None => return Ok(None),
-                    }
-                    // Score (old format: 1 byte len + data)
-                    if current_offset >= self.buffer.len() {
-                        return Ok(None);
-                    }
-                    let score_len = self.buffer[current_offset] as usize;
-                    total += 1 + score_len;
-                    current_offset += 1 + score_len;
-                }
-                Ok(Some(total))
             }
             RDB_TYPE_ZSET_2 => {
                 // Length + N * (string + 8 bytes for double)
@@ -484,7 +478,7 @@ impl ParserState {
                 Ok(Some(total))
             }
             // For encoded types (ziplist, listpack, etc.), the data is in a single string
-            RDB_TYPE_LIST_QUICKLIST | RDB_TYPE_LIST_QUICKLIST_2 => {
+            RDB_TYPE_LIST_QUICKLIST_2 => {
                 // Length + N strings (each string is a listpack/ziplist)
                 let (count, len_bytes) = match self.peek_length_at(offset)? {
                     Some(v) => v,
@@ -493,15 +487,13 @@ impl ParserState {
                 let mut total = len_bytes;
                 let mut current_offset = offset + len_bytes;
 
-                for i in 0..count {
+                for _i in 0..count {
                     // For quicklist_2, there's a 1-byte container type before each string
-                    if value_type == RDB_TYPE_LIST_QUICKLIST_2 {
-                        if i == 0 || current_offset < self.buffer.len() {
-                            total += 1;
-                            current_offset += 1;
-                        } else {
-                            return Ok(None);
-                        }
+                    if current_offset < self.buffer.len() {
+                        total += 1;
+                        current_offset += 1;
+                    } else {
+                        return Ok(None);
                     }
 
                     match self.calculate_string_size(current_offset)? {
@@ -514,56 +506,14 @@ impl ParserState {
                 }
                 Ok(Some(total))
             }
-            RDB_TYPE_HASH_ZIPLIST
-            | RDB_TYPE_HASH_LISTPACK
+            RDB_TYPE_HASH_LISTPACK
             | RDB_TYPE_SET_INTSET
             | RDB_TYPE_SET_LISTPACK
-            | RDB_TYPE_ZSET_ZIPLIST
-            | RDB_TYPE_ZSET_LISTPACK
-            | RDB_TYPE_HASH_METADATA_PRE_GA => {
+            | RDB_TYPE_ZSET_LISTPACK => {
                 // These are all stored as a single string
                 self.calculate_string_size(offset)
             }
-            RDB_TYPE_HASH_METADATA => {
-                // Length-encoded min_expire + length-encoded count + (field + value + length-encoded TTL) * count
-                let (_min_expire, min_expire_bytes) = match self.peek_length_at(offset)? {
-                    Some(v) => v,
-                    None => return Ok(None),
-                };
-                let (count, count_bytes) = match self.peek_length_at(offset + min_expire_bytes)? {
-                    Some(v) => v,
-                    None => return Ok(None),
-                };
-                let mut total = min_expire_bytes + count_bytes;
-                let mut current_offset = offset + total;
-                for _ in 0..count {
-                    // Field
-                    match self.calculate_string_size(current_offset)? {
-                        Some(size) => {
-                            total += size;
-                            current_offset += size;
-                        }
-                        None => return Ok(None),
-                    }
-                    // Value
-                    match self.calculate_string_size(current_offset)? {
-                        Some(size) => {
-                            total += size;
-                            current_offset += size;
-                        }
-                        None => return Ok(None),
-                    }
-                    // Length-encoded TTL
-                    let (_, ttl_bytes) = match self.peek_length_at(current_offset)? {
-                        Some(v) => v,
-                        None => return Ok(None),
-                    };
-                    total += ttl_bytes;
-                    current_offset += ttl_bytes;
-                }
-                Ok(Some(total))
-            }
-            RDB_TYPE_HASH_LISTPACK_EX => {
+            RDB_TYPE_HASH_2 => {
                 // Length-encoded count + (field + value + 8-byte expiry) * count
                 let (count, len_bytes) = match self.peek_length_at(offset)? {
                     Some(v) => v,
@@ -595,8 +545,9 @@ impl ParserState {
                 Ok(Some(total))
             }
             _ => {
-                // Unknown type - try to skip as a string
-                self.calculate_string_size(offset)
+                // Unknown type - cannot determine size
+                // Return error so caller can handle gracefully
+                Err(format!("unknown_rdb_type: {}", value_type))
             }
         }
     }
@@ -629,7 +580,15 @@ impl ParserState {
                     };
                     1 + clen_bytes + ulen_bytes + clen as usize
                 }
-                _ => return Err(format!("unknown_encoding: 0x{:02X}", first)),
+                _ => {
+                    // Unknown special encoding - treat as "not enough data"
+                    log::trace!(
+                        "calculate_string_size: unknown special encoding 0x{:02X} at offset {}",
+                        first,
+                        offset
+                    );
+                    return Ok(None);
+                }
             };
             Ok(Some(size))
         } else {
@@ -750,10 +709,16 @@ impl ParserState {
                     );
                     Ok(Some(decompressed))
                 }
-                _ => Err(format!(
-                    "unknown_encoding: 0x{:02X} (enc_type={}, subtype={})",
-                    first, enc_type, enc_subtype
-                )),
+                _ => {
+                    // Unknown special encoding - log and return None
+                    log::trace!(
+                        "load_string: unknown special encoding 0x{:02X} (enc_type={}, subtype={})",
+                        first,
+                        enc_type,
+                        enc_subtype
+                    );
+                    Ok(None)
+                }
             }
         } else {
             // Regular string - peek at length first
@@ -855,109 +820,60 @@ impl ParserState {
         value_type: u8,
         key: &[u8],
     ) -> Result<Option<Vec<RawCommand>>, String> {
-        match value_type {
+        log::debug!(
+            "load_object: type={} ({}), key={:?}",
+            value_type,
+            rdb_type_name(value_type),
+            String::from_utf8_lossy(key)
+        );
+
+        let result = match value_type {
             RDB_TYPE_STRING => self.load_string_value(key),
-            RDB_TYPE_LIST => self.load_list_value(key),
-            RDB_TYPE_SET => self.load_set_value(key),
-            RDB_TYPE_ZSET => self.load_zset_value(key),
             RDB_TYPE_ZSET_2 => self.load_zset2_value(key),
             RDB_TYPE_HASH => self.load_hash_value(key),
-            RDB_TYPE_LIST_QUICKLIST => self.load_quicklist_value(key),
             RDB_TYPE_LIST_QUICKLIST_2 => self.load_quicklist2_value(key),
-            RDB_TYPE_HASH_ZIPLIST => self.load_hash_ziplist_value(key),
             RDB_TYPE_HASH_LISTPACK => self.load_hash_listpack_value(key),
-            RDB_TYPE_HASH_METADATA => self.load_hash_metadata_value(key),
-            RDB_TYPE_HASH_LISTPACK_EX => self.load_hash_listpack_ex_value(key),
-            RDB_TYPE_HASH_METADATA_PRE_GA => self.load_hash_metadata_pre_ga_value(key),
+            RDB_TYPE_HASH_2 => self.load_hash_2_value(key),
             RDB_TYPE_SET_INTSET => self.load_set_intset_value(key),
             RDB_TYPE_SET_LISTPACK => self.load_set_listpack_value(key),
-            RDB_TYPE_ZSET_ZIPLIST => self.load_zset_ziplist_value(key),
             RDB_TYPE_ZSET_LISTPACK => self.load_zset_listpack_value(key),
             _ => {
-                // Skip unknown type - attempt to load as string
+                // Skip unknown type - just log and return empty commands
                 log::warn!(
                     "Unknown RDB type {} for key {:?}",
                     value_type,
                     String::from_utf8_lossy(key)
                 );
-                match self.load_string()? {
-                    Some(_) => Ok(Some(Vec::new())),
-                    None => Ok(None),
-                }
+                Ok(Some(Vec::new()))
             }
+        };
+
+        match &result {
+            Ok(Some(commands)) => log::debug!(
+                "load_object: successfully loaded {} commands for key {:?}",
+                commands.len(),
+                String::from_utf8_lossy(key)
+            ),
+            Ok(None) => log::trace!("load_object: not enough data"),
+            Err(e) => log::error!("load_object: error {:?}", e),
         }
+
+        result
     }
 
     fn load_string_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+        log::debug!("load_string_value: key={:?}", String::from_utf8_lossy(key));
         match self.load_string()? {
             Some(value) => {
-                let cmd = RawCommand::with_args(self.current_db, b"SET", vec![key.to_vec(), value]);
-                Ok(Some(vec![cmd]))
-            }
-            None => Ok(None),
-        }
-    }
-
-    fn load_list_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
-        match self.load_length()? {
-            Some(count) => {
-                let mut values = Vec::new();
-                for _ in 0..count {
-                    match self.load_string()? {
-                        Some(v) => values.push(v),
-                        None => return Ok(None),
-                    }
-                }
-
-                let mut args = vec![key.to_vec()];
-                args.extend(values);
-                let cmd = RawCommand::with_args(self.current_db, b"RPUSH", args);
-                Ok(Some(vec![cmd]))
-            }
-            None => Ok(None),
-        }
-    }
-
-    fn load_set_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
-        match self.load_length()? {
-            Some(count) => {
-                let mut members = Vec::new();
-                for _ in 0..count {
-                    match self.load_string()? {
-                        Some(m) => members.push(m),
-                        None => return Ok(None),
-                    }
-                }
-
-                let mut args = vec![key.to_vec()];
-                args.extend(members);
-                let cmd = RawCommand::with_args(self.current_db, b"SADD", args);
-                Ok(Some(vec![cmd]))
-            }
-            None => Ok(None),
-        }
-    }
-
-    fn load_zset_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
-        match self.load_length()? {
-            Some(count) => {
-                let mut members = Vec::new();
-                for _ in 0..count {
-                    match self.load_string()? {
-                        Some(member) => match self.load_double_value()? {
-                            Some(score) => {
-                                members.push(score);
-                                members.push(member);
-                            }
-                            None => return Ok(None),
-                        },
-                        None => return Ok(None),
-                    }
-                }
-
-                let mut args = vec![key.to_vec()];
-                args.extend(members);
-                let cmd = RawCommand::with_args(self.current_db, b"ZADD", args);
+                let cmd = RawCommand::with_args(
+                    self.current_db,
+                    b"SET",
+                    vec![key.to_vec(), value.clone()],
+                );
+                log::debug!(
+                    "load_string_value: created SET command with value len={}",
+                    value.len()
+                );
                 Ok(Some(vec![cmd]))
             }
             None => Ok(None),
@@ -992,13 +908,17 @@ impl ParserState {
     }
 
     fn load_hash_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+        log::debug!("load_hash_value: key={:?}", String::from_utf8_lossy(key));
         match self.load_length()? {
             Some(count) => {
+                log::debug!("load_hash_value: loading {} field-value pairs", count);
                 let mut fields = Vec::new();
-                for _ in 0..count {
+                for i in 0..count {
                     match self.load_string()? {
                         Some(field) => match self.load_string()? {
                             Some(value) => {
+                                log::trace!("load_hash_value: loaded field-value pair {}: field={:?}, value_len={}",
+                                    i, String::from_utf8_lossy(&field), value.len());
                                 fields.push(field);
                                 fields.push(value);
                             }
@@ -1011,82 +931,63 @@ impl ParserState {
                 let mut args = vec![key.to_vec()];
                 args.extend(fields);
                 let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
+                log::debug!("load_hash_value: created HSET command with {} pairs", count);
                 Ok(Some(vec![cmd]))
             }
             None => Ok(None),
-        }
-    }
-
-    fn load_double_value(&mut self) -> Result<Option<Vec<u8>>, String> {
-        if self.buffer.is_empty() {
-            return Ok(None);
-        }
-
-        let len = self.buffer[0];
-        self.buffer_advance(1);
-
-        match len {
-            253 => Ok(Some(b"nan".to_vec())),
-            254 => Ok(Some(b"inf".to_vec())),
-            255 => Ok(Some(b"-inf".to_vec())),
-            _ => {
-                if self.buffer.len() < len as usize {
-                    return Ok(None);
-                }
-                let score_bytes = self.buffer.split_to(len as usize).to_vec();
-                Ok(Some(score_bytes))
-            }
         }
     }
 
     // Encoded type implementations
 
-    fn load_quicklist_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
-        match self.load_length()? {
-            Some(count) => {
-                let mut all_values = Vec::new();
-
-                for _ in 0..count {
-                    match self.load_string()? {
-                        Some(listpack_bin) => match parse_listpack(&listpack_bin) {
-                            Ok(entries) => all_values.extend(entries),
-                            Err(e) => return Err(e),
-                        },
-                        None => return Ok(None),
-                    }
-                }
-
-                if all_values.is_empty() {
-                    return Ok(Some(Vec::new()));
-                }
-
-                let mut args = vec![key.to_vec()];
-                args.extend(all_values);
-                let cmd = RawCommand::with_args(self.current_db, b"RPUSH", args);
-                Ok(Some(vec![cmd]))
-            }
-            None => Ok(None),
-        }
-    }
-
     fn load_quicklist2_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+        log::debug!(
+            "load_quicklist2_value: key={:?}",
+            String::from_utf8_lossy(key)
+        );
         match self.load_length()? {
             Some(count) => {
+                log::debug!("load_quicklist2_value: loading {} listpacks", count);
                 let mut all_values = Vec::new();
 
-                for _ in 0..count {
+                for i in 0..count {
                     // Read container type: 1 = plain, 2 = packed (LZF compressed)
                     if self.buffer.is_empty() {
                         return Ok(None);
                     }
-                    let _container_type = self.buffer[0];
+                    let container_type = self.buffer[0];
+                    let container_name = if container_type == 1 {
+                        "plain"
+                    } else {
+                        "packed/LZF"
+                    };
+                    log::debug!(
+                        "load_quicklist2_value: listpack {} has container type {} ({})",
+                        i,
+                        container_type,
+                        container_name
+                    );
                     self.buffer.advance(1);
 
                     match self.load_string()? {
-                        Some(listpack_bin) => match parse_listpack(&listpack_bin) {
-                            Ok(entries) => all_values.extend(entries),
-                            Err(e) => return Err(e),
-                        },
+                        Some(listpack_bin) => {
+                            log::debug!(
+                                "load_quicklist2_value: parsing listpack {} with len={}",
+                                i,
+                                listpack_bin.len()
+                            );
+                            match parse_listpack(&listpack_bin) {
+                                Ok(entries) => {
+                                    log::debug!(
+                                        "load_quicklist2_value: listpack {} has {} entries",
+                                        i,
+                                        entries.len()
+                                    );
+                                    all_values.extend(entries);
+                                }
+                                Err(e) => return Err(e),
+                            }
+                        }
                         None => return Ok(None),
                     }
                 }
@@ -1097,110 +998,69 @@ impl ParserState {
 
                 let mut args = vec![key.to_vec()];
                 args.extend(all_values);
+                let num_elements = args.len() - 1;
                 let cmd = RawCommand::with_args(self.current_db, b"RPUSH", args);
+                log::debug!(
+                    "load_quicklist2_value: created RPUSH command with {} total elements",
+                    num_elements
+                );
                 Ok(Some(vec![cmd]))
             }
-            None => Ok(None),
-        }
-    }
-
-    fn load_hash_ziplist_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
-        match self.load_string()? {
-            Some(ziplist_bin) => match parse_ziplist(&ziplist_bin) {
-                Ok(entries) => {
-                    if entries.len() % 2 != 0 {
-                        return Err("odd_hash_entries".to_string());
-                    }
-
-                    let mut args = vec![key.to_vec()];
-                    args.extend(entries);
-                    let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
-                    Ok(Some(vec![cmd]))
-                }
-                Err(e) => Err(e),
-            },
             None => Ok(None),
         }
     }
 
     fn load_hash_listpack_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+        log::debug!(
+            "load_hash_listpack_value: key={:?}",
+            String::from_utf8_lossy(key)
+        );
         match self.load_string()? {
-            Some(listpack_bin) => match parse_listpack(&listpack_bin) {
-                Ok(entries) => {
-                    if entries.len() % 2 != 0 {
-                        return Err("odd_hash_entries".to_string());
-                    }
+            Some(listpack_bin) => {
+                log::debug!(
+                    "load_hash_listpack_value: parsing listpack with len={}",
+                    listpack_bin.len()
+                );
+                match parse_listpack(&listpack_bin) {
+                    Ok(entries) => {
+                        log::debug!(
+                            "load_hash_listpack_value: listpack has {} entries",
+                            entries.len()
+                        );
+                        if entries.len() % 2 != 0 {
+                            return Err("odd_hash_entries".to_string());
+                        }
 
-                    let mut args = vec![key.to_vec()];
-                    args.extend(entries);
-                    let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
-                    Ok(Some(vec![cmd]))
+                        let mut args = vec![key.to_vec()];
+                        args.extend(entries);
+                        let num_pairs = (args.len() - 1) / 2;
+                        let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
+                        log::debug!("load_hash_listpack_value: created HSET command with {} field-value pairs", num_pairs);
+                        Ok(Some(vec![cmd]))
+                    }
+                    Err(e) => Err(e),
                 }
-                Err(e) => Err(e),
-            },
+            }
             None => Ok(None),
         }
-    }
-
-    // Hash with per-field TTLs (type 21, Redis/Valkey 9.0+)
-    // Format: length-encoded min_expire, length-encoded count, then for each: string field, string value, length-encoded TTL
-    fn load_hash_metadata_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
-        // Skip length-encoded min_expire_time
-        match self.load_length()? {
-            Some(_) => {}
-            None => return Ok(None),
-        }
-
-        // Load count
-        let count = match self.load_length()? {
-            Some(c) => c,
-            None => return Ok(None),
-        };
-
-        let mut args = vec![key.to_vec()];
-        for _ in 0..count {
-            // Load field
-            let field = match self.load_string()? {
-                Some(f) => f,
-                None => return Ok(None),
-            };
-            // Load value
-            let value = match self.load_string()? {
-                Some(v) => v,
-                None => return Ok(None),
-            };
-            // Skip length-encoded TTL
-            match self.load_length()? {
-                Some(_) => {}
-                None => return Ok(None),
-            }
-
-            args.push(field);
-            args.push(value);
-        }
-
-        if args.len() == 1 {
-            return Ok(Some(Vec::new()));
-        }
-
-        let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
-        Ok(Some(vec![cmd]))
     }
 
     // Hash with per-field TTLs (type 22, Valkey 9.0+)
     // Format: length-encoded count, then for each field: string field, string value, 8-byte expiry
     // This is the same as RDB_TYPE_HASH (type 4) but with 8-byte expiry after each field-value pair
-    fn load_hash_listpack_ex_value(
-        &mut self,
-        key: &[u8],
-    ) -> Result<Option<Vec<RawCommand>>, String> {
+    fn load_hash_2_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+        log::debug!("load_hash_2_value: key={:?}", String::from_utf8_lossy(key));
         let count = match self.load_length()? {
             Some(c) => c,
             None => return Ok(None),
         };
+        log::debug!(
+            "load_hash_2_value: loading {} field-value pairs with 8-byte expiry",
+            count
+        );
 
         let mut args = vec![key.to_vec()];
-        for _ in 0..count {
+        for i in 0..count {
             // Load field
             let field = match self.load_string()? {
                 Some(f) => f,
@@ -1215,7 +1075,13 @@ impl ParserState {
             if self.buffer.len() < 8 {
                 return Ok(None);
             }
-            self.buffer_advance(8);
+            let expiry = self.buffer.get_u64_le();
+            log::trace!(
+                "load_hash_2_value: pair {} field={:?} expiry={}",
+                i,
+                String::from_utf8_lossy(&field),
+                expiry
+            );
 
             args.push(field);
             args.push(value);
@@ -1225,41 +1091,44 @@ impl ParserState {
             return Ok(Some(Vec::new()));
         }
 
+        let num_items = (args.len() - 1) / 2;
         let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
+        log::debug!(
+            "load_hash_2_value: created HSET command with {} pairs",
+            num_items
+        );
         Ok(Some(vec![cmd]))
     }
 
-    // Pre-GA hash with per-field TTLs (type 200)
-    // Format: listpack containing triplets: [ttl, field, value, ttl, field, value, ...]
-    fn load_hash_metadata_pre_ga_value(
-        &mut self,
-        key: &[u8],
-    ) -> Result<Option<Vec<RawCommand>>, String> {
+    fn load_set_intset_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+        log::debug!(
+            "load_set_intset_value: key={:?}",
+            String::from_utf8_lossy(key)
+        );
         match self.load_string()? {
-            Some(listpack_bin) => {
-                match parse_listpack(&listpack_bin) {
-                    Ok(entries) => {
-                        if entries.len() % 3 != 0 {
-                            return Err("hash_metadata_entries_not_multiple_of_3".to_string());
-                        }
+            Some(intset_bin) => {
+                log::debug!(
+                    "load_set_intset_value: parsing intset with len={}",
+                    intset_bin.len()
+                );
+                match parse_intset(&intset_bin) {
+                    Ok(integers) => {
+                        log::debug!(
+                            "load_set_intset_value: intset has {} integers",
+                            integers.len()
+                        );
+                        let members: Vec<Vec<u8>> = integers
+                            .iter()
+                            .map(|i| i.to_string().into_bytes())
+                            .collect();
 
-                        // Extract field-value pairs, ignoring TTL
                         let mut args = vec![key.to_vec()];
-                        let mut i = 0;
-                        while i < entries.len() {
-                            // Skip TTL (entries[i])
-                            let field = entries[i + 1].clone();
-                            let value = entries[i + 2].clone();
-                            args.push(field);
-                            args.push(value);
-                            i += 3;
-                        }
-
-                        if args.len() == 1 {
-                            return Ok(Some(Vec::new()));
-                        }
-
-                        let cmd = RawCommand::with_args(self.current_db, b"HSET", args);
+                        args.extend(members);
+                        let cmd = RawCommand::with_args(self.current_db, b"SADD", args);
+                        log::debug!(
+                            "load_set_intset_value: created SADD command with {} members",
+                            integers.len()
+                        );
                         Ok(Some(vec![cmd]))
                     }
                     Err(e) => Err(e),
@@ -1269,65 +1138,31 @@ impl ParserState {
         }
     }
 
-    fn load_set_intset_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
-        match self.load_string()? {
-            Some(intset_bin) => match parse_intset(&intset_bin) {
-                Ok(integers) => {
-                    let members: Vec<Vec<u8>> = integers
-                        .iter()
-                        .map(|i| i.to_string().into_bytes())
-                        .collect();
-
-                    let mut args = vec![key.to_vec()];
-                    args.extend(members);
-                    let cmd = RawCommand::with_args(self.current_db, b"SADD", args);
-                    Ok(Some(vec![cmd]))
-                }
-                Err(e) => Err(e),
-            },
-            None => Ok(None),
-        }
-    }
-
     fn load_set_listpack_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+        log::debug!(
+            "load_set_listpack_value: key={:?}",
+            String::from_utf8_lossy(key)
+        );
         match self.load_string()? {
-            Some(listpack_bin) => match parse_listpack(&listpack_bin) {
-                Ok(entries) => {
-                    let mut args = vec![key.to_vec()];
-                    args.extend(entries);
-                    let cmd = RawCommand::with_args(self.current_db, b"SADD", args);
-                    Ok(Some(vec![cmd]))
-                }
-                Err(e) => Err(e),
-            },
-            None => Ok(None),
-        }
-    }
-
-    fn load_zset_ziplist_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
-        match self.load_string()? {
-            Some(ziplist_bin) => {
-                match parse_ziplist(&ziplist_bin) {
+            Some(listpack_bin) => {
+                log::debug!(
+                    "load_set_listpack_value: parsing listpack with len={}",
+                    listpack_bin.len()
+                );
+                match parse_listpack(&listpack_bin) {
                     Ok(entries) => {
-                        if entries.len() % 2 != 0 {
-                            return Err("odd_zset_entries".to_string());
-                        }
-
-                        // Convert member, score pairs to score, member for ZADD
+                        log::debug!(
+                            "load_set_listpack_value: listpack has {} entries",
+                            entries.len()
+                        );
+                        let num_items = entries.len();
                         let mut args = vec![key.to_vec()];
-                        let mut i = 0;
-                        while i < entries.len() {
-                            let member = &entries[i];
-                            let score_bin = &entries[i + 1];
-
-                            // Parse score
-                            let score = binary_to_float_safe(score_bin);
-                            args.push(score.to_string().into_bytes());
-                            args.push(member.clone());
-                            i += 2;
-                        }
-
-                        let cmd = RawCommand::with_args(self.current_db, b"ZADD", args);
+                        args.extend(entries);
+                        let cmd = RawCommand::with_args(self.current_db, b"SADD", args);
+                        log::debug!(
+                            "load_set_listpack_value: created SADD command with {} members",
+                            num_items
+                        );
                         Ok(Some(vec![cmd]))
                     }
                     Err(e) => Err(e),
@@ -1338,10 +1173,22 @@ impl ParserState {
     }
 
     fn load_zset_listpack_value(&mut self, key: &[u8]) -> Result<Option<Vec<RawCommand>>, String> {
+        log::debug!(
+            "load_zset_listpack_value: key={:?}",
+            String::from_utf8_lossy(key)
+        );
         match self.load_string()? {
             Some(listpack_bin) => {
+                log::debug!(
+                    "load_zset_listpack_value: parsing listpack with len={}",
+                    listpack_bin.len()
+                );
                 match parse_listpack(&listpack_bin) {
                     Ok(entries) => {
+                        log::debug!(
+                            "load_zset_listpack_value: listpack has {} entries",
+                            entries.len()
+                        );
                         if entries.len() % 2 != 0 {
                             return Err("odd_zset_entries".to_string());
                         }
@@ -1360,7 +1207,12 @@ impl ParserState {
                             i += 2;
                         }
 
+                        let num_items = (args.len() - 1) / 2;
                         let cmd = RawCommand::with_args(self.current_db, b"ZADD", args);
+                        log::debug!(
+                            "load_zset_listpack_value: created ZADD command with {} members",
+                            num_items
+                        );
                         Ok(Some(vec![cmd]))
                     }
                     Err(e) => Err(e),
@@ -1419,159 +1271,9 @@ fn binary_to_float_safe(bin: &[u8]) -> f64 {
     0.0
 }
 
-// Parse ziplist format
-fn parse_ziplist(data: &[u8]) -> Result<Vec<Vec<u8>>, String> {
-    if data.len() < 10 {
-        return Err("ziplist_too_small".to_string());
-    }
-
-    let mut buf = BytesMut::from(data);
-
-    let _total_bytes = buf.get_u32_le();
-    let _tail_offset = buf.get_u32_le();
-    let num_entries = buf.get_u16_le();
-
-    let mut entries = Vec::new();
-
-    for _ in 0..num_entries {
-        if buf.is_empty() {
-            break;
-        }
-
-        // Check for end marker
-        if buf[0] == 0xFF {
-            break;
-        }
-
-        match parse_ziplist_entry(&mut buf) {
-            Ok(entry) => entries.push(entry),
-            Err(e) => return Err(e),
-        }
-    }
-
-    Ok(entries)
-}
-
-fn parse_ziplist_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
-    if buf.is_empty() {
-        return Err("ziplist_entry_empty".to_string());
-    }
-
-    // Read previous entry length
-    let prev_len = buf[0];
-    if prev_len < 254 {
-        buf.advance(1);
-    } else {
-        if buf.len() < 5 {
-            return Err("ziplist_entry_too_short".to_string());
-        }
-        buf.advance(5); // 1 byte marker + 4 bytes length
-    }
-
-    if buf.is_empty() {
-        return Err("ziplist_entry_no_encoding".to_string());
-    }
-
-    // Parse encoding
-    let enc = buf[0];
-    buf.advance(1);
-
-    match enc & 0xC0 {
-        0x00 => {
-            // String with length <= 63
-            let len = (enc & 0x3F) as usize;
-            if buf.len() < len {
-                return Err("ziplist_entry_string_too_short".to_string());
-            }
-            let data = buf.split_to(len).to_vec();
-            Ok(data)
-        }
-        0x40 => {
-            // String with length <= 16383
-            if buf.is_empty() {
-                return Err("ziplist_entry_string_too_short".to_string());
-            }
-            let next_byte = buf[0];
-            buf.advance(1);
-            let len = (((enc & 0x3F) as usize) << 8) | (next_byte as usize);
-            if buf.len() < len {
-                return Err("ziplist_entry_string_too_short".to_string());
-            }
-            let data = buf.split_to(len).to_vec();
-            Ok(data)
-        }
-        0x80 => {
-            // String with length > 16383
-            if buf.len() < 4 {
-                return Err("ziplist_entry_string_too_short".to_string());
-            }
-            let len = buf.get_u32() as usize;
-            if buf.len() < len {
-                return Err("ziplist_entry_string_too_short".to_string());
-            }
-            let data = buf.split_to(len).to_vec();
-            Ok(data)
-        }
-        0xC0 => {
-            // Integer encoding
-            match enc {
-                0xF0 => {
-                    // 16-bit integer
-                    if buf.len() < 2 {
-                        return Err("ziplist_entry_int_too_short".to_string());
-                    }
-                    let val = buf.get_i16_le();
-                    Ok(val.to_string().into_bytes())
-                }
-                0xFE => {
-                    // 8-bit integer
-                    if buf.is_empty() {
-                        return Err("ziplist_entry_int_too_short".to_string());
-                    }
-                    let val = buf.get_i8();
-                    Ok(val.to_string().into_bytes())
-                }
-                0xF1 => {
-                    // 32-bit integer
-                    if buf.len() < 4 {
-                        return Err("ziplist_entry_int_too_short".to_string());
-                    }
-                    let val = buf.get_i32_le();
-                    Ok(val.to_string().into_bytes())
-                }
-                0xF2 => {
-                    // 64-bit integer
-                    if buf.len() < 8 {
-                        return Err("ziplist_entry_int_too_short".to_string());
-                    }
-                    let val = buf.get_i64_le();
-                    Ok(val.to_string().into_bytes())
-                }
-                0xF3 => {
-                    // 24-bit integer
-                    if buf.len() < 3 {
-                        return Err("ziplist_entry_int_too_short".to_string());
-                    }
-                    let low = buf.get_u8() as i32;
-                    let mid = buf.get_u8() as i32;
-                    let high = buf.get_i8() as i32;
-                    let val = low | (mid << 8) | (high << 16);
-                    Ok(val.to_string().into_bytes())
-                }
-                _ if (0xF4..=0xFD).contains(&enc) => {
-                    // 4-bit integer (0-12)
-                    let val = ((enc & 0x0F) - 1) as i8;
-                    Ok(val.to_string().into_bytes())
-                }
-                _ => Err("unknown_ziplist_encoding".to_string()),
-            }
-        }
-        _ => Err("invalid_ziplist_encoding".to_string()),
-    }
-}
-
 // Parse intset format
 fn parse_intset(data: &[u8]) -> Result<Vec<i64>, String> {
+    log::debug!("parse_intset: parsing intset with len={}", data.len());
     if data.len() < 8 {
         return Err("intset_too_small".to_string());
     }
@@ -1580,36 +1282,56 @@ fn parse_intset(data: &[u8]) -> Result<Vec<i64>, String> {
     let encoding = buf.get_u32_le();
     let length = buf.get_u32_le();
 
+    let encoding_bits = match encoding {
+        2 => "16-bit",
+        4 => "32-bit",
+        8 => "64-bit",
+        _ => "unknown",
+    };
+    log::debug!(
+        "parse_intset: encoding={} ({}), length={}",
+        encoding,
+        encoding_bits,
+        length
+    );
+
     let mut integers = Vec::new();
 
-    for _ in 0..length {
+    for i in 0..length {
         let val = match encoding {
             2 => {
                 // 16-bit integers
                 if buf.len() < 2 {
                     return Err("intset_entry_too_short".to_string());
                 }
-                buf.get_i16_le() as i64
+                let v = buf.get_i16_le() as i64;
+                log::trace!("parse_intset: element {} = {} (16-bit)", i, v);
+                v
             }
             4 => {
                 // 32-bit integers
                 if buf.len() < 4 {
                     return Err("intset_entry_too_short".to_string());
                 }
-                buf.get_i32_le() as i64
+                let v = buf.get_i32_le() as i64;
+                log::trace!("parse_intset: element {} = {} (32-bit)", i, v);
+                v
             }
             8 => {
                 // 64-bit integers
                 if buf.len() < 8 {
                     return Err("intset_entry_too_short".to_string());
                 }
-                buf.get_i64_le()
+                let v = buf.get_i64_le();
+                log::trace!("parse_intset: element {} = {} (64-bit)", i, v);
+                v
             }
             _ => return Err("unknown_intset_encoding".to_string()),
         };
         integers.push(val);
     }
 
+    log::debug!("parse_intset: parsed {} integers", integers.len());
     Ok(integers)
 }
 
@@ -1630,6 +1352,7 @@ fn calculate_backlen_size(entry_size: usize) -> usize {
 
 // Parse listpack format
 fn parse_listpack(data: &[u8]) -> Result<Vec<Vec<u8>>, String> {
+    log::debug!("parse_listpack: parsing listpack with len={}", data.len());
     if data.len() < 6 {
         return Err("listpack_too_small".to_string());
     }
@@ -1638,25 +1361,38 @@ fn parse_listpack(data: &[u8]) -> Result<Vec<Vec<u8>>, String> {
 
     let _total_bytes = buf.get_u32_le();
     let num_entries = buf.get_u16_le();
+    log::debug!(
+        "parse_listpack: listpack header reports {} entries",
+        num_entries
+    );
 
     let mut entries = Vec::new();
 
-    for _ in 0..num_entries {
+    for i in 0..num_entries {
         if buf.is_empty() {
+            log::warn!("parse_listpack: buffer empty after {} entries", i);
             break;
         }
 
         // Check for end marker
         if buf[0] == 0xFF {
+            log::trace!("parse_listpack: end marker found after {} entries", i);
             break;
         }
 
         match parse_listpack_entry(&mut buf) {
-            Ok(entry) => entries.push(entry),
-            Err(e) => return Err(e),
+            Ok(entry) => {
+                log::trace!("parse_listpack: entry {} len={}", i, entry.len());
+                entries.push(entry);
+            }
+            Err(e) => {
+                log::error!("parse_listpack: error parsing entry {}: {:?}", i, e);
+                return Err(e);
+            }
         }
     }
 
+    log::debug!("parse_listpack: parsed {} entries", entries.len());
     Ok(entries)
 }
 
@@ -1672,6 +1408,7 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
         0 => {
             // 7-bit unsigned integer
             let val = enc & 0x7F;
+            log::trace!("parse_listpack_entry: 7-bit unsigned integer val={}", val);
             if buf.is_empty() {
                 return Err("listpack_entry_no_backlen".to_string());
             }
@@ -1683,6 +1420,7 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
                 0x80 => {
                     // 6-bit string
                     let len = (enc & 0x3F) as usize;
+                    log::trace!("parse_listpack_entry: 6-bit string len={}", len);
                     if buf.len() < len + 1 {
                         return Err("listpack_entry_string_too_short".to_string());
                     }
@@ -1705,6 +1443,10 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
                             } else {
                                 val as i16
                             };
+                            log::trace!(
+                                "parse_listpack_entry: 13-bit signed integer val={}",
+                                signed_val
+                            );
                             buf.advance(1); // Skip backlen
                             Ok(signed_val.to_string().into_bytes())
                         }
@@ -1714,6 +1456,7 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
                                 return Err("listpack_entry_string_too_short".to_string());
                             }
                             let len = buf.get_u16() as usize;
+                            log::trace!("parse_listpack_entry: 16-bit string len={}", len);
                             let backlen_size = calculate_backlen_size(3 + len);
                             if buf.len() < len + backlen_size {
                                 return Err("listpack_entry_string_too_short".to_string());
@@ -1730,6 +1473,7 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
                             let next_byte = buf[0];
                             buf.advance(1);
                             let len = (((enc & 0x0F) as usize) << 8) | (next_byte as usize);
+                            log::trace!("parse_listpack_entry: 12-bit string len={}", len);
                             let backlen_size = calculate_backlen_size(2 + len);
                             if buf.len() < len + backlen_size {
                                 return Err("listpack_entry_string_too_short".to_string());
@@ -1746,6 +1490,7 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
                                         return Err("listpack_entry_string_too_short".to_string());
                                     }
                                     let len = buf.get_u32_le() as usize;
+                                    log::trace!("parse_listpack_entry: 32-bit string len={}", len);
                                     let backlen_size = calculate_backlen_size(5 + len);
                                     if buf.len() < len + backlen_size {
                                         return Err("listpack_entry_string_too_short".to_string());
@@ -1760,6 +1505,10 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
                                         return Err("listpack_entry_int_too_short".to_string());
                                     }
                                     let val = buf.get_i16_le();
+                                    log::trace!(
+                                        "parse_listpack_entry: 16-bit signed integer val={}",
+                                        val
+                                    );
                                     buf.advance(1); // Skip backlen
                                     Ok(val.to_string().into_bytes())
                                 }
@@ -1772,6 +1521,10 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
                                     let mid = buf.get_u8() as i32;
                                     let high = buf.get_i8() as i32;
                                     let val = low | (mid << 8) | (high << 16);
+                                    log::trace!(
+                                        "parse_listpack_entry: 24-bit signed integer val={}",
+                                        val
+                                    );
                                     buf.advance(1); // Skip backlen
                                     Ok(val.to_string().into_bytes())
                                 }
@@ -1781,6 +1534,10 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
                                         return Err("listpack_entry_int_too_short".to_string());
                                     }
                                     let val = buf.get_i32_le();
+                                    log::trace!(
+                                        "parse_listpack_entry: 32-bit signed integer val={}",
+                                        val
+                                    );
                                     buf.advance(1); // Skip backlen
                                     Ok(val.to_string().into_bytes())
                                 }
@@ -1790,6 +1547,10 @@ fn parse_listpack_entry(buf: &mut BytesMut) -> Result<Vec<u8>, String> {
                                         return Err("listpack_entry_int_too_short".to_string());
                                     }
                                     let val = buf.get_i64_le();
+                                    log::trace!(
+                                        "parse_listpack_entry: 64-bit signed integer val={}",
+                                        val
+                                    );
                                     buf.advance(1); // Skip backlen
                                     Ok(val.to_string().into_bytes())
                                 }
