@@ -1,7 +1,8 @@
 [![CI](https://github.com/savonarola/veidrodelis/actions/workflows/ci.yml/badge.svg)](https://github.com/savonarola/veidrodelis/actions/workflows/ci.yml)
 [![Hex.pm Version](https://img.shields.io/hexpm/v/veidrodelis)](https://hex.pm/packages/veidrodelis)
 [![Hex Docs](https://img.shields.io/badge/hex-docs-lightgreen.svg)](https://hexdocs.pm/veidrodelis/)
-[![Coverage Status](https://coveralls.io/repos/github/savonarola/veidrodelis/badge.svg?branch=main)](https://coveralls.io/github/savonarola/veidrodelis?branch=main)
+[![Coveralls](https://img.shields.io/coverallsCoverage/github/savonarola/veidrodelis)
+](https://coveralls.io/github/savonarola/veidrodelis?branch=main)
 
 
 # Veidrodelis
@@ -12,7 +13,7 @@ Veidrodelis connects to Redis or Valkey as a replica and builds a local, read-on
 
 ## Architecture
 
-![Architecture](doc/veidrodelis.png)
+<img src="doc/veidrodelis.png" alt="Architecture" width="70%">
 
 ## General Idea
 
