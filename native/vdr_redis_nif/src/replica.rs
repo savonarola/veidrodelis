@@ -15,8 +15,6 @@ enum ReplicaState {
     ReadingRdb,
     /// Streaming commands after RDB completion
     Streaming,
-    /// Parser has finished (closed connection or error)
-    Finished,
 }
 
 /// Represents a raw Redis command as parsed from the replica stream
@@ -84,10 +82,6 @@ impl ReplicaParser {
     fn feed_data(&self, data: &[u8]) -> Result<(Vec<RawCommand>, bool, bool), String> {
         let mut state = self.state.borrow_mut();
 
-        if state.state == ReplicaState::Finished {
-            return Err("already_finished".to_string());
-        }
-
         // Reset flags at the start of each feed_data call
         state.ping_received = false;
         state.replconf_getack_received = false;
@@ -126,7 +120,6 @@ impl ParserState {
             ReplicaState::WaitingRdb => self.parse_rdb_header(pid),
             ReplicaState::ReadingRdb => self.stream_rdb_data(),
             ReplicaState::Streaming => self.parse_command(),
-            ReplicaState::Finished => Ok(None),
         }
     }
 
@@ -364,8 +357,7 @@ fn create_parser(env: Env, skip_rdb: bool) -> ResourceArc<ReplicaParser> {
 /// Feed data to the replica parser
 ///
 /// Returns:
-/// - {:finished, commands} if finished parsing
-/// - {:ok, commands, parser, %{ping: boolean}} if more data needed
+/// - {:ok, commands, parser, %{ping: boolean}} on success
 /// - {:error, reason} on error
 ///
 /// Commands are tuples: {db, name, [args...]}
@@ -402,33 +394,25 @@ fn feed_data<'a>(env: Env<'a>, parser: ResourceArc<ReplicaParser>, data: Binary)
                 })
                 .collect();
 
-            // Check if finished
-            let finished = parser.state.borrow().state == ReplicaState::Finished;
+            // Build flags map with ping and replconf_getack flags
+            let flags = rustler::Term::map_from_pairs(
+                env,
+                &[
+                    (atoms::ping(), ping_received),
+                    (atoms::replconf_getack(), replconf_getack_received),
+                ],
+            )
+            .expect("failed to create flags map");
 
-            if finished {
-                // Return {:finished, commands} - finished parsing
-                (atoms::finished(), result).encode(env)
-            } else {
-                // Build flags map with ping and replconf_getack flags
-                let flags = rustler::Term::map_from_pairs(
-                    env,
-                    &[
-                        (atoms::ping(), ping_received),
-                        (atoms::replconf_getack(), replconf_getack_received),
-                    ],
-                )
-                .expect("failed to create flags map");
-
-                // Return {:ok, commands, parser, %{ping: boolean, replconf_getack: boolean}} - more data needed
-                (atoms::ok(), result, parser, flags).encode(env)
-            }
+            // Return {:ok, commands, parser, %{ping: boolean, replconf_getack: boolean}}
+            (atoms::ok(), result, parser, flags).encode(env)
         }
         Err(e) => (atoms::error(), e).encode(env),
     }
 }
 
 /// Get the current parser state
-/// Returns :waiting_rdb, :reading_rdb, :streaming, or :finished
+/// Returns :waiting_rdb, :reading_rdb, or :streaming
 #[rustler::nif(name = "replica_state")]
 fn replica_state<'a>(env: Env<'a>, parser: ResourceArc<ReplicaParser>) -> Term<'a> {
     let state = parser.state.borrow().state;
@@ -436,7 +420,6 @@ fn replica_state<'a>(env: Env<'a>, parser: ResourceArc<ReplicaParser>) -> Term<'
         ReplicaState::WaitingRdb => atoms::waiting_rdb().encode(env),
         ReplicaState::ReadingRdb => atoms::reading_rdb().encode(env),
         ReplicaState::Streaming => atoms::streaming().encode(env),
-        ReplicaState::Finished => atoms::finished().encode(env),
     }
 }
 
