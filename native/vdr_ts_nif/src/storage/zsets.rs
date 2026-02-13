@@ -3,7 +3,7 @@ use super::types::{StorageValue, ZAddOption, ZSet};
 use super::zset_index::{Score, ZSetIndexKey};
 use crate::storage::StorageInner;
 use ordered_float::OrderedFloat;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::ops::Bound;
 
 /// Aggregation type for sorted set operations
@@ -57,7 +57,7 @@ impl StorageInner {
             return Err("ERR INCR option supports a single increment-element pair");
         }
 
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         // Check if key exists and validate type
         if let Some(val) = db_map.get(key) {
@@ -411,7 +411,7 @@ impl StorageInner {
         delta: Score,
         member: &[u8],
     ) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         // Check if key exists and validate type
         if let Some(val) = db_map.get(key) {
@@ -467,9 +467,9 @@ impl StorageInner {
             return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
         };
 
-        let result = zset.index.first().and_then(|key| {
+        let result = zset.index.first().map(|key| {
             let (score, entry) = key.unwrap_key();
-            Some((*score, entry.clone()))
+            (*score, entry.clone())
         });
         Ok(result)
     }
@@ -489,9 +489,9 @@ impl StorageInner {
             return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
         };
 
-        let result = zset.index.last().and_then(|key| {
+        let result = zset.index.last().map(|key| {
             let (score, entry) = key.unwrap_key();
-            Some((*score, entry.clone()))
+            (*score, entry.clone())
         });
         Ok(result)
     }
@@ -522,9 +522,9 @@ impl StorageInner {
         let range = zset
             .index
             .range::<_, ZSetIndexKey>((Bound::Excluded(&current_key), Bound::Unbounded));
-        let result = range.take(1).next().and_then(|key| {
+        let result = range.take(1).next().map(|key| {
             let (score, entry) = key.unwrap_key();
-            Some((*score, entry.clone()))
+            (*score, entry.clone())
         });
         Ok(result)
     }
@@ -552,10 +552,10 @@ impl StorageInner {
 
         let current_key = ZSetIndexKey::create(score, member);
         // Use range ending before the current key, get last element
-        let range = zset
+        let mut range = zset
             .index
             .range::<_, ZSetIndexKey>((Bound::Unbounded, Bound::Excluded(&current_key)));
-        let result = range.last().and_then(|key| {
+        let result = range.next_back().and_then(|key| {
             let (sc, entry) = key.unwrap_key();
             if *sc == score && entry.as_slice() == member {
                 None
@@ -898,7 +898,7 @@ impl StorageInner {
                         let weighted_score = *score * weight;
                         union_map
                             .entry(member.clone())
-                            .or_insert_with(Vec::new)
+                            .or_default()
                             .push(weighted_score);
                     }
                 }
@@ -926,7 +926,7 @@ impl StorageInner {
                     .insert(ZSetIndexKey::create(final_score, member.as_slice()));
             }
 
-            let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+            let db_map = self.map.entry(db).or_default();
             db_map.insert(Bytes::new(dest_key), StorageValue::ZSet(new_zset));
         }
 
@@ -973,7 +973,7 @@ impl StorageInner {
             None => return Ok(()),
         };
 
-        let weight0 = OrderedFloat(*weights.get(0).unwrap_or(&1.0));
+        let weight0 = OrderedFloat(weights.first().copied().unwrap_or(1.0));
         let mut intersection_map: HashMap<Bytes, Vec<Score>> = first_zset
             .entries
             .iter()
@@ -1027,7 +1027,7 @@ impl StorageInner {
                     .insert(ZSetIndexKey::create(final_score, member.as_slice()));
             }
 
-            let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+            let db_map = self.map.entry(db).or_default();
             db_map.insert(Bytes::new(dest_key), StorageValue::ZSet(new_zset));
         }
 
@@ -1099,7 +1099,7 @@ impl StorageInner {
                     .insert(ZSetIndexKey::create(score, member.as_slice()));
             }
 
-            let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+            let db_map = self.map.entry(db).or_default();
             db_map.insert(Bytes::new(dest_key), StorageValue::ZSet(new_zset));
         }
 
@@ -1108,6 +1108,7 @@ impl StorageInner {
 
     /// Store a range of members from a sorted set into destination key.
     /// Supports BYRANK (default), BYSCORE, BYLEX, REV, and LIMIT options.
+    #[allow(clippy::too_many_arguments)]
     pub fn zrangestore(
         &mut self,
         db: u64,
@@ -1282,7 +1283,7 @@ impl StorageInner {
         }
 
         if !new_zset.is_empty() {
-            let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+            let db_map = self.map.entry(db).or_default();
             db_map.insert(Bytes::new(dest_key), StorageValue::ZSet(new_zset));
         }
 
@@ -1307,9 +1308,7 @@ impl StorageInner {
     fn parse_score_bound(&self, s: &str) -> Result<std::ops::Bound<Score>, &'static str> {
         use std::ops::Bound;
 
-        if s == "-inf" {
-            Ok(Bound::Unbounded)
-        } else if s == "+inf" {
+        if s == "-inf" || s == "+inf" {
             Ok(Bound::Unbounded)
         } else if let Some(stripped) = s.strip_prefix('(') {
             // Exclusive bound
@@ -1325,9 +1324,7 @@ impl StorageInner {
     fn parse_lex_bound(&self, s: &str) -> Result<std::ops::Bound<Bytes>, &'static str> {
         use std::ops::Bound;
 
-        if s == "-" {
-            Ok(Bound::Unbounded)
-        } else if s == "+" {
+        if s == "-" || s == "+" {
             Ok(Bound::Unbounded)
         } else if let Some(stripped) = s.strip_prefix('[') {
             // Inclusive bound

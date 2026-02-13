@@ -2,12 +2,11 @@ use super::bytes::Bytes;
 use super::types::StorageValue;
 use crate::storage::StorageInner;
 use im::Vector;
-use std::collections::BTreeMap;
 
 impl StorageInner {
     /// Push elements to the left (head) of the list.
     pub fn lpush(&mut self, db: u64, key: &[u8], values: &[&[u8]]) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         // Check if key exists and validate type
         if let Some(value) = db_map.get(key) {
@@ -37,7 +36,7 @@ impl StorageInner {
 
     /// Push elements to the right (tail) of the list.
     pub fn rpush(&mut self, db: u64, key: &[u8], values: &[&[u8]]) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         // Check if key exists and validate type
         if let Some(value) = db_map.get(key) {
@@ -497,7 +496,7 @@ impl StorageInner {
         };
 
         // Push to destination
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         // Check destination type
         if let Some(value) = db_map.get(dest_key) {
@@ -666,7 +665,7 @@ impl StorageInner {
         };
 
         // Push to destination
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         // Check destination type
         if let Some(value) = db_map.get(dest_key) {

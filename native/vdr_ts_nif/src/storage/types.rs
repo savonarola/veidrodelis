@@ -50,6 +50,7 @@ impl Clone for ZSet {
 
 /// ZADD command options
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum ZAddOption {
     /// NX: Only add new elements, don't update existing ones
     NX,

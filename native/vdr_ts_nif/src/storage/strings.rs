@@ -2,18 +2,17 @@ use super::bytes::Bytes;
 use super::types::StorageValue;
 use crate::storage::StorageInner;
 use std::collections::btree_map::Entry as BTreeEntry;
-use std::collections::BTreeMap;
 
 impl StorageInner {
     /// Set a key-value pair in a specific database
     pub fn set(&mut self, db: u64, key: &[u8], value: &[u8]) {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
         db_map.insert(Bytes::new(key), StorageValue::String(Bytes::new(value)));
     }
 
     /// Set multiple key-value pairs atomically in a specific database
     pub fn mset(&mut self, db: u64, pairs: &[(&[u8], &[u8])]) {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
         for (key, value) in pairs {
             db_map.insert(Bytes::new(key), StorageValue::String(Bytes::new(value)));
         }
@@ -117,7 +116,7 @@ impl StorageInner {
         };
 
         // Insert into destination db
-        let dest_map = self.map.entry(dest_db).or_insert_with(BTreeMap::new);
+        let dest_map = self.map.entry(dest_db).or_default();
         dest_map.insert(Bytes::new(key), value);
 
         Ok(())
@@ -153,7 +152,7 @@ impl StorageInner {
 
     /// Append value to an existing string. Creates key if it doesn't exist.
     pub fn append(&mut self, db: u64, key: &[u8], value: &[u8]) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         match db_map.entry(Bytes::new(key)) {
             BTreeEntry::Occupied(mut e) => {
@@ -186,7 +185,7 @@ impl StorageInner {
         offset: usize,
         value: &[u8],
     ) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         match db_map.entry(Bytes::new(key)) {
             BTreeEntry::Occupied(mut e) => {
@@ -221,7 +220,7 @@ impl StorageInner {
 
     /// Increment the integer value of a key by 1. Creates key if it doesn't exist (starting from 0).
     pub fn incr(&mut self, db: u64, key: &[u8]) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         match db_map.entry(Bytes::new(key)) {
             BTreeEntry::Occupied(mut e) => {
@@ -251,7 +250,7 @@ impl StorageInner {
 
     /// Increment the integer value of a key by the given amount. Creates key if it doesn't exist (starting from 0).
     pub fn incrby(&mut self, db: u64, key: &[u8], increment: i64) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         match db_map.entry(Bytes::new(key)) {
             BTreeEntry::Occupied(mut e) => {
@@ -285,7 +284,7 @@ impl StorageInner {
 
     /// Decrement the integer value of a key by 1. Creates key if it doesn't exist (starting from 0).
     pub fn decr(&mut self, db: u64, key: &[u8]) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         match db_map.entry(Bytes::new(key)) {
             BTreeEntry::Occupied(mut e) => {
@@ -315,7 +314,7 @@ impl StorageInner {
 
     /// Decrement the integer value of a key by the given amount. Creates key if it doesn't exist (starting from 0).
     pub fn decrby(&mut self, db: u64, key: &[u8], decrement: i64) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         match db_map.entry(Bytes::new(key)) {
             BTreeEntry::Occupied(mut e) => {

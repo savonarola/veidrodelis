@@ -2,12 +2,12 @@ use super::bytes::Bytes;
 use super::types::StorageValue;
 use crate::storage::StorageInner;
 use std::collections::btree_map::Entry as BTreeEntry;
-use std::collections::{BTreeMap, BTreeSet as StdBTreeSet};
+use std::collections::BTreeSet as StdBTreeSet;
 
 impl StorageInner {
     /// Add members to a set.
     pub fn sadd(&mut self, db: u64, key: &[u8], members: &[&[u8]]) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         // Check if key exists and validate type
         if let Some(value) = db_map.get(key) {
@@ -175,7 +175,7 @@ impl StorageInner {
 
         // Store result if non-empty
         if !union_set.is_empty() {
-            let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+            let db_map = self.map.entry(db).or_default();
             db_map.insert(Bytes::new(dest_key), StorageValue::Set(union_set));
         }
 
@@ -234,7 +234,7 @@ impl StorageInner {
 
         // Store result if non-empty
         if !intersection_set.is_empty() {
-            let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+            let db_map = self.map.entry(db).or_default();
             db_map.insert(Bytes::new(dest_key), StorageValue::Set(intersection_set));
         }
 
@@ -292,7 +292,7 @@ impl StorageInner {
 
         // Store result if non-empty
         if !diff_set.is_empty() {
-            let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+            let db_map = self.map.entry(db).or_default();
             db_map.insert(Bytes::new(dest_key), StorageValue::Set(diff_set));
         }
 
@@ -489,7 +489,7 @@ impl StorageInner {
             Ok(result)
         } else {
             // Return abs(count) members, allowing duplicates
-            let count = count.abs() as usize;
+            let count = count.unsigned_abs() as usize;
             Ok((0..count)
                 .map(|_| members.choose(&mut rng).unwrap().clone())
                 .collect())

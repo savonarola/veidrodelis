@@ -26,7 +26,7 @@ pub fn new_lua() -> Lua {
     // Create ts.get function once
     let get_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             let key_bytes = key.as_bytes();
 
             match storage.get(db, &key_bytes) {
@@ -43,7 +43,7 @@ pub fn new_lua() -> Lua {
     // Create ts.hget function once
     let hget_fn = lua
         .create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             let key_bytes = key.as_bytes();
             let field_bytes = field.as_bytes();
 
@@ -61,7 +61,7 @@ pub fn new_lua() -> Lua {
     // List functions
     let llen_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.llen(db, &key.as_bytes()) {
                 Ok(len) => Ok(len as i64),
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
@@ -71,7 +71,7 @@ pub fn new_lua() -> Lua {
 
     let lrange_fn = lua
         .create_function(|lua_ctx, (key, start, stop): (mlua::String, i64, i64)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.lrange(db, &key.as_bytes(), start, stop) {
                 Ok(elements) => {
                     let table = lua_ctx.create_table()?;
@@ -88,7 +88,7 @@ pub fn new_lua() -> Lua {
     // Set functions
     let smembers_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.smembers(db, &key.as_bytes()) {
                 Ok(members) => {
                     let table = lua_ctx.create_table()?;
@@ -104,7 +104,7 @@ pub fn new_lua() -> Lua {
 
     let sismember_fn = lua
         .create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.sismember(db, &key.as_bytes(), &member.as_bytes()) {
                 Ok(is_member) => Ok(is_member),
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
@@ -114,7 +114,7 @@ pub fn new_lua() -> Lua {
 
     let scard_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.scard(db, &key.as_bytes()) {
                 Ok(count) => Ok(count as i64),
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
@@ -124,7 +124,7 @@ pub fn new_lua() -> Lua {
 
     let sfirst_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.sfirst(db, &key.as_bytes()) {
                 Ok(Some(member)) => Ok(Some(lua_ctx.create_string(member.as_slice())?)),
                 Ok(None) => Ok(None),
@@ -135,7 +135,7 @@ pub fn new_lua() -> Lua {
 
     let slast_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.slast(db, &key.as_bytes()) {
                 Ok(Some(member)) => Ok(Some(lua_ctx.create_string(member.as_slice())?)),
                 Ok(None) => Ok(None),
@@ -146,7 +146,7 @@ pub fn new_lua() -> Lua {
 
     let snext_fn = lua
         .create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.snext(db, &key.as_bytes(), &member.as_bytes()) {
                 Ok(Some(next_member)) => Ok(Some(lua_ctx.create_string(next_member.as_slice())?)),
                 Ok(None) => Ok(None),
@@ -157,7 +157,7 @@ pub fn new_lua() -> Lua {
 
     let sprev_fn = lua
         .create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.sprev(db, &key.as_bytes(), &member.as_bytes()) {
                 Ok(Some(prev_member)) => Ok(Some(lua_ctx.create_string(prev_member.as_slice())?)),
                 Ok(None) => Ok(None),
@@ -168,7 +168,7 @@ pub fn new_lua() -> Lua {
 
     let smismember_fn = lua
         .create_function(|lua_ctx, (key, members): (mlua::String, mlua::Table)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             let mut member_vec = Vec::new();
             for pair in members.pairs::<i64, mlua::String>() {
                 let (_, member) = pair?;
@@ -190,7 +190,7 @@ pub fn new_lua() -> Lua {
 
     let srandmember_fn = lua
         .create_function(|lua_ctx, (key, count): (mlua::String, i64)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.srandmember(db, &key.as_bytes(), count) {
                 Ok(members) => {
                     let table = lua_ctx.create_table()?;
@@ -206,7 +206,7 @@ pub fn new_lua() -> Lua {
 
     let sunion_fn = lua
         .create_function(|lua_ctx, keys: mlua::Table| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             let mut key_vec = Vec::new();
             for pair in keys.pairs::<i64, mlua::String>() {
                 let (_, key) = pair?;
@@ -228,7 +228,7 @@ pub fn new_lua() -> Lua {
 
     let sinter_fn = lua
         .create_function(|lua_ctx, keys: mlua::Table| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             let mut key_vec = Vec::new();
             for pair in keys.pairs::<i64, mlua::String>() {
                 let (_, key) = pair?;
@@ -250,7 +250,7 @@ pub fn new_lua() -> Lua {
 
     let sdiff_fn = lua
         .create_function(|lua_ctx, keys: mlua::Table| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             let mut key_vec = Vec::new();
             for pair in keys.pairs::<i64, mlua::String>() {
                 let (_, key) = pair?;
@@ -272,7 +272,7 @@ pub fn new_lua() -> Lua {
 
     let sintercard_fn = lua
         .create_function(|lua_ctx, keys: mlua::Table| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             let mut key_vec = Vec::new();
             for pair in keys.pairs::<i64, mlua::String>() {
                 let (_, key) = pair?;
@@ -289,7 +289,7 @@ pub fn new_lua() -> Lua {
     // Hash functions
     let hmget_fn = lua
         .create_function(|lua_ctx, (key, fields): (mlua::String, mlua::Table)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             let mut field_vec = Vec::new();
             for pair in fields.pairs::<i64, mlua::String>() {
                 let (_, field) = pair?;
@@ -316,7 +316,7 @@ pub fn new_lua() -> Lua {
 
     let hgetall_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.hgetall(db, &key.as_bytes()) {
                 Ok(pairs) => {
                     let table = lua_ctx.create_table()?;
@@ -335,7 +335,7 @@ pub fn new_lua() -> Lua {
 
     let hkeys_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.hkeys(db, &key.as_bytes()) {
                 Ok(keys) => {
                     let table = lua_ctx.create_table()?;
@@ -351,7 +351,7 @@ pub fn new_lua() -> Lua {
 
     let hvals_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.hvals(db, &key.as_bytes()) {
                 Ok(values) => {
                     let table = lua_ctx.create_table()?;
@@ -367,7 +367,7 @@ pub fn new_lua() -> Lua {
 
     let hlen_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.hlen(db, &key.as_bytes()) {
                 Ok(len) => Ok(len as i64),
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
@@ -377,7 +377,7 @@ pub fn new_lua() -> Lua {
 
     let hexists_fn = lua
         .create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.hexists(db, &key.as_bytes(), &field.as_bytes()) {
                 Ok(exists) => Ok(exists),
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
@@ -387,7 +387,7 @@ pub fn new_lua() -> Lua {
 
     let hfirst_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.hfirst(db, &key.as_bytes()) {
                 Ok(Some((field, value))) => Ok((
                     Some(lua_ctx.create_string(field.as_slice())?),
@@ -401,7 +401,7 @@ pub fn new_lua() -> Lua {
 
     let hlast_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.hlast(db, &key.as_bytes()) {
                 Ok(Some((field, value))) => Ok((
                     Some(lua_ctx.create_string(field.as_slice())?),
@@ -415,7 +415,7 @@ pub fn new_lua() -> Lua {
 
     let hnext_fn = lua
         .create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.hnext(db, &key.as_bytes(), &field.as_bytes()) {
                 Ok(Some((next_field, value))) => Ok((
                     Some(lua_ctx.create_string(next_field.as_slice())?),
@@ -429,7 +429,7 @@ pub fn new_lua() -> Lua {
 
     let hprev_fn = lua
         .create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.hprev(db, &key.as_bytes(), &field.as_bytes()) {
                 Ok(Some((prev_field, value))) => Ok((
                     Some(lua_ctx.create_string(prev_field.as_slice())?),
@@ -443,7 +443,7 @@ pub fn new_lua() -> Lua {
 
     let hstrlen_fn = lua
         .create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.hstrlen(db, &key.as_bytes(), &field.as_bytes()) {
                 Ok(len) => Ok(len as i64),
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
@@ -454,7 +454,7 @@ pub fn new_lua() -> Lua {
     let hrandfield_fn = lua
         .create_function(
             |lua_ctx, (key, count, with_values): (mlua::String, i64, bool)| {
-                let (storage, db) = get_tx_ctx(&lua_ctx)?;
+                let (storage, db) = get_tx_ctx(lua_ctx)?;
                 match storage.hrandfield(db, &key.as_bytes(), count, with_values) {
                     Ok(results) => {
                         let table = lua_ctx.create_table()?;
@@ -483,7 +483,7 @@ pub fn new_lua() -> Lua {
     // Sorted set functions
     let zscore_fn = lua
         .create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.zscore(db, &key.as_bytes(), &member.as_bytes()) {
                 Ok(Some(score)) => Ok(Some(score.into_inner())),
                 Ok(None) => Ok(None),
@@ -494,7 +494,7 @@ pub fn new_lua() -> Lua {
 
     let zcard_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.zcard(db, &key.as_bytes()) {
                 Ok(count) => Ok(count as i64),
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
@@ -504,7 +504,7 @@ pub fn new_lua() -> Lua {
 
     let zrange_fn = lua
         .create_function(|lua_ctx, (key, start, stop): (mlua::String, i64, i64)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.zrange(db, &key.as_bytes(), start, stop, true) {
                 Ok(results) => {
                     let table = lua_ctx.create_table()?;
@@ -525,7 +525,7 @@ pub fn new_lua() -> Lua {
 
     let zrangebyscore_fn = lua
         .create_function(|lua_ctx, (key, min, max): (mlua::String, f64, f64)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.zrangebyscore(
                 db,
                 &key.as_bytes(),
@@ -552,7 +552,7 @@ pub fn new_lua() -> Lua {
 
     let zrank_fn = lua
         .create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.zrank(db, &key.as_bytes(), &member.as_bytes()) {
                 Ok(Some(rank)) => Ok(Some(rank as i64)),
                 Ok(None) => Ok(None),
@@ -563,7 +563,7 @@ pub fn new_lua() -> Lua {
 
     let zrevrank_fn = lua
         .create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.zrevrank(db, &key.as_bytes(), &member.as_bytes()) {
                 Ok(Some(rank)) => Ok(Some(rank as i64)),
                 Ok(None) => Ok(None),
@@ -574,7 +574,7 @@ pub fn new_lua() -> Lua {
 
     let zcount_fn = lua
         .create_function(|lua_ctx, (key, min, max): (mlua::String, f64, f64)| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.zcount(db, &key.as_bytes(), OrderedFloat(min), OrderedFloat(max)) {
                 Ok(count) => Ok(count as i64),
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
@@ -584,7 +584,7 @@ pub fn new_lua() -> Lua {
 
     let zfirst_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.zfirst(db, &key.as_bytes()) {
                 Ok(Some((score, member))) => Ok((
                     Some(score.into_inner()),
@@ -598,7 +598,7 @@ pub fn new_lua() -> Lua {
 
     let zlast_fn = lua
         .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(&lua_ctx)?;
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
             match storage.zlast(db, &key.as_bytes()) {
                 Ok(Some((score, member))) => Ok((
                     Some(score.into_inner()),
@@ -613,7 +613,7 @@ pub fn new_lua() -> Lua {
     let znext_fn = lua
         .create_function(
             |lua_ctx, (key, score, member): (mlua::String, f64, mlua::String)| {
-                let (storage, db) = get_tx_ctx(&lua_ctx)?;
+                let (storage, db) = get_tx_ctx(lua_ctx)?;
                 match storage.znext(db, &key.as_bytes(), OrderedFloat(score), &member.as_bytes()) {
                     Ok(Some((next_score, next_member))) => Ok((
                         Some(next_score.into_inner()),
@@ -629,7 +629,7 @@ pub fn new_lua() -> Lua {
     let zprev_fn = lua
         .create_function(
             |lua_ctx, (key, score, member): (mlua::String, f64, mlua::String)| {
-                let (storage, db) = get_tx_ctx(&lua_ctx)?;
+                let (storage, db) = get_tx_ctx(lua_ctx)?;
                 match storage.zprev(db, &key.as_bytes(), OrderedFloat(score), &member.as_bytes()) {
                     Ok(Some((prev_score, prev_member))) => Ok((
                         Some(prev_score.into_inner()),

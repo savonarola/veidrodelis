@@ -12,7 +12,7 @@ impl StorageInner {
         field: &[u8],
         value: &[u8],
     ) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         // Check if key exists and validate type
         if let Some(val) = db_map.get(key) {
@@ -42,7 +42,7 @@ impl StorageInner {
         key: &[u8],
         fields: &[(&[u8], &[u8])],
     ) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         // Check if key exists and validate type
         if let Some(val) = db_map.get(key) {
@@ -330,7 +330,7 @@ impl StorageInner {
         field: &[u8],
         value: &[u8],
     ) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         // Check if key exists and validate type
         if let Some(val) = db_map.get(key) {
@@ -365,7 +365,7 @@ impl StorageInner {
         field: &[u8],
         delta: i64,
     ) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         // Check if key exists and validate type
         if let Some(val) = db_map.get(key) {
@@ -416,7 +416,7 @@ impl StorageInner {
         field: &[u8],
         delta: f64,
     ) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         // Check if key exists and validate type
         if let Some(val) = db_map.get(key) {
@@ -471,7 +471,7 @@ impl StorageInner {
         mode: Option<crate::storage::types::HSetEXMode>,
         fields: &[(&[u8], &[u8])],
     ) -> Result<(), &'static str> {
-        let db_map = self.map.entry(db).or_insert_with(BTreeMap::new);
+        let db_map = self.map.entry(db).or_default();
 
         // Check if key exists and validate type
         if let Some(val) = db_map.get(key) {

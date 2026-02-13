@@ -92,18 +92,13 @@ impl ReplicaParser {
         // Parse and collect commands
         let mut commands = Vec::new();
 
-        loop {
-            match state.parse_next(self.pid)? {
-                Some(mut cmds) => {
-                    log::debug!(
-                        "parse_next is some, state: {:?}, cmds: {:?}",
-                        state.state,
-                        cmds
-                    );
-                    commands.append(&mut cmds)
-                }
-                None => break, // Need more data
-            }
+        while let Some(mut cmds) = state.parse_next(self.pid)? {
+            log::debug!(
+                "parse_next is some, state: {:?}, cmds: {:?}",
+                state.state,
+                cmds
+            );
+            commands.append(&mut cmds)
         }
 
         Ok((

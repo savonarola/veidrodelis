@@ -32,6 +32,9 @@ clean:
 clean-all: clean
     mix clean --deps
 
+clippy:
+    cargo clippy --workspace --all-targets --all-features -- -D warnings
+
 dc-start:
     cd test/assets && docker compose up -d
 

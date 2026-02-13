@@ -15,7 +15,7 @@ pub enum ZSetIndexKey {
 impl ZSetIndexKey {
     pub fn create(score: Score, data: &[u8]) -> Self {
         ZSetIndexKey::Key {
-            score: score,
+            score,
             entry: Bytes::new(data),
         }
     }
@@ -30,8 +30,8 @@ impl ZSetIndexKey {
 
     pub fn create_ref(score: Score, entry: &[u8]) -> Self {
         ZSetIndexKey::Ref {
-            score: score,
-            entry: unsafe { std::mem::transmute(entry) },
+            score,
+            entry: unsafe { std::mem::transmute::<&[u8], &'static [u8]>(entry) },
         }
     }
 

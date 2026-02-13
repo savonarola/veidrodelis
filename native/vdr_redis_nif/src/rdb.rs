@@ -636,7 +636,7 @@ impl ParserState {
                     }
                     self.buffer_advance(1);
                     let val = self.buffer.get_i8();
-                    log::debug!("load_string, RDB_ENC_INT8, value: {}", val.to_string());
+                    log::debug!("load_string, RDB_ENC_INT8, value: {}", val);
                     Ok(Some(val.to_string().into_bytes()))
                 }
                 RDB_ENC_INT16 => {
@@ -647,7 +647,7 @@ impl ParserState {
                     }
                     self.buffer_advance(1);
                     let val = self.buffer.get_i16_le();
-                    log::debug!("load_string, RDB_ENC_INT16, value: {}", val.to_string());
+                    log::debug!("load_string, RDB_ENC_INT16, value: {}", val);
                     Ok(Some(val.to_string().into_bytes()))
                 }
                 RDB_ENC_INT32 => {
@@ -658,7 +658,7 @@ impl ParserState {
                     }
                     self.buffer_advance(1);
                     let val = self.buffer.get_i32_le();
-                    log::debug!("load_string, RDB_ENC_INT32, value: {}", val.to_string());
+                    log::debug!("load_string, RDB_ENC_INT32, value: {}", val);
                     Ok(Some(val.to_string().into_bytes()))
                 }
                 RDB_ENC_LZF => {

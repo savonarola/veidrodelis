@@ -124,7 +124,7 @@ fn lua_table_to_term<'a>(
         // Try to read as array (1-indexed)
         let mut is_array = true;
         for i in 1..=len {
-            if table.contains_key(i).map_err(|e| e.to_string())? == false {
+            if !table.contains_key(i).map_err(|e| e.to_string())? {
                 is_array = false;
                 break;
             }

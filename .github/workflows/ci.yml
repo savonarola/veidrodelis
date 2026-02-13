@@ -23,6 +23,8 @@ jobs:
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
 
       - name: Install cargo-llvm-cov
         run: |
@@ -42,6 +44,9 @@ jobs:
 
       - name: Run coverage
         run: just cov
+
+      - name: Run Rust clippy (NIFs)
+        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Upload coverage to Coveralls (Elixir)
         uses: coverallsapp/github-action@v2

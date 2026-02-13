@@ -40,7 +40,7 @@ pub fn execute<'a>(
         return encode_error(env, "Inner command must be a tuple");
     };
 
-    if cmd_terms.len() < 1 {
+    if cmd_terms.is_empty() {
         return encode_error(env, "Command tuple cannot be empty");
     }
 
@@ -1204,11 +1204,11 @@ fn handle_zincrby<'a>(
 }
 
 // Database commands
-fn handle_flushall<'a>(inner: &mut StorageInner) -> Result<(), &'static str> {
+fn handle_flushall(inner: &mut StorageInner) -> Result<(), &'static str> {
     inner.flushall()
 }
 
-fn handle_flushdb<'a>(inner: &mut StorageInner, db: u64) -> Result<(), &'static str> {
+fn handle_flushdb(inner: &mut StorageInner, db: u64) -> Result<(), &'static str> {
     inner.flushdb(db)
 }
 
