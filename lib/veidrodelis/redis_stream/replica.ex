@@ -393,6 +393,9 @@ defmodule Vdr.RedisStream.Replica do
     case callback_module.init(callback_opts) do
       {:ok, callback_state} ->
         state = %{
+          # Callback state
+          callback_module: callback_module,
+          callback_state: callback_state,
           # Connection mode
           sentinel: sentinel_opts,
           connection_mode: if(sentinel_opts, do: :sentinel, else: :direct),
@@ -407,8 +410,6 @@ defmodule Vdr.RedisStream.Replica do
           password: Keyword.get(opts, :password),
           ssl: Keyword.get(opts, :ssl, false),
           ssl_opts: Keyword.get(opts, :ssl_opts, []),
-          callback_module: callback_module,
-          callback_state: callback_state,
           # Reconnection options
           reconnect_enabled: Keyword.get(opts, :reconnect, true),
           reconnect_delay_ms: Keyword.get(opts, :reconnect_delay_ms, 1000),
@@ -574,7 +575,6 @@ defmodule Vdr.RedisStream.Replica do
 
   @impl GenServer
   def terminate(_reason, state) do
-    # Cancel ACK timer
     cancel_ack_timer(state)
 
     case state.callback_module.handle_destroy(state.callback_state) do
@@ -592,11 +592,9 @@ defmodule Vdr.RedisStream.Replica do
     :ok
   end
 
-  # Private functions
-
   defp replication_state(state) do
     if state.state == :replication && state.replica_parser do
-      # Query the Rust parser's actual state
+      # Query the actual replication parser's state
       case Vdr.RedisStream.Nif.replica_state(state.replica_parser) do
         :streaming -> :streaming
         :reading_rdb -> :rdb_transfer
@@ -675,11 +673,7 @@ defmodule Vdr.RedisStream.Replica do
     case Vdr.RedisStream.SentinelConnector.discover_server(state.sentinel) do
       {:ok, {host, port}} ->
         Logger.info("Sentinel discovered server at #{host}:#{port}")
-
-        # Update state with discovered address
         state = %{state | discovered_host: host, discovered_port: port}
-
-        # Connect to discovered server
         connect_directly(host, port, state)
 
       {:error, reason} ->
@@ -696,10 +690,7 @@ defmodule Vdr.RedisStream.Replica do
     case transport_connect(transport, host, port, state.ssl_opts) do
       {:ok, socket} ->
         Logger.info("Connected successfully")
-
-        # Set socket to active: once for backpressure
         :ok = transport_setopts(transport, socket, active: :once)
-
         new_state = %{state | socket: socket, transport: transport}
         proceed_after_connect(new_state)
 
@@ -841,7 +832,6 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   defp schedule_periodic_ack(state) do
-    # Cancel existing timer if any
     state = cancel_ack_timer(state)
 
     # Schedule next ACK if interval is configured
@@ -859,15 +849,16 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   defp handle_data(data, state) do
-    # Before replication starts, accumulate in buffer for protocol parsing
-    # After replication starts, feed directly to replica parser
+    # Before replication starts, accumulate metadata messages in buffer for protocol parsing
+    # After replication starts, feed directly to the actual replication parser
     result =
       case state.state do
         :replication ->
-          # After PSYNC, all data goes to the replica parser
+          # After PSYNC, all data goes to the actual replication parser
           handle_replication_data(data, state)
 
         other ->
+          ## Connection initialization state machine
           new_state = append_to_buffer(state, data)
 
           case other do
@@ -1053,8 +1044,6 @@ defmodule Vdr.RedisStream.Replica do
     # Feed data to replica parser (handles RDB and command stream automatically)
     case Parser.data(state.replica_parser, data) do
       {:ok, commands, new_replica_parser, flags} ->
-        # Parser returned commands and wants more data
-        #
         # If PING or REPLCONF GETACK was received, send ACK
         if flags.ping or flags.replconf_getack do
           Logger.debug(
@@ -1119,19 +1108,6 @@ defmodule Vdr.RedisStream.Replica do
             {:stop, reason, state}
         end
 
-      {:finished, commands} ->
-        # Parser finished (connection closed)
-        # Process any final commands and then stop
-        Logger.info("Replica parser finished (connection closed)")
-
-        case process_commands(commands, state) do
-          {:ok, new_state} ->
-            {:stop, :normal, new_state}
-
-          {:error, reason} ->
-            {:stop, {:callback_failed, reason}, state}
-        end
-
       {:error, reason} ->
         Logger.error("Replica parser error: #{inspect(reason)}")
         {:stop, {:parse_failed, reason}, state}
@@ -1186,17 +1162,6 @@ defmodule Vdr.RedisStream.Replica do
   defp append_to_buffer(state, data) do
     %{state | buffer: <<state.buffer::binary, data::binary>>}
   end
-
-  # defp buffer_to_binary(state) do
-  #   state.buffer |> Enum.reverse() |> :erlang.iolist_to_binary()
-  # end
-
-  # defp peek_bytes(state, n) when state.buffer_size >= n do
-  #   binary = buffer_to_binary(state)
-  #   {:ok, :binary.part(binary, 0, n)}
-  # end
-
-  # defp peek_bytes(_state, _n), do: :incomplete
 
   # RESP protocol parsers (work with state containing iolist buffer)
 

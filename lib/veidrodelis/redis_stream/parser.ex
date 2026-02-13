@@ -64,7 +64,6 @@ defmodule Vdr.RedisStream.Parser do
   ## Returns
 
     * `{:ok, commands, new_parser, flags}` - Successfully processed chunk, returns parsed commands (may be empty)
-    * `{:finished, commands}` - Parser finished (connection closed), returns final commands
     * `{:error, reason}` - Parsing failed
 
   Commands are tuples: `{db, command_tuple, raw_command, affected_keys}` where:
@@ -80,14 +79,9 @@ defmodule Vdr.RedisStream.Parser do
   Note: PING and REPLCONF commands are not returned as commands - they are signaled via flags only.
   """
   @spec data(reference(), binary()) ::
-          {:ok, list(), reference(), flags()} | {:finished, list()} | {:error, term()}
+          {:ok, list(), reference(), flags()} | {:error, term()}
   def data(parser, chunk) when is_reference(parser) and is_binary(chunk) do
     case Vdr.RedisStream.Nif.replica_data(parser, chunk) do
-      {:finished, raw_commands} when is_list(raw_commands) ->
-        # Parser finished, convert commands
-        commands = convert_commands(raw_commands)
-        {:finished, commands}
-
       {:ok, raw_commands, new_parser, flags} ->
         # More data needed, convert commands
         commands = convert_commands(raw_commands)

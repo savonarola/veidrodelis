@@ -103,14 +103,8 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
 
       {final_parser, all_commands} =
         Enum.reduce(chunks, {parser, []}, fn chunk, {p, cmds} ->
-          case Vdr.RedisStream.Parser.data(p, chunk) do
-            {:ok, new_cmds, new_parser, _flags} ->
-              {new_parser, cmds ++ new_cmds}
-
-            {:finished, new_cmds} ->
-              # Finished
-              {p, cmds ++ new_cmds}
-          end
+          {:ok, new_cmds, new_parser, _flags} = Vdr.RedisStream.Parser.data(p, chunk)
+          {new_parser, cmds ++ new_cmds}
         end)
 
       # Should have transitioned to streaming mode after RDB
@@ -271,13 +265,8 @@ defmodule Vdr.RedisStream.ParserIntegrationTest do
           if size > 0 do
             chunk = binary_part(full_data, offset, size)
 
-            case Vdr.RedisStream.Parser.data(p, chunk) do
-              {:ok, new_cmds, new_parser, _flags} ->
-                {new_parser, cmds ++ new_cmds}
-
-              {:finished, new_cmds} ->
-                {p, cmds ++ new_cmds}
-            end
+            {:ok, new_cmds, new_parser, _flags} = Vdr.RedisStream.Parser.data(p, chunk)
+            {new_parser, cmds ++ new_cmds}
           else
             {p, cmds}
           end

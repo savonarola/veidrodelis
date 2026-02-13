@@ -19,8 +19,8 @@ defmodule Vdr.RedisStream.ParserTest do
       # Feed empty data - should succeed without raising nif_not_loaded error
       result = Vdr.RedisStream.Parser.data(parser, <<>>)
 
-      # Should return {:ok, commands, parser, flags} or {:finished, commands}
-      assert match?({:ok, _, _, _}, result) or match?({:finished, _}, result)
+      # Should return {:ok, commands, parser, flags}
+      assert match?({:ok, _, _, _}, result)
     end
   end
 
@@ -37,7 +37,6 @@ defmodule Vdr.RedisStream.ParserTest do
 
       # Result should be one of:
       # - {:ok, commands, new_parser, flags} - more data needed
-      # - {:finished, commands} - finished
       # - {:error, reason} - error
       case result do
         {:ok, commands, new_parser, flags} ->
@@ -46,9 +45,6 @@ defmodule Vdr.RedisStream.ParserTest do
           assert is_map(flags)
           assert Map.has_key?(flags, :ping)
           assert Map.has_key?(flags, :replconf_getack)
-
-        {:finished, commands} ->
-          assert is_list(commands)
 
         {:error, _reason} ->
           :ok
@@ -63,9 +59,6 @@ defmodule Vdr.RedisStream.ParserTest do
 
       case result do
         {:ok, commands, _parser, _flags} ->
-          assert commands == []
-
-        {:finished, commands} ->
           assert commands == []
 
         {:error, _reason} ->
@@ -105,10 +98,6 @@ defmodule Vdr.RedisStream.ParserTest do
             # Command should be a struct
             assert is_struct(command)
           end)
-
-        {:finished, []} ->
-          # Empty list is valid
-          :ok
 
         {:error, _reason} ->
           :ok
