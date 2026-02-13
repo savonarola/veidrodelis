@@ -362,6 +362,7 @@ For high-availability setups, connect via Redis Sentinel:
 )
 
 ```
+
 Veidrodelis automatically:
 * Discovers primary via Sentinel
 * Handles failover when primary changes
