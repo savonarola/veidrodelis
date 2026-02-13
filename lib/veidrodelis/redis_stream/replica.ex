@@ -428,8 +428,7 @@ defmodule Vdr.RedisStream.Replica do
           # Rust replica parser handles all parsing (RDB + commands)
           replica_parser: nil,
           # Buffer for protocol messages before replication starts
-          buffer: [],
-          buffer_size: 0,
+          buffer: <<>>,
           state: :init,
           command_filter: Keyword.get(opts, :command_filter, %CommandFilter{})
         }
@@ -610,25 +609,22 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   defp handle_disconnect(state, reason) do
-    # Close existing socket if any
     if state.socket do
       transport_close(state.transport, state.socket)
     end
 
-    # Cancel ACK timer
     state = cancel_ack_timer(state)
 
-    # Save replication state for potential partial resync
     new_state = %{
       state
       | socket: nil,
         transport: nil,
+        # Save replication state for potential partial resync
         saved_replication_id: state.replication_id || state.saved_replication_id,
         saved_replication_offset: state.replication_offset,
-        # Clear current replication state but keep saved values
+        # Clear current replication state
         replica_parser: nil,
-        buffer: [],
-        buffer_size: 0,
+        buffer: <<>>,
         state: :init
     }
 
@@ -653,8 +649,7 @@ defmodule Vdr.RedisStream.Replica do
       new_state = %{
         state
         | current_reconnect_delay_ms: next_delay,
-          buffer: [],
-          buffer_size: 0,
+          buffer: <<>>,
           state: :init
       }
 
@@ -873,9 +868,7 @@ defmodule Vdr.RedisStream.Replica do
           handle_replication_data(data, state)
 
         other ->
-          new_buffer = [data | state.buffer]
-          new_buffer_size = state.buffer_size + byte_size(data)
-          new_state = %{state | buffer: new_buffer, buffer_size: new_buffer_size}
+          new_state = append_to_buffer(state, data)
 
           case other do
             :ping ->
@@ -990,9 +983,10 @@ defmodule Vdr.RedisStream.Replica do
             new_state = schedule_periodic_ack(new_state)
 
             # Feed rest of the buffered data to replica parser
-            if new_state.buffer_size > 0 do
-              buffered_data = buffer_to_binary(new_state)
-              new_state = %{new_state | buffer: [], buffer_size: 0}
+            buffered_data = new_state.buffer
+
+            if byte_size(buffered_data) > 0 do
+              new_state = %{new_state | buffer: <<>>}
               handle_replication_data(buffered_data, new_state)
             else
               {:noreply, new_state}
@@ -1189,141 +1183,95 @@ defmodule Vdr.RedisStream.Replica do
 
   # Buffer management helpers
 
-  defp buffer_to_binary(state) do
-    state.buffer |> Enum.reverse() |> :erlang.iolist_to_binary()
+  defp append_to_buffer(state, data) do
+    %{state | buffer: <<state.buffer::binary, data::binary>>}
   end
 
-  defp peek_bytes(state, n) when state.buffer_size >= n do
-    binary = buffer_to_binary(state)
-    {:ok, :binary.part(binary, 0, n)}
-  end
+  # defp buffer_to_binary(state) do
+  #   state.buffer |> Enum.reverse() |> :erlang.iolist_to_binary()
+  # end
 
-  defp peek_bytes(_state, _n), do: :incomplete
+  # defp peek_bytes(state, n) when state.buffer_size >= n do
+  #   binary = buffer_to_binary(state)
+  #   {:ok, :binary.part(binary, 0, n)}
+  # end
+
+  # defp peek_bytes(_state, _n), do: :incomplete
 
   # RESP protocol parsers (work with state containing iolist buffer)
 
   defp parse_simple_response(state) do
-    case peek_bytes(state, min(state.buffer_size, 1024)) do
-      {:ok, peek} ->
-        case peek do
-          ## Redis sends "\n" as some kind of pings
-          <<"\n"::binary, _::binary>> ->
-            <<"\n"::binary, rest::binary>> = buffer_to_binary(state)
+    case state.buffer do
+      ## Redis sends "\n" as some kind of pings
+      <<"\n"::binary, rest::binary>> ->
+        new_state = %{state | buffer: rest}
+        parse_simple_response(new_state)
 
-            new_state = %{
-              state
-              | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
-                buffer_size: byte_size(rest)
-            }
+      <<"+"::binary, _::binary>> ->
+        case :binary.split(state.buffer, "\r\n") do
+          [<<"+"::binary, response::binary>>, rest] ->
+            new_state = %{state | buffer: rest}
 
-            parse_simple_response(new_state)
-
-          <<"+"::binary, _::binary>> ->
-            binary = buffer_to_binary(state)
-
-            case :binary.split(binary, "\r\n") do
-              [<<"+"::binary, response::binary>>, rest] ->
-                new_state = %{
-                  state
-                  | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
-                    buffer_size: byte_size(rest)
-                }
-
-                {:ok, response, new_state}
-
-              _ ->
-                :incomplete
-            end
-
-          <<"-"::binary, _::binary>> ->
-            binary = buffer_to_binary(state)
-
-            case :binary.split(binary, "\r\n") do
-              [<<"-"::binary, error::binary>>, _rest] ->
-                {:error, {:redis_error, error}}
-
-              _ ->
-                :incomplete
-            end
+            {:ok, response, new_state}
 
           _ ->
             :incomplete
         end
 
-      :incomplete ->
+      <<"-"::binary, _::binary>> ->
+        case :binary.split(state.buffer, "\r\n") do
+          [<<"-"::binary, error::binary>>, _rest] ->
+            {:error, {:redis_error, error}}
+
+          _ ->
+            :incomplete
+        end
+
+      _ ->
         :incomplete
     end
   end
 
   defp parse_psync_response(state) do
-    case peek_bytes(state, min(state.buffer_size, 1024)) do
-      {:ok, peek} ->
-        case peek do
-          <<"\n"::binary, _::binary>> ->
-            ## Redis sends "\n" as some kind of pings
-            <<"\n"::binary, rest::binary>> = buffer_to_binary(state)
+    case state.buffer do
+      <<"\n"::binary, rest::binary>> ->
+        ## Redis sends "\n" as some kind of pings
+        new_state = %{state | buffer: rest}
+        parse_psync_response(new_state)
 
-            new_state = %{
-              state
-              | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
-                buffer_size: byte_size(rest)
-            }
-
-            parse_psync_response(new_state)
-
-          <<"+FULLRESYNC "::binary, _::binary>> ->
-            binary = buffer_to_binary(state)
-
-            case :binary.split(binary, "\r\n") do
-              [<<"+FULLRESYNC "::binary, params::binary>>, rest] ->
-                [replication_id, offset_str] = String.split(params, " ", parts: 2)
-                offset = String.to_integer(offset_str)
-
-                new_state = %{
-                  state
-                  | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
-                    buffer_size: byte_size(rest)
-                }
-
-                {:ok, {:fullresync, replication_id, offset, new_state}}
-
-              _ ->
-                :incomplete
-            end
-
-          <<"+CONTINUE"::binary, _::binary>> ->
-            binary = buffer_to_binary(state)
-
-            case :binary.split(binary, "\r\n") do
-              [<<"+CONTINUE"::binary, _::binary>>, rest] ->
-                new_state = %{
-                  state
-                  | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
-                    buffer_size: byte_size(rest)
-                }
-
-                {:ok, {:continue, new_state}}
-
-              _ ->
-                :incomplete
-            end
-
-          <<"-"::binary, _::binary>> ->
-            binary = buffer_to_binary(state)
-
-            case :binary.split(binary, "\r\n") do
-              [<<"-"::binary, error::binary>>, _rest] ->
-                {:error, {:redis_error, error}}
-
-              _ ->
-                :incomplete
-            end
+      <<"+FULLRESYNC "::binary, _::binary>> ->
+        case :binary.split(state.buffer, "\r\n") do
+          [<<"+FULLRESYNC "::binary, params::binary>>, rest] ->
+            [replication_id, offset_str] = String.split(params, " ", parts: 2)
+            offset = String.to_integer(offset_str)
+            new_state = %{state | buffer: rest}
+            {:ok, {:fullresync, replication_id, offset, new_state}}
 
           _ ->
             :incomplete
         end
 
-      :incomplete ->
+      <<"+CONTINUE"::binary, _::binary>> ->
+        case :binary.split(state.buffer, "\r\n") do
+          [<<"+CONTINUE"::binary, _::binary>>, rest] ->
+            new_state = %{state | buffer: rest}
+
+            {:ok, {:continue, new_state}}
+
+          _ ->
+            :incomplete
+        end
+
+      <<"-"::binary, _::binary>> ->
+        case :binary.split(state.buffer, "\r\n") do
+          [<<"-"::binary, error::binary>>, _rest] ->
+            {:error, {:redis_error, error}}
+
+          _ ->
+            :incomplete
+        end
+
+      _ ->
         :incomplete
     end
   end
