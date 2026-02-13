@@ -108,7 +108,7 @@ defmodule Vdr.RedisStream.Replica do
   @doc """
   Creates a child specification for the replica for running it under a supervisor.
   """
-  @spec child_spec(keyword()) :: Supervisor.Spec.spec()
+  @spec child_spec(keyword()) :: Supervisor.child_spec()
   def child_spec(opts) do
     %{
       id: __MODULE__,

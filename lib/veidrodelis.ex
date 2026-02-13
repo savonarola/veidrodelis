@@ -47,8 +47,13 @@ defmodule Veidrodelis do
 
   @type instance_id :: term()
   @type key :: binary()
+  @type hash_key :: binary()
+  @type score :: float()
   @type value :: binary()
   @type db :: non_neg_integer()
+  @type command :: tuple()
+  @type lua_script :: binary()
+  @type lua_compiled_script :: binary()
 
   # Public API
 
@@ -277,7 +282,7 @@ defmodule Veidrodelis do
   @doc """
   Gets the value of a string key.
   """
-  @spec get(instance_id(), db(), key()) :: binary() | nil | {:error, term()}
+  @spec get(instance_id(), db(), key()) :: {:ok, binary() | nil} | {:error, term()}
   def get(id, db, key) do
     with_single_command_read_tx(id, db, {:get, key})
   end
@@ -285,7 +290,7 @@ defmodule Veidrodelis do
   @doc """
   Returns the length of the list stored at key.
   """
-  @spec llen(instance_id(), db(), key()) :: non_neg_integer() | {:error, term()}
+  @spec llen(instance_id(), db(), key()) :: {:ok, non_neg_integer()} | {:error, term()}
   def llen(id, db, key) do
     with_single_command_read_tx(id, db, {:llen, key})
   end
@@ -293,7 +298,8 @@ defmodule Veidrodelis do
   @doc """
   Returns the specified elements of the list stored at key.
   """
-  @spec lrange(instance_id(), db(), key(), integer(), integer()) :: [any()] | {:error, term()}
+  @spec lrange(instance_id(), db(), key(), integer(), integer()) ::
+          {:ok, [binary()]} | {:error, term()}
   def lrange(id, db, key, start_idx, stop_idx) do
     with_single_command_read_tx(id, db, {:lrange, key, start_idx, stop_idx})
   end
@@ -301,7 +307,7 @@ defmodule Veidrodelis do
   @doc """
   Returns all members of the set stored at key.
   """
-  @spec smembers(instance_id(), db(), key()) :: [any()] | {:error, term()}
+  @spec smembers(instance_id(), db(), key()) :: {:ok, [binary()]} | {:error, term()}
   def smembers(id, db, key) do
     with_single_command_read_tx(id, db, {:smembers, key})
   end
@@ -309,7 +315,7 @@ defmodule Veidrodelis do
   @doc """
   Returns the cardinality (number of elements) of the set stored at key.
   """
-  @spec scard(instance_id(), db(), key()) :: non_neg_integer() | {:error, term()}
+  @spec scard(instance_id(), db(), key()) :: {:ok, non_neg_integer()} | {:error, term()}
   def scard(id, db, key) do
     with_single_command_read_tx(id, db, {:scard, key})
   end
@@ -317,7 +323,7 @@ defmodule Veidrodelis do
   @doc """
   Returns whether member is a member of the set stored at key.
   """
-  @spec sismember(instance_id(), db(), key(), any()) :: boolean() | {:error, term()}
+  @spec sismember(instance_id(), db(), key(), binary()) :: {:ok, boolean()} | {:error, term()}
   def sismember(id, db, key, member) do
     with_single_command_read_tx(id, db, {:sismember, key, member})
   end
@@ -325,7 +331,8 @@ defmodule Veidrodelis do
   @doc """
   Returns membership status for each member in the provided list.
   """
-  @spec smismember(instance_id(), db(), key(), [any()]) :: [boolean()] | {:error, term()}
+  @spec smismember(instance_id(), db(), key(), [binary()]) ::
+          {:ok, [boolean()]} | {:error, term()}
   def smismember(id, db, key, members) do
     with_single_command_read_tx(id, db, {:smismember, key, members})
   end
@@ -333,7 +340,7 @@ defmodule Veidrodelis do
   @doc """
   Returns up to `count` random members from the set stored at key.
   """
-  @spec srandmember(instance_id(), db(), key(), integer()) :: [any()] | {:error, term()}
+  @spec srandmember(instance_id(), db(), key(), integer()) :: {:ok, [binary()]} | {:error, term()}
   def srandmember(id, db, key, count) do
     with_single_command_read_tx(id, db, {:srandmember, key, count})
   end
@@ -341,7 +348,7 @@ defmodule Veidrodelis do
   @doc """
   Returns the union of the provided sets.
   """
-  @spec sunion(instance_id(), db(), [any()]) :: [any()] | {:error, term()}
+  @spec sunion(instance_id(), db(), [key()]) :: {:ok, [binary()]} | {:error, term()}
   def sunion(id, db, keys) do
     with_single_command_read_tx(id, db, {:sunion, keys})
   end
@@ -349,7 +356,7 @@ defmodule Veidrodelis do
   @doc """
   Returns the intersection of the provided sets.
   """
-  @spec sinter(instance_id(), db(), [any()]) :: [any()] | {:error, term()}
+  @spec sinter(instance_id(), db(), [key()]) :: {:ok, [binary()]} | {:error, term()}
   def sinter(id, db, keys) do
     with_single_command_read_tx(id, db, {:sinter, keys})
   end
@@ -357,7 +364,7 @@ defmodule Veidrodelis do
   @doc """
   Returns the difference of the provided sets (first key minus remaining keys).
   """
-  @spec sdiff(instance_id(), db(), [any()]) :: [any()] | {:error, term()}
+  @spec sdiff(instance_id(), db(), [key()]) :: {:ok, [binary()]} | {:error, term()}
   def sdiff(id, db, keys) do
     with_single_command_read_tx(id, db, {:sdiff, keys})
   end
@@ -365,7 +372,7 @@ defmodule Veidrodelis do
   @doc """
   Returns the cardinality of the intersection of the provided sets.
   """
-  @spec sintercard(instance_id(), db(), [any()]) :: non_neg_integer() | {:error, term()}
+  @spec sintercard(instance_id(), db(), [key()]) :: {:ok, non_neg_integer()} | {:error, term()}
   def sintercard(id, db, keys) do
     with_single_command_read_tx(id, db, {:sintercard, keys})
   end
@@ -383,7 +390,7 @@ defmodule Veidrodelis do
   # Returns: "a" (assuming set contains ["a", "b", "c"])
   ```
   """
-  @spec sfirst(instance_id(), db(), key()) :: binary() | nil | {:error, term()}
+  @spec sfirst(instance_id(), db(), key()) :: {:ok, binary() | nil} | {:error, term()}
   def sfirst(id, db, key) do
     with_single_command_read_tx(id, db, {:sfirst, key})
   end
@@ -401,7 +408,7 @@ defmodule Veidrodelis do
     # Returns: "c" (assuming set contains ["a", "b", "c"])
   ```
   """
-  @spec slast(instance_id(), db(), key()) :: binary() | nil | {:error, term()}
+  @spec slast(instance_id(), db(), key()) :: {:ok, binary() | nil} | {:error, term()}
   def slast(id, db, key) do
     with_single_command_read_tx(id, db, {:slast, key})
   end
@@ -419,7 +426,7 @@ defmodule Veidrodelis do
   # Returns: "b" (assuming set contains ["a", "b", "c"])
   ```
   """
-  @spec snext(instance_id(), db(), key(), any()) :: binary() | nil | {:error, term()}
+  @spec snext(instance_id(), db(), key(), binary()) :: {:ok, binary() | nil} | {:error, term()}
   def snext(id, db, key, member) do
     with_single_command_read_tx(id, db, {:snext, key, member})
   end
@@ -437,7 +444,7 @@ defmodule Veidrodelis do
   # Returns: "b" (assuming set contains ["a", "b", "c"])
   ```
   """
-  @spec sprev(instance_id(), db(), key(), any()) :: binary() | nil | {:error, term()}
+  @spec sprev(instance_id(), db(), key(), key()) :: {:ok, binary() | nil} | {:error, term()}
   def sprev(id, db, key, member) do
     with_single_command_read_tx(id, db, {:sprev, key, member})
   end
@@ -445,7 +452,7 @@ defmodule Veidrodelis do
   @doc """
   Returns the value associated with field in the hash stored at key.
   """
-  @spec hget(instance_id(), db(), key(), any()) :: any() | {:error, term()}
+  @spec hget(instance_id(), db(), key(), hash_key()) :: {:ok, binary() | nil} | {:error, term()}
   def hget(id, db, key, field) do
     with_single_command_read_tx(id, db, {:hget, key, field})
   end
@@ -453,7 +460,8 @@ defmodule Veidrodelis do
   @doc """
   Returns the values associated with the specified fields in the hash stored at key.
   """
-  @spec hmget(instance_id(), db(), key(), [any()]) :: [any()] | {:error, term()}
+  @spec hmget(instance_id(), db(), key(), [hash_key()]) ::
+          {:ok, [binary() | nil]} | {:error, term()}
   def hmget(id, db, key, fields) do
     with_single_command_read_tx(id, db, {:hmget, key, fields})
   end
@@ -461,7 +469,7 @@ defmodule Veidrodelis do
   @doc """
   Returns all fields and values of the hash stored at key.
   """
-  @spec hgetall(instance_id(), db(), key()) :: [{any(), any()}] | {:error, term()}
+  @spec hgetall(instance_id(), db(), key()) :: {:ok, [{hash_key(), binary()}]} | {:error, term()}
   def hgetall(id, db, key) do
     with_single_command_read_tx(id, db, {:hgetall, key})
   end
@@ -469,7 +477,7 @@ defmodule Veidrodelis do
   @doc """
   Returns all field names in the hash stored at key.
   """
-  @spec hkeys(instance_id(), db(), key()) :: [any()] | {:error, term()}
+  @spec hkeys(instance_id(), db(), key()) :: {:ok, [hash_key()]} | {:error, term()}
   def hkeys(id, db, key) do
     with_single_command_read_tx(id, db, {:hkeys, key})
   end
@@ -477,7 +485,7 @@ defmodule Veidrodelis do
   @doc """
   Returns all values in the hash stored at key.
   """
-  @spec hvals(instance_id(), db(), key()) :: [any()] | {:error, term()}
+  @spec hvals(instance_id(), db(), key()) :: {:ok, [binary()]} | {:error, term()}
   def hvals(id, db, key) do
     with_single_command_read_tx(id, db, {:hvals, key})
   end
@@ -485,7 +493,7 @@ defmodule Veidrodelis do
   @doc """
   Returns the number of fields in the hash stored at key.
   """
-  @spec hlen(instance_id(), db(), key()) :: non_neg_integer() | {:error, term()}
+  @spec hlen(instance_id(), db(), key()) :: {:ok, non_neg_integer()} | {:error, term()}
   def hlen(id, db, key) do
     with_single_command_read_tx(id, db, {:hlen, key})
   end
@@ -493,7 +501,7 @@ defmodule Veidrodelis do
   @doc """
   Returns `true` if `field` exists in the hash stored at key.
   """
-  @spec hexists(instance_id(), db(), key(), any()) :: boolean() | {:error, term()}
+  @spec hexists(instance_id(), db(), key(), hash_key()) :: {:ok, boolean()} | {:error, term()}
   def hexists(id, db, key, field) do
     with_single_command_read_tx(id, db, {:hexists, key, field})
   end
@@ -501,7 +509,8 @@ defmodule Veidrodelis do
   @doc """
   Returns the length of the value stored at `field` (string length).
   """
-  @spec hstrlen(instance_id(), db(), key(), any()) :: non_neg_integer() | {:error, term()}
+  @spec hstrlen(instance_id(), db(), key(), hash_key()) ::
+          {:ok, non_neg_integer()} | {:error, term()}
   def hstrlen(id, db, key, field) do
     with_single_command_read_tx(id, db, {:hstrlen, key, field})
   end
@@ -510,7 +519,7 @@ defmodule Veidrodelis do
   Returns up to `count` random fields (and optional values) from the hash stored at key.
   """
   @spec hrandfield(instance_id(), db(), key(), integer(), boolean()) ::
-          [term()] | {:error, term()}
+          {:ok, [{hash_key(), binary()} | binary()]} | {:error, term()}
   def hrandfield(id, db, key, count, with_values \\ true) do
     with_single_command_read_tx(id, db, {:hrandfield, key, count, with_values})
   end
@@ -522,7 +531,7 @@ defmodule Veidrodelis do
   missing, or `{:error, reason}` on wrong-type errors.
   """
   @spec hfirst(instance_id(), db(), key()) ::
-          {:ok, {binary(), binary()}} | {:ok, nil} | {:error, term()}
+          {:ok, {hash_key(), binary()} | nil} | {:error, term()}
   def hfirst(id, db, key) do
     with_single_command_read_tx(id, db, {:hfirst, key})
   end
@@ -531,7 +540,7 @@ defmodule Veidrodelis do
   Returns the lexicographically last field/value pair in the hash stored at key.
   """
   @spec hlast(instance_id(), db(), key()) ::
-          {:ok, {binary(), binary()}} | {:ok, nil} | {:error, term()}
+          {:ok, {hash_key(), binary()} | nil} | {:error, term()}
   def hlast(id, db, key) do
     with_single_command_read_tx(id, db, {:hlast, key})
   end
@@ -540,7 +549,7 @@ defmodule Veidrodelis do
   Returns the field/value pair immediately after `field` in the hash stored at key.
   """
   @spec hnext(instance_id(), db(), key(), binary()) ::
-          {:ok, {binary(), binary()}} | {:ok, nil} | {:error, term()}
+          {:ok, {hash_key(), binary()} | nil} | {:error, term()}
   def hnext(id, db, key, field) do
     with_single_command_read_tx(id, db, {:hnext, key, field})
   end
@@ -549,7 +558,7 @@ defmodule Veidrodelis do
   Returns the field/value pair immediately before `field` in the hash stored at key.
   """
   @spec hprev(instance_id(), db(), key(), binary()) ::
-          {:ok, {binary(), binary()}} | {:ok, nil} | {:error, term()}
+          {:ok, {hash_key(), binary()} | nil} | {:error, term()}
   def hprev(id, db, key, field) do
     with_single_command_read_tx(id, db, {:hprev, key, field})
   end
@@ -561,7 +570,7 @@ defmodule Veidrodelis do
   If `with_scores` is `false`, returns a list of members only.
   """
   @spec zrange(instance_id(), db(), key(), integer(), integer(), boolean()) ::
-          [{any(), float()}] | [any()] | {:error, term()}
+          {:ok, [{binary(), score()}] | [binary()]} | {:error, term()}
   def zrange(id, db, key, start_idx, stop_idx, with_scores \\ true) do
     with_single_command_read_tx(id, db, {:zrange, key, start_idx, stop_idx, with_scores})
   end
@@ -569,7 +578,7 @@ defmodule Veidrodelis do
   @doc """
   Returns the cardinality (number of elements) of the sorted set stored at key.
   """
-  @spec zcard(instance_id(), db(), key()) :: non_neg_integer() | {:error, term()}
+  @spec zcard(instance_id(), db(), key()) :: {:ok, non_neg_integer()} | {:error, term()}
   def zcard(id, db, key) do
     with_single_command_read_tx(id, db, {:zcard, key})
   end
@@ -577,7 +586,7 @@ defmodule Veidrodelis do
   @doc """
   Returns the score of member in the sorted set stored at key.
   """
-  @spec zscore(instance_id(), db(), key(), any()) :: float() | nil | {:error, term()}
+  @spec zscore(instance_id(), db(), key(), any()) :: {:ok, score() | nil} | {:error, term()}
   def zscore(id, db, key, member) do
     with_single_command_read_tx(id, db, {:zscore, key, member})
   end
@@ -599,8 +608,8 @@ defmodule Veidrodelis do
   # Returns: ["one", "two", "three"]
   ```
   """
-  @spec zrangebyscore(instance_id(), db(), key(), float(), float(), boolean()) ::
-          [{any(), float()}] | [any()] | {:error, term()}
+  @spec zrangebyscore(instance_id(), db(), key(), score(), score(), boolean()) ::
+          {:ok, [{binary(), score()}] | [binary()]} | {:error, term()}
   def zrangebyscore(id, db, key, min, max, with_scores \\ true) do
     with_single_command_read_tx(id, db, {:zrangebyscore, key, min, max, with_scores})
   end
@@ -609,7 +618,8 @@ defmodule Veidrodelis do
   Returns the rank (0-based index) where the member would be in the sorted set,
   ordered from lowest to highest score. Returns `nil` if the member or key doesn't exist.
   """
-  @spec zrank(instance_id(), db(), key(), any()) :: non_neg_integer() | nil | {:error, term()}
+  @spec zrank(instance_id(), db(), key(), binary()) ::
+          {:ok, non_neg_integer() | nil} | {:error, term()}
   def zrank(id, db, key, member) do
     with_single_command_read_tx(id, db, {:zrank, key, member})
   end
@@ -618,7 +628,8 @@ defmodule Veidrodelis do
   Returns the rank (0-based index) where the member would be in the sorted set,
   ordered from highest to lowest score. Returns `nil` if the member or key doesn't exist.
   """
-  @spec zrevrank(instance_id(), db(), key(), any()) :: non_neg_integer() | nil | {:error, term()}
+  @spec zrevrank(instance_id(), db(), key(), binary()) ::
+          {:ok, non_neg_integer() | nil} | {:error, term()}
   def zrevrank(id, db, key, member) do
     with_single_command_read_tx(id, db, {:zrevrank, key, member})
   end
@@ -733,14 +744,14 @@ defmodule Veidrodelis do
     * `{:ok, results}` - For commands: list of results. For scripts: the script's return value
     * `{:error, reason}` - Execution error
   """
-  @spec read_tx(instance_id(), db(), [tuple()] | binary()) ::
-          {:ok, [term()] | term()} | {:error, term()}
+  @spec read_tx(instance_id(), db(), [command()] | lua_script() | lua_compiled_script()) ::
+          {:ok, term() | [{:ok, term()} | {:error, term()}]} | {:error, term()}
   def read_tx(id, db, commands) when is_list(commands) do
     with_handle(id, :read_tx, [db, commands])
   end
 
   def read_tx(id, db, script) when is_binary(script) do
-    with_handle(id, :tx, [db, script])
+    with_handle(id, :read_tx, [db, script])
   end
 
   @doc """
@@ -756,7 +767,7 @@ defmodule Veidrodelis do
       {:ok, bytecode} = Veidrodelis.lua_load(:my_instance, script)
       {:ok, result} = Veidrodelis.read_tx(:my_instance, 0, bytecode)
   """
-  @spec lua_load(instance_id(), binary()) :: {:ok, binary()} | {:error, term()}
+  @spec lua_load(instance_id(), lua_script()) :: {:ok, lua_compiled_script()} | {:error, term()}
   def lua_load(id, script) when is_binary(script) do
     with_handle(id, :lua_load, [script])
   end

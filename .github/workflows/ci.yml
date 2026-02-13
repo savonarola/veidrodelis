@@ -34,8 +34,8 @@ jobs:
       - name: Install just
         uses: extractions/setup-just@v2
 
-      - name: Get dependencies
-        run: mix deps.get
+      - name: Run Dialyzer
+        run: just dialyzer
 
       - name: Start test services
         run: |

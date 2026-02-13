@@ -27,7 +27,7 @@ defmodule Vdr.WatchEvent do
     """
 
     @type t :: %__MODULE__{
-            command: Vdr.RedisStream.Command.t(),
+            command: tuple(),
             db: non_neg_integer()
           }
 

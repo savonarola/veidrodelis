@@ -10,7 +10,11 @@ test-all:
     mix test --trace --include slow
 
 compile:
+    mix deps.get
     mix compile
+
+dialyzer: compile
+    mix dialyzer
 
 cov: clean
     ./cover.sh slow
@@ -25,6 +29,7 @@ clean:
     rm -rf priv/native/*
     rm -f *.profraw
     rm -rf cover/*
+    rm -f *.plt
     sudo rm -rf benchmark/plots/*.data.old
     sudo rm -rf benchmark/plots/*.data benchmark/plots/*.folded benchmark/plots/*.txt
     mix clean

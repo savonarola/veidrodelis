@@ -3,6 +3,7 @@ _build/
 deps/
 *.beam
 *.ez
+*.plt
 
 # Coverage reports
 cover/

@@ -260,21 +260,16 @@ defmodule Vdr.TSProj do
     {:ok, new_state}
   end
 
-  @spec read_tx(%{ts_storage: reference(), ready: boolean()}, non_neg_integer(), [tuple()]) ::
+  @spec read_tx(
+          %{ts_storage: reference(), ready: boolean()},
+          non_neg_integer(),
+          [tuple()] | binary()
+        ) ::
           {:ok, [term()]} | {:error, term()}
-  def read_tx(%{ready: ready, ts_storage: ts_storage}, db, commands) when is_list(commands) do
+  def read_tx(%{ready: ready, ts_storage: ts_storage}, db, commands_or_script)
+      when is_list(commands_or_script) or is_binary(commands_or_script) do
     if ready do
-      Vdr.TS.read_tx(ts_storage, db, commands)
-    else
-      {:error, :not_ready}
-    end
-  end
-
-  @spec tx(%{ts_storage: reference(), ready: boolean()}, non_neg_integer(), binary()) ::
-          {:ok, binary()} | {:error, term()}
-  def tx(%{ready: ready, ts_storage: ts_storage}, db, script) when is_binary(script) do
-    if ready do
-      Vdr.TS.read_tx(ts_storage, db, script)
+      Vdr.TS.read_tx(ts_storage, db, commands_or_script)
     else
       {:error, :not_ready}
     end

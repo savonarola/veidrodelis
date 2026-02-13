@@ -28,6 +28,9 @@ defmodule Veidrodelis.Integration.HashCommandsTest do
         assert {:ok, {"c", "3"}} == Veidrodelis.hlast(vdr_id(), 0, key)
       end
 
+      assert {:ok, nil} == Veidrodelis.hnext(vdr_id(), 0, key, "c")
+      assert {:ok, nil} == Veidrodelis.hnext(vdr_id(), 0, "nonexistent", "c")
+
       assert {:ok, {"b", "2"}} == Veidrodelis.hnext(vdr_id(), 0, key, "a")
       assert {:ok, {"b", "2"}} == Veidrodelis.hprev(vdr_id(), 0, key, "c")
     end
