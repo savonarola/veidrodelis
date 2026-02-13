@@ -8,7 +8,7 @@ services:
       valkey-server
       --repl-diskless-sync yes
       --repl-diskless-sync-delay 1
-      --save 60 1
+      --save 900 1000000
       --loglevel debug
     networks:
       veidrodelis-net:
@@ -23,7 +23,7 @@ services:
       redis-server
       --repl-diskless-sync yes
       --repl-diskless-sync-delay 1
-      --save 60 1
+      --save 900 1000000
       --loglevel debug
     networks:
       veidrodelis-net:
@@ -51,7 +51,7 @@ services:
       valkey-server
       --requirepass testpassword
       --repl-diskless-sync yes
-      --save 60 1
+      --save 900 1000000
       --loglevel verbose
     networks:
       veidrodelis-net:
@@ -65,7 +65,7 @@ services:
     command: >
       valkey-server
       --repl-diskless-sync yes
-      --save 60 1
+      --save 900 1000000
       --loglevel verbose
       --aclfile /usr/local/etc/valkey/users.acl
     volumes:
@@ -88,7 +88,7 @@ services:
       --tls-ca-cert-file /tls/ca-cert.pem
       --tls-auth-clients no
       --repl-diskless-sync yes
-      --save 60 1
+      --save 900 1000000
       --loglevel verbose
     volumes:
       - ./ssl:/tls:ro
