@@ -23,7 +23,6 @@ defmodule VeidrodelisTest do
     # Ensure Redis is running
     {:ok, redis} = Redix.start_link(host: @redis_host, port: @redis_port)
 
-    # Flush all databases before each test
     Redix.command!(redis, ["FLUSHALL"])
 
     {:ok, redis: redis}
@@ -61,7 +60,8 @@ defmodule VeidrodelisTest do
       {:ok, bytecode} = Veidrodelis.lua_load(id, script)
       assert {:ok, "lua_value"} = Veidrodelis.read_tx(id, 0, bytecode)
 
-      assert {:error, :not_connected} = Veidrodelis.read_tx(:invalid_id, 0, "return ts.get('lua_key')")
+      assert {:error, :not_connected} =
+               Veidrodelis.read_tx(:invalid_id, 0, "return ts.get('lua_key')")
     end
   end
 
@@ -83,7 +83,7 @@ defmodule VeidrodelisTest do
           port: @redis_port
         )
 
-      assert_within 2000 do
+      assert_within 5000 do
         assert :streaming == Veidrodelis.get_replication_state(id)
       end
 
@@ -110,7 +110,9 @@ defmodule VeidrodelisTest do
     end
 
     test "returns error for unknown Veidrodelis instance" do
-      assert {:error, :not_connected} = Veidrodelis.read_tx(:invalid_id, 0, "return ts.get('lua_key')")
+      assert {:error, :not_connected} =
+               Veidrodelis.read_tx(:invalid_id, 0, "return ts.get('lua_key')")
+
       assert {:error, :not_connected} = Veidrodelis.get(:invalid_id, 0, "key")
     end
 
@@ -164,7 +166,6 @@ defmodule VeidrodelisTest do
       # Empty command list should return empty results
       assert {:ok, []} = Veidrodelis.read_tx(id, 0, [])
     end
-
   end
 
   describe "replication state fetching" do

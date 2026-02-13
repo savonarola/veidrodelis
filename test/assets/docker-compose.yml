@@ -7,11 +7,12 @@ services:
     command: >
       valkey-server
       --repl-diskless-sync yes
+      --repl-diskless-sync-delay 1
       --save 60 1
       --loglevel debug
     networks:
       veidrodelis-net:
-        ipv4_address: 172.28.0.10      
+        ipv4_address: 172.28.0.10
 
   redis-7.2:
     image: redis:7.2-alpine
@@ -21,11 +22,12 @@ services:
     command: >
       redis-server
       --repl-diskless-sync yes
+      --repl-diskless-sync-delay 1
       --save 60 1
       --loglevel debug
     networks:
       veidrodelis-net:
-        ipv4_address: 172.28.0.11  
+        ipv4_address: 172.28.0.11
 
   toxiproxy:
     image: ghcr.io/shopify/toxiproxy:2.9.0

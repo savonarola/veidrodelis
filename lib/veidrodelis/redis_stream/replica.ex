@@ -1206,6 +1206,18 @@ defmodule Vdr.RedisStream.Replica do
     case peek_bytes(state, min(state.buffer_size, 1024)) do
       {:ok, peek} ->
         case peek do
+          ## Redis sends "\n" as some kind of pings
+          <<"\n"::binary, _::binary>> ->
+            <<"\n"::binary, rest::binary>> = buffer_to_binary(state)
+
+            new_state = %{
+              state
+              | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
+                buffer_size: byte_size(rest)
+            }
+
+            parse_simple_response(new_state)
+
           <<"+"::binary, _::binary>> ->
             binary = buffer_to_binary(state)
 
@@ -1247,6 +1259,18 @@ defmodule Vdr.RedisStream.Replica do
     case peek_bytes(state, min(state.buffer_size, 1024)) do
       {:ok, peek} ->
         case peek do
+          <<"\n"::binary, _::binary>> ->
+            ## Redis sends "\n" as some kind of pings
+            <<"\n"::binary, rest::binary>> = buffer_to_binary(state)
+
+            new_state = %{
+              state
+              | buffer: if(byte_size(rest) > 0, do: [rest], else: []),
+                buffer_size: byte_size(rest)
+            }
+
+            parse_psync_response(new_state)
+
           <<"+FULLRESYNC "::binary, _::binary>> ->
             binary = buffer_to_binary(state)
 
