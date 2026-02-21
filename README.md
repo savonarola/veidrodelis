@@ -115,11 +115,11 @@ correctness of the data when using these commands or just disable them with rena
 
 **List:** `llen`, `lrange`
 
-**Set:** `smembers`, `scard`, `sismember`, `smismember`, `srandmember`, `sunion`, `sinter`, `sdiff`, `sintercard`, `sfirst`, `slast`, `snext`, `sprev`
+**Set:** `smembers`, `scard`, `sismember`, `smismember`, `srandmember`, `sunion`, `sinter`, `sdiff`, `sintercard`, `sfirst`, `slast`, `snext`, `smnext`, `sprev`, `smprev`
 
-**Hash:** `hget`, `hmget`, `hgetall`, `hkeys`, `hvals`, `hlen`, `hexists`, `hstrlen`, `hrandfield`, `hfirst`, `hlast`, `hnext`, `hprev`
+**Hash:** `hget`, `hmget`, `hgetall`, `hkeys`, `hvals`, `hlen`, `hexists`, `hstrlen`, `hrandfield`, `hfirst`, `hlast`, `hnext`, `hmnext`, `hprev`, `hmprev`
 
-**Sorted Set:** `zscore`, `zcard`, `zrange`, `zrangebyscore`, `zrank`, `zrevrank`, `zcount`, `zfirst`, `zlast`, `znext`, `zprev`
+**Sorted Set:** `zscore`, `zcard`, `zrange`, `zrangebyscore`, `zrank`, `zrevrank`, `zcount`, `zfirst`, `zlast`, `znext`, `zmnext`, `zprev`, `zmprev`
 
 Note, that read operations do not always directly reflect Redis/Valkey commands.
 
@@ -156,7 +156,7 @@ Redix.pipeline!(rdx,[
 
 ### Read Transactions via Command Lists
 
-Execute multiple read operations atomically under a single lock:
+Execute multiple read operations atomically:
 
 ```elixir
 # Atomic read of multiple keys
@@ -169,15 +169,6 @@ Execute multiple read operations atomically under a single lock:
 
 # Results is a list of individual command results
 [{:ok, "Alice"}, {:ok, "30"}, {:ok, 5}, {:ok, 10}] = results
-
-# More complex example: reading cart and inventory
-{:ok, results} = Veidrodelis.read_tx(:my_cache, 0, [
-  {:hgetall, "cart:session123"},
-  {:get, "inventory:item456:stock"},
-  {:zscore, "product:prices", "item456"}
-])
-
-# All reads are atomic - they see a consistent snapshot
 ```
 
 The operations supported by the `read_tx/3` function are the same as the direct read operations supported by the `Veidrodelis` module.

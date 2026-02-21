@@ -37,7 +37,7 @@ clean:
 clean-all: clean
     mix clean --deps
 
-clippy:
+clippy: compile
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
 dc-start:

@@ -37,6 +37,9 @@ jobs:
       - name: Run Dialyzer
         run: just dialyzer
 
+      - name: Run Rust clippy (NIFs)
+        run: just clippy
+
       - name: Start test services
         run: |
           just dc-start
@@ -44,9 +47,6 @@ jobs:
 
       - name: Run coverage
         run: just cov
-
-      - name: Run Rust clippy (NIFs)
-        run: cargo clippy --workspace --all-targets -- -D warnings
 
       - name: Upload coverage to Coveralls (Elixir)
         uses: coverallsapp/github-action@v2
@@ -57,7 +57,7 @@ jobs:
           flag-name: elixir
           parallel: true
 
-      - name: Upload coverage to Coveralls (NIF)
+      - name: Upload coverage to Coveralls (NIFs)
         uses: coverallsapp/github-action@v2
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
@@ -71,8 +71,6 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           parallel-finished: true
-
-
 
       - name: Stop test services
         if: always()
