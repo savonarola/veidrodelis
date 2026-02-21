@@ -88,7 +88,7 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       opts = [
         id: @id,
         host: @redis[:host],
-        port: @redis[:port],
+        port: @redis[:port]
       ]
 
       {:ok, vdr} = Veidrodelis.start_link(opts)
@@ -164,9 +164,9 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       results.zset_zfirst = {zfirst_score, zfirst_member}
       local zlast_score, zlast_member = ts.zlast("zset_key")
       results.zset_zlast = {zlast_score, zlast_member}
-      local znext_score, znext_member = ts.znext("zset_key", 2.5, "member_b")
+      local znext_score, znext_member = ts.znext("zset_key", "member_b")
       results.zset_znext = {znext_score, znext_member}
-      local zprev_score, zprev_member = ts.zprev("zset_key", 3.7, "member_c")
+      local zprev_score, zprev_member = ts.zprev("zset_key", "member_c")
       results.zset_zprev = {zprev_score, zprev_member}
 
       -- Non-existent key tests
@@ -247,13 +247,65 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
     end
 
     @tag timeout: 30_000
+    test "lua supports smnext/smprev hmnext/hmprev zmnext/zmprev and mfirst/mlast smoke test", %{
+      redis: redis
+    } do
+      prepare_test_data(redis)
+
+      opts = [
+        id: @id,
+        host: @redis[:host],
+        port: @redis[:port]
+      ]
+
+      {:ok, vdr} = Veidrodelis.start_link(opts)
+
+      assert_within 5000 do
+        assert :streaming == Veidrodelis.get_replication_state(vdr)
+      end
+
+      script = """
+      local result = {}
+      result.smnext = ts.smnext("set_a", "member1", 2)
+      result.smprev = ts.smprev("set_a", "member3", 2)
+      result.smfirst = ts.smfirst("set_a", 2)
+      result.smlast = ts.smlast("set_a", 2)
+      result.hmnext = ts.hmnext("hash_key", "field1", 2)
+      result.hmprev = ts.hmprev("hash_key", "field4", 2)
+      result.hmfirst = ts.hmfirst("hash_key", 2)
+      result.hmlast = ts.hmlast("hash_key", 2)
+      result.zmnext = ts.zmnext("zset_key", "member_b", 2)
+      result.zmprev = ts.zmprev("zset_key", "member_d", 2)
+      result.zmfirst = ts.zmfirst("zset_key", 2)
+      result.zmlast = ts.zmlast("zset_key", 2)
+      return result
+      """
+
+      assert {:ok, result} = Veidrodelis.read_tx(@id, 0, script)
+      assert result["smnext"] == ["member2", "member3"]
+      assert result["smprev"] == ["member2", "member1"]
+      assert result["smfirst"] == ["member1", "member2"]
+      assert result["smlast"] == ["member3", "member2"]
+      assert result["hmnext"] == [["field2", "value2"], ["field3", "value3"]]
+      assert result["hmprev"] == [["field3", "value3"], ["field2", "value2"]]
+      assert result["hmfirst"] == [["field1", "value1"], ["field2", "value2"]]
+      assert result["hmlast"] == [["field4", "value4"], ["field3", "value3"]]
+      assert result["zmnext"] == [[3.7, "member_c"], [5.0, "member_d"]]
+      assert result["zmprev"] == [[3.7, "member_c"], [2.5, "member_b"]]
+      assert result["zmfirst"] == [[1.0, "member_a"], [2.5, "member_b"]]
+      assert result["zmlast"] == [[7.2, "member_e"], [5.0, "member_d"]]
+
+      Veidrodelis.stop(vdr)
+    end
+
+    @tag timeout: 30_000
     test "lua_load compiles script to bytecode and executes correctly", %{redis: redis} do
       prepare_test_data(redis)
 
       opts = [
         id: @id,
         host: @redis[:host],
-        port: @redis[:port],
+        port: @redis[:port]
       ]
 
       {:ok, vdr} = Veidrodelis.start_link(opts)
@@ -293,7 +345,7 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       opts = [
         id: @id,
         host: @redis[:host],
-        port: @redis[:port],
+        port: @redis[:port]
       ]
 
       {:ok, vdr} = Veidrodelis.start_link(opts)
@@ -328,7 +380,7 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       opts = [
         id: @id,
         host: @redis[:host],
-        port: @redis[:port],
+        port: @redis[:port]
       ]
 
       {:ok, vdr} = Veidrodelis.start_link(opts)

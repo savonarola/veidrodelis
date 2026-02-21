@@ -172,6 +172,7 @@ defmodule Vdr.RedisStream.RDBTest do
       :error, %{reason: :unknown_command} ->
         Logger.warning("XADD not supported - skipping stream creation")
     end
+
     Redix.command!(valkey, ["PFADD", "test_hll", "element1", "element2", "element3"])
 
     Redix.command!(valkey, ["SETBIT", "test_bitmap", "100", "1"])
@@ -423,7 +424,7 @@ defmodule Vdr.RedisStream.RDBTest do
       opts = [
         id: id,
         host: @valkey[:host],
-        port: @valkey[:port],
+        port: @valkey[:port]
       ]
 
       {:ok, vdr} = Veidrodelis.start_link(opts)

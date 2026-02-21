@@ -1026,7 +1026,7 @@ defmodule Veidrodelis.IntegrationTest do
       opts = [
         id: @id,
         host: conn_opts[:host],
-        port: conn_opts[:port],
+        port: conn_opts[:port]
       ]
 
       {:ok, vdr} = Veidrodelis.start_link(opts)

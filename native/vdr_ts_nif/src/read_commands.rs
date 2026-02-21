@@ -63,12 +63,20 @@ fn dispatch_read_command<'a>(
         handle_scard(env, inner, db, args)
     } else if cmd_atom == atoms::sfirst() {
         handle_sfirst(env, inner, db, args)
+    } else if cmd_atom == atoms::smfirst() {
+        handle_smfirst(env, inner, db, args)
     } else if cmd_atom == atoms::slast() {
         handle_slast(env, inner, db, args)
+    } else if cmd_atom == atoms::smlast() {
+        handle_smlast(env, inner, db, args)
     } else if cmd_atom == atoms::snext() {
         handle_snext(env, inner, db, args)
+    } else if cmd_atom == atoms::smnext() {
+        handle_smnext(env, inner, db, args)
     } else if cmd_atom == atoms::sprev() {
         handle_sprev(env, inner, db, args)
+    } else if cmd_atom == atoms::smprev() {
+        handle_smprev(env, inner, db, args)
     } else if cmd_atom == atoms::smismember() {
         handle_smismember(env, inner, db, args)
     } else if cmd_atom == atoms::srandmember() {
@@ -103,12 +111,20 @@ fn dispatch_read_command<'a>(
         handle_hexists(env, inner, db, args)
     } else if cmd_atom == atoms::hfirst() {
         handle_hfirst(env, inner, db, args)
+    } else if cmd_atom == atoms::hmfirst() {
+        handle_hmfirst(env, inner, db, args)
     } else if cmd_atom == atoms::hlast() {
         handle_hlast(env, inner, db, args)
+    } else if cmd_atom == atoms::hmlast() {
+        handle_hmlast(env, inner, db, args)
     } else if cmd_atom == atoms::hnext() {
         handle_hnext(env, inner, db, args)
+    } else if cmd_atom == atoms::hmnext() {
+        handle_hmnext(env, inner, db, args)
     } else if cmd_atom == atoms::hprev() {
         handle_hprev(env, inner, db, args)
+    } else if cmd_atom == atoms::hmprev() {
+        handle_hmprev(env, inner, db, args)
     } else if cmd_atom == atoms::hstrlen() {
         handle_hstrlen(env, inner, db, args)
     } else if cmd_atom == atoms::hrandfield() {
@@ -130,12 +146,20 @@ fn dispatch_read_command<'a>(
         handle_zcount(env, inner, db, args)
     } else if cmd_atom == atoms::zfirst() {
         handle_zfirst(env, inner, db, args)
+    } else if cmd_atom == atoms::zmfirst() {
+        handle_zmfirst(env, inner, db, args)
     } else if cmd_atom == atoms::zlast() {
         handle_zlast(env, inner, db, args)
+    } else if cmd_atom == atoms::zmlast() {
+        handle_zmlast(env, inner, db, args)
     } else if cmd_atom == atoms::znext() {
         handle_znext(env, inner, db, args)
+    } else if cmd_atom == atoms::zmnext() {
+        handle_zmnext(env, inner, db, args)
     } else if cmd_atom == atoms::zprev() {
         handle_zprev(env, inner, db, args)
+    } else if cmd_atom == atoms::zmprev() {
+        handle_zmprev(env, inner, db, args)
     } else {
         Err("Unknown read command")
     }
@@ -291,6 +315,70 @@ fn handle_slast<'a>(
     }
 }
 
+fn handle_smfirst<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 2 {
+        return Err("SMFIRST requires exactly 2 arguments: key, count");
+    }
+
+    let (Ok(key), Ok(count)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<u64>())
+    else {
+        return Err("SMFIRST key must be a binary, count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "SMFIRST count is too large")?;
+    match inner.smfirst(db, key.as_slice(), count) {
+        Ok(members) => {
+            let binaries: Vec<rustler::Binary> = members
+                .iter()
+                .map(|m| {
+                    let mut binary = rustler::types::OwnedBinary::new(m.len()).unwrap();
+                    binary.as_mut_slice().copy_from_slice(m.as_slice());
+                    binary.release(env)
+                })
+                .collect();
+            Ok((atoms::ok(), binaries).encode(env))
+        }
+        Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
+    }
+}
+
+fn handle_smlast<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 2 {
+        return Err("SMLAST requires exactly 2 arguments: key, count");
+    }
+
+    let (Ok(key), Ok(count)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<u64>())
+    else {
+        return Err("SMLAST key must be a binary, count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "SMLAST count is too large")?;
+    match inner.smlast(db, key.as_slice(), count) {
+        Ok(members) => {
+            let binaries: Vec<rustler::Binary> = members
+                .iter()
+                .map(|m| {
+                    let mut binary = rustler::types::OwnedBinary::new(m.len()).unwrap();
+                    binary.as_mut_slice().copy_from_slice(m.as_slice());
+                    binary.release(env)
+                })
+                .collect();
+            Ok((atoms::ok(), binaries).encode(env))
+        }
+        Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
+    }
+}
+
 fn handle_snext<'a>(
     env: rustler::Env<'a>,
     inner: &StorageInner,
@@ -321,6 +409,41 @@ fn handle_snext<'a>(
     }
 }
 
+fn handle_smnext<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 3 {
+        return Err("SMNEXT requires exactly 3 arguments: key, member, count");
+    }
+
+    let (Ok(key), Ok(member), Ok(count)) = (
+        args[0].decode::<rustler::Binary>(),
+        args[1].decode::<rustler::Binary>(),
+        args[2].decode::<u64>(),
+    ) else {
+        return Err("SMNEXT key and member must be binaries, count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "SMNEXT count is too large")?;
+    match inner.smnext(db, key.as_slice(), member.as_slice(), count) {
+        Ok(members) => {
+            let binaries: Vec<rustler::Binary> = members
+                .iter()
+                .map(|m| {
+                    let mut binary = rustler::types::OwnedBinary::new(m.len()).unwrap();
+                    binary.as_mut_slice().copy_from_slice(m.as_slice());
+                    binary.release(env)
+                })
+                .collect();
+            Ok((atoms::ok(), binaries).encode(env))
+        }
+        Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
+    }
+}
+
 fn handle_sprev<'a>(
     env: rustler::Env<'a>,
     inner: &StorageInner,
@@ -347,6 +470,41 @@ fn handle_sprev<'a>(
             Ok((atoms::ok(), member_bin.release(env)).encode(env))
         }
         Ok(None) => Ok((atoms::ok(), atoms::nil()).encode(env)),
+        Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
+    }
+}
+
+fn handle_smprev<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 3 {
+        return Err("SMPREV requires exactly 3 arguments: key, member, count");
+    }
+
+    let (Ok(key), Ok(member), Ok(count)) = (
+        args[0].decode::<rustler::Binary>(),
+        args[1].decode::<rustler::Binary>(),
+        args[2].decode::<u64>(),
+    ) else {
+        return Err("SMPREV key and member must be binaries, count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "SMPREV count is too large")?;
+    match inner.smprev(db, key.as_slice(), member.as_slice(), count) {
+        Ok(members) => {
+            let binaries: Vec<rustler::Binary> = members
+                .iter()
+                .map(|m| {
+                    let mut binary = rustler::types::OwnedBinary::new(m.len()).unwrap();
+                    binary.as_mut_slice().copy_from_slice(m.as_slice());
+                    binary.release(env)
+                })
+                .collect();
+            Ok((atoms::ok(), binaries).encode(env))
+        }
         Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
     }
 }
@@ -838,6 +996,74 @@ fn handle_hlast<'a>(
     }
 }
 
+fn handle_hmfirst<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 2 {
+        return Err("HMFIRST requires exactly 2 arguments: key, count");
+    }
+
+    let (Ok(key), Ok(count)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<u64>())
+    else {
+        return Err("HMFIRST key must be a binary, count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "HMFIRST count is too large")?;
+    match inner.hmfirst(db, key.as_slice(), count) {
+        Ok(entries) => {
+            let encoded: Vec<(rustler::Binary, rustler::Binary)> = entries
+                .iter()
+                .map(|(field, value)| {
+                    let mut field_bin = rustler::types::OwnedBinary::new(field.len()).unwrap();
+                    field_bin.as_mut_slice().copy_from_slice(field.as_slice());
+                    let mut value_bin = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                    value_bin.as_mut_slice().copy_from_slice(value.as_slice());
+                    (field_bin.release(env), value_bin.release(env))
+                })
+                .collect();
+            Ok((atoms::ok(), encoded).encode(env))
+        }
+        Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
+    }
+}
+
+fn handle_hmlast<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 2 {
+        return Err("HMLAST requires exactly 2 arguments: key, count");
+    }
+
+    let (Ok(key), Ok(count)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<u64>())
+    else {
+        return Err("HMLAST key must be a binary, count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "HMLAST count is too large")?;
+    match inner.hmlast(db, key.as_slice(), count) {
+        Ok(entries) => {
+            let encoded: Vec<(rustler::Binary, rustler::Binary)> = entries
+                .iter()
+                .map(|(field, value)| {
+                    let mut field_bin = rustler::types::OwnedBinary::new(field.len()).unwrap();
+                    field_bin.as_mut_slice().copy_from_slice(field.as_slice());
+                    let mut value_bin = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                    value_bin.as_mut_slice().copy_from_slice(value.as_slice());
+                    (field_bin.release(env), value_bin.release(env))
+                })
+                .collect();
+            Ok((atoms::ok(), encoded).encode(env))
+        }
+        Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
+    }
+}
+
 fn handle_hnext<'a>(
     env: rustler::Env<'a>,
     inner: &StorageInner,
@@ -874,6 +1100,43 @@ fn handle_hnext<'a>(
     }
 }
 
+fn handle_hmnext<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 3 {
+        return Err("HMNEXT requires exactly 3 arguments: key, field, count");
+    }
+
+    let (Ok(key), Ok(field), Ok(count)) = (
+        args[0].decode::<rustler::Binary>(),
+        args[1].decode::<rustler::Binary>(),
+        args[2].decode::<u64>(),
+    ) else {
+        return Err("HMNEXT key and field must be binaries, count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "HMNEXT count is too large")?;
+    match inner.hmnext(db, key.as_slice(), field.as_slice(), count) {
+        Ok(entries) => {
+            let encoded: Vec<(rustler::Binary, rustler::Binary)> = entries
+                .iter()
+                .map(|(field, value)| {
+                    let mut field_bin = rustler::types::OwnedBinary::new(field.len()).unwrap();
+                    field_bin.as_mut_slice().copy_from_slice(field.as_slice());
+                    let mut value_bin = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                    value_bin.as_mut_slice().copy_from_slice(value.as_slice());
+                    (field_bin.release(env), value_bin.release(env))
+                })
+                .collect();
+            Ok((atoms::ok(), encoded).encode(env))
+        }
+        Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
+    }
+}
+
 fn handle_hprev<'a>(
     env: rustler::Env<'a>,
     inner: &StorageInner,
@@ -906,6 +1169,43 @@ fn handle_hprev<'a>(
                 .encode(env))
         }
         Ok(None) => Ok((atoms::ok(), atoms::nil()).encode(env)),
+        Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
+    }
+}
+
+fn handle_hmprev<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 3 {
+        return Err("HMPREV requires exactly 3 arguments: key, field, count");
+    }
+
+    let (Ok(key), Ok(field), Ok(count)) = (
+        args[0].decode::<rustler::Binary>(),
+        args[1].decode::<rustler::Binary>(),
+        args[2].decode::<u64>(),
+    ) else {
+        return Err("HMPREV key and field must be binaries, count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "HMPREV count is too large")?;
+    match inner.hmprev(db, key.as_slice(), field.as_slice(), count) {
+        Ok(entries) => {
+            let encoded: Vec<(rustler::Binary, rustler::Binary)> = entries
+                .iter()
+                .map(|(field, value)| {
+                    let mut field_bin = rustler::types::OwnedBinary::new(field.len()).unwrap();
+                    field_bin.as_mut_slice().copy_from_slice(field.as_slice());
+                    let mut value_bin = rustler::types::OwnedBinary::new(value.len()).unwrap();
+                    value_bin.as_mut_slice().copy_from_slice(value.as_slice());
+                    (field_bin.release(env), value_bin.release(env))
+                })
+                .collect();
+            Ok((atoms::ok(), encoded).encode(env))
+        }
         Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
     }
 }
@@ -1242,25 +1542,88 @@ fn handle_zlast<'a>(
     }
 }
 
+fn handle_zmfirst<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 2 {
+        return Err("ZMFIRST requires exactly 2 arguments: key, count");
+    }
+
+    let (Ok(key), Ok(count)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<u64>())
+    else {
+        return Err("ZMFIRST key must be a binary, count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "ZMFIRST count is too large")?;
+    match inner.zmfirst(db, key.as_slice(), count) {
+        Ok(entries) => {
+            let encoded: Vec<(f64, rustler::Binary)> = entries
+                .iter()
+                .map(|(score, member)| {
+                    let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+                    member_bin.as_mut_slice().copy_from_slice(member.as_slice());
+                    (score.into_inner(), member_bin.release(env))
+                })
+                .collect();
+            Ok((atoms::ok(), encoded).encode(env))
+        }
+        Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
+    }
+}
+
+fn handle_zmlast<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 2 {
+        return Err("ZMLAST requires exactly 2 arguments: key, count");
+    }
+
+    let (Ok(key), Ok(count)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<u64>())
+    else {
+        return Err("ZMLAST key must be a binary, count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "ZMLAST count is too large")?;
+    match inner.zmlast(db, key.as_slice(), count) {
+        Ok(entries) => {
+            let encoded: Vec<(f64, rustler::Binary)> = entries
+                .iter()
+                .map(|(score, member)| {
+                    let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+                    member_bin.as_mut_slice().copy_from_slice(member.as_slice());
+                    (score.into_inner(), member_bin.release(env))
+                })
+                .collect();
+            Ok((atoms::ok(), encoded).encode(env))
+        }
+        Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
+    }
+}
+
 fn handle_znext<'a>(
     env: rustler::Env<'a>,
     inner: &StorageInner,
     db: u64,
     args: &[rustler::Term<'a>],
 ) -> ReadResult<'a> {
-    if args.len() != 3 {
-        return Err("ZNEXT requires exactly 3 arguments: key, score, member");
+    if args.len() != 2 {
+        return Err("ZNEXT requires exactly 2 arguments: key, member");
     }
 
-    let (Ok(key), Ok(score), Ok(member)) = (
+    let (Ok(key), Ok(member)) = (
         args[0].decode::<rustler::Binary>(),
-        args[1].decode::<f64>(),
-        args[2].decode::<rustler::Binary>(),
+        args[1].decode::<rustler::Binary>(),
     ) else {
-        return Err("ZNEXT key and member must be binaries, score must be a float");
+        return Err("ZNEXT key and member must be binaries");
     };
 
-    match inner.znext(db, key.as_slice(), OrderedFloat(score), member.as_slice()) {
+    match inner.znext(db, key.as_slice(), member.as_slice()) {
         Ok(Some((new_score, new_member))) => {
             let mut member_bin = rustler::types::OwnedBinary::new(new_member.len()).unwrap();
             member_bin
@@ -1277,25 +1640,59 @@ fn handle_znext<'a>(
     }
 }
 
-fn handle_zprev<'a>(
+fn handle_zmnext<'a>(
     env: rustler::Env<'a>,
     inner: &StorageInner,
     db: u64,
     args: &[rustler::Term<'a>],
 ) -> ReadResult<'a> {
     if args.len() != 3 {
-        return Err("ZPREV requires exactly 3 arguments: key, score, member");
+        return Err("ZMNEXT requires exactly 3 arguments: key, member, count");
     }
 
-    let (Ok(key), Ok(score), Ok(member)) = (
+    let (Ok(key), Ok(member), Ok(count)) = (
         args[0].decode::<rustler::Binary>(),
-        args[1].decode::<f64>(),
-        args[2].decode::<rustler::Binary>(),
+        args[1].decode::<rustler::Binary>(),
+        args[2].decode::<u64>(),
     ) else {
-        return Err("ZPREV key and member must be binaries, score must be a float");
+        return Err("ZMNEXT key and member must be binaries, count must be a non-negative integer");
     };
 
-    match inner.zprev(db, key.as_slice(), OrderedFloat(score), member.as_slice()) {
+    let count = usize::try_from(count).map_err(|_| "ZMNEXT count is too large")?;
+    match inner.zmnext(db, key.as_slice(), member.as_slice(), count) {
+        Ok(entries) => {
+            let encoded: Vec<(f64, rustler::Binary)> = entries
+                .iter()
+                .map(|(score, member)| {
+                    let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+                    member_bin.as_mut_slice().copy_from_slice(member.as_slice());
+                    (score.into_inner(), member_bin.release(env))
+                })
+                .collect();
+            Ok((atoms::ok(), encoded).encode(env))
+        }
+        Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
+    }
+}
+
+fn handle_zprev<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 2 {
+        return Err("ZPREV requires exactly 2 arguments: key, member");
+    }
+
+    let (Ok(key), Ok(member)) = (
+        args[0].decode::<rustler::Binary>(),
+        args[1].decode::<rustler::Binary>(),
+    ) else {
+        return Err("ZPREV key and member must be binaries");
+    };
+
+    match inner.zprev(db, key.as_slice(), member.as_slice()) {
         Ok(Some((new_score, new_member))) => {
             let mut member_bin = rustler::types::OwnedBinary::new(new_member.len()).unwrap();
             member_bin
@@ -1308,6 +1705,41 @@ fn handle_zprev<'a>(
                 .encode(env))
         }
         Ok(None) => Ok((atoms::ok(), atoms::nil()).encode(env)),
+        Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
+    }
+}
+
+fn handle_zmprev<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 3 {
+        return Err("ZMPREV requires exactly 3 arguments: key, member, count");
+    }
+
+    let (Ok(key), Ok(member), Ok(count)) = (
+        args[0].decode::<rustler::Binary>(),
+        args[1].decode::<rustler::Binary>(),
+        args[2].decode::<u64>(),
+    ) else {
+        return Err("ZMPREV key and member must be binaries, count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "ZMPREV count is too large")?;
+    match inner.zmprev(db, key.as_slice(), member.as_slice(), count) {
+        Ok(entries) => {
+            let encoded: Vec<(f64, rustler::Binary)> = entries
+                .iter()
+                .map(|(score, member)| {
+                    let mut member_bin = rustler::types::OwnedBinary::new(member.len()).unwrap();
+                    member_bin.as_mut_slice().copy_from_slice(member.as_slice());
+                    (score.into_inner(), member_bin.release(env))
+                })
+                .collect();
+            Ok((atoms::ok(), encoded).encode(env))
+        }
         Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
     }
 }

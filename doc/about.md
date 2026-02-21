@@ -86,10 +86,10 @@ Lua scripts can orchestrate richer logic while still reading from a consistent s
 ```elixir
 script = """
 local timeline = {}
-local next_score = ts.zfirst('leaderboard')
-while next_score do
-  table.insert(timeline, next_score)
-  next_score = ts.znext('leaderboard', next_score)
+local next_score, next_member = ts.zfirst('leaderboard')
+while next_member do
+  table.insert(timeline, {next_member, next_score})
+  next_score, next_member = ts.znext('leaderboard', next_member)
 end
 return timeline
 """

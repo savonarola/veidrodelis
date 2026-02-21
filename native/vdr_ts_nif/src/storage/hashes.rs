@@ -245,6 +245,37 @@ impl StorageInner {
         Ok(result)
     }
 
+    /// Get the first (minimum) fields from hash.
+    /// Returns up to count field/value pairs.
+    pub fn hmfirst(
+        &self,
+        db: u64,
+        key: &[u8],
+        count: usize,
+    ) -> Result<Vec<(Bytes, Bytes)>, &'static str> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(hash
+            .iter()
+            .take(count)
+            .map(|(field, value)| (field.clone(), value.clone()))
+            .collect())
+    }
+
     /// Get the last (maximum) field from hash.
     /// Returns Some((field, value)) or None if hash is empty/doesn't exist.
     pub fn hlast(&self, db: u64, key: &[u8]) -> Result<Option<(Bytes, Bytes)>, &'static str> {
@@ -264,6 +295,72 @@ impl StorageInner {
             .last_key_value()
             .map(|(field, value)| (field.clone(), value.clone()));
         Ok(result)
+    }
+
+    /// Get the last (maximum) fields from hash.
+    /// Returns up to count field/value pairs in reverse lexicographical order.
+    pub fn hmlast(
+        &self,
+        db: u64,
+        key: &[u8],
+        count: usize,
+    ) -> Result<Vec<(Bytes, Bytes)>, &'static str> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(hash
+            .iter()
+            .rev()
+            .take(count)
+            .map(|(field, value)| (field.clone(), value.clone()))
+            .collect())
+    }
+
+    /// Get the next fields after the given field in hash.
+    /// Returns up to count field/value pairs.
+    pub fn hmnext(
+        &self,
+        db: u64,
+        key: &[u8],
+        field: &[u8],
+        count: usize,
+    ) -> Result<Vec<(Bytes, Bytes)>, &'static str> {
+        use std::ops::Bound;
+
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        let range = hash.range::<[u8], _>((Bound::Excluded(field), Bound::Unbounded));
+        Ok(range
+            .take(count)
+            .map(|(f, v)| (f.clone(), v.clone()))
+            .collect())
     }
 
     /// Get the next field after the given field in hash.
@@ -288,10 +385,44 @@ impl StorageInner {
             return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
         };
 
-        // Use range starting after the current field
         let range = hash.range::<[u8], _>((Bound::Excluded(field), Bound::Unbounded));
         let result = range.take(1).next().map(|(f, v)| (f.clone(), v.clone()));
         Ok(result)
+    }
+
+    /// Get the previous fields before the given field in hash.
+    /// Returns up to count field/value pairs.
+    pub fn hmprev(
+        &self,
+        db: u64,
+        key: &[u8],
+        field: &[u8],
+        count: usize,
+    ) -> Result<Vec<(Bytes, Bytes)>, &'static str> {
+        use std::ops::Bound;
+
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
+
+        let StorageValue::Hash(hash) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        let range = hash.range::<[u8], _>((Bound::Unbounded, Bound::Excluded(field)));
+        Ok(range
+            .rev()
+            .take(count)
+            .map(|(f, v)| (f.clone(), v.clone()))
+            .collect())
     }
 
     /// Get the previous field before the given field in hash.
@@ -316,7 +447,6 @@ impl StorageInner {
             return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
         };
 
-        // Use range ending before the current field, get last element
         let range = hash.range::<[u8], _>((Bound::Unbounded, Bound::Excluded(field)));
         let result = range.last().map(|(f, v)| (f.clone(), v.clone()));
         Ok(result)

@@ -488,6 +488,63 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
                  ])
       end
     end
+
+    test "smnext/smprev work with concrete counts", %{redis: redis} do
+      key = "integration_set_nav_many_#{:erlang.unique_integer([:positive])}"
+      members = ["m01", "m02", "m03", "m04"]
+      Redix.command!(redis, ["SADD", key | members])
+
+      assert_within 1000 do
+        assert {:ok, 4} == Veidrodelis.scard(vdr_id(), 0, key)
+      end
+
+      assert {:ok, []} == Veidrodelis.smnext(vdr_id(), 0, key, "m04", 0)
+      assert {:ok, ["m04"]} == Veidrodelis.smnext(vdr_id(), 0, key, "m03", 1)
+      assert {:ok, ["m03", "m04"]} == Veidrodelis.smnext(vdr_id(), 0, key, "m02", 2)
+      assert {:ok, ["m01", "m02", "m03", "m04"]} == Veidrodelis.smnext(vdr_id(), 0, key, "m00", 4)
+
+      assert {:ok, []} == Veidrodelis.smprev(vdr_id(), 0, key, "m01", 0)
+      assert {:ok, ["m01"]} == Veidrodelis.smprev(vdr_id(), 0, key, "m02", 1)
+      assert {:ok, ["m02", "m01"]} == Veidrodelis.smprev(vdr_id(), 0, key, "m03", 2)
+      assert {:ok, ["m04", "m03", "m02", "m01"]} == Veidrodelis.smprev(vdr_id(), 0, key, "m05", 4)
+
+      assert {:ok, [{:ok, ["m03", "m04"]}, {:ok, ["m02", "m01"]}]} =
+               Veidrodelis.read_tx(vdr_id(), 0, [
+                 {:smnext, key, "m02", 2},
+                 {:smprev, key, "m03", 2}
+               ])
+
+      assert {:ok, nil} == Veidrodelis.snext(vdr_id(), 0, key, "m04")
+      assert {:ok, "m04"} == Veidrodelis.snext(vdr_id(), 0, key, "m03")
+      assert {:ok, nil} == Veidrodelis.sprev(vdr_id(), 0, key, "m01")
+      assert {:ok, "m01"} == Veidrodelis.sprev(vdr_id(), 0, key, "m02")
+    end
+
+    test "smfirst/smlast work with concrete counts", %{redis: redis} do
+      key = "integration_set_nav_many_ends_#{:erlang.unique_integer([:positive])}"
+      members = ["m01", "m02", "m03", "m04"]
+      Redix.command!(redis, ["SADD", key | members])
+
+      assert_within 1000 do
+        assert {:ok, 4} == Veidrodelis.scard(vdr_id(), 0, key)
+      end
+
+      assert {:ok, []} == Veidrodelis.smfirst(vdr_id(), 0, key, 0)
+      assert {:ok, ["m01"]} == Veidrodelis.smfirst(vdr_id(), 0, key, 1)
+      assert {:ok, ["m01", "m02"]} == Veidrodelis.smfirst(vdr_id(), 0, key, 2)
+      assert {:ok, ["m01", "m02", "m03", "m04"]} == Veidrodelis.smfirst(vdr_id(), 0, key, 4)
+
+      assert {:ok, []} == Veidrodelis.smlast(vdr_id(), 0, key, 0)
+      assert {:ok, ["m04"]} == Veidrodelis.smlast(vdr_id(), 0, key, 1)
+      assert {:ok, ["m04", "m03"]} == Veidrodelis.smlast(vdr_id(), 0, key, 2)
+      assert {:ok, ["m04", "m03", "m02", "m01"]} == Veidrodelis.smlast(vdr_id(), 0, key, 4)
+
+      assert {:ok, [{:ok, ["m01", "m02"]}, {:ok, ["m04", "m03"]}]} =
+               Veidrodelis.read_tx(vdr_id(), 0, [
+                 {:smfirst, key, 2},
+                 {:smlast, key, 2}
+               ])
+    end
   end
 
   describe "set bulk helpers" do

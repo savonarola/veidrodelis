@@ -1877,5 +1877,72 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
                  Veidrodelis.zrange(vdr_id(), 0, "mystring", 0, -1)
       end
     end
+
+    test "zmnext/zmprev work with concrete counts", %{redis: redis} do
+      key = "integration_zset_nav_many_#{:erlang.unique_integer([:positive])}"
+      Redix.command!(redis, ["ZADD", key, "1", "m01", "2", "m02", "3", "m03", "4", "m04"])
+
+      assert_within 1000 do
+        assert {:ok, 4} == Veidrodelis.zcard(vdr_id(), 0, key)
+      end
+
+      assert {:ok, []} == Veidrodelis.zmnext(vdr_id(), 0, key, "m04", 0)
+      assert {:ok, [{4.0, "m04"}]} == Veidrodelis.zmnext(vdr_id(), 0, key, "m03", 1)
+
+      assert {:ok, [{3.0, "m03"}, {4.0, "m04"}]} ==
+               Veidrodelis.zmnext(vdr_id(), 0, key, "m02", 2)
+
+      assert {:ok, [{1.0, "m01"}, {2.0, "m02"}, {3.0, "m03"}, {4.0, "m04"}]} ==
+               Veidrodelis.zmnext(vdr_id(), 0, key, "m00", 4)
+
+      assert {:ok, []} == Veidrodelis.zmprev(vdr_id(), 0, key, "m01", 0)
+      assert {:ok, [{1.0, "m01"}]} == Veidrodelis.zmprev(vdr_id(), 0, key, "m02", 1)
+
+      assert {:ok, [{2.0, "m02"}, {1.0, "m01"}]} ==
+               Veidrodelis.zmprev(vdr_id(), 0, key, "m03", 2)
+
+      assert {:ok, [{4.0, "m04"}, {3.0, "m03"}, {2.0, "m02"}, {1.0, "m01"}]} ==
+               Veidrodelis.zmprev(vdr_id(), 0, key, "m05", 4)
+
+      assert {:ok, [{:ok, [{3.0, "m03"}, {4.0, "m04"}]}, {:ok, [{2.0, "m02"}, {1.0, "m01"}]}]} =
+               Veidrodelis.read_tx(vdr_id(), 0, [
+                 {:zmnext, key, "m02", 2},
+                 {:zmprev, key, "m03", 2}
+               ])
+
+      assert {:ok, nil} == Veidrodelis.znext(vdr_id(), 0, key, "m04")
+      assert {:ok, {4.0, "m04"}} == Veidrodelis.znext(vdr_id(), 0, key, "m03")
+      assert {:ok, nil} == Veidrodelis.zprev(vdr_id(), 0, key, "m01")
+      assert {:ok, {1.0, "m01"}} == Veidrodelis.zprev(vdr_id(), 0, key, "m02")
+    end
+
+    test "zmfirst/zmlast work with concrete counts", %{redis: redis} do
+      key = "integration_zset_nav_many_ends_#{:erlang.unique_integer([:positive])}"
+      Redix.command!(redis, ["ZADD", key, "1", "m01", "2", "m02", "3", "m03", "4", "m04"])
+
+      assert_within 1000 do
+        assert {:ok, 4} == Veidrodelis.zcard(vdr_id(), 0, key)
+      end
+
+      assert {:ok, []} == Veidrodelis.zmfirst(vdr_id(), 0, key, 0)
+      assert {:ok, [{1.0, "m01"}]} == Veidrodelis.zmfirst(vdr_id(), 0, key, 1)
+      assert {:ok, [{1.0, "m01"}, {2.0, "m02"}]} == Veidrodelis.zmfirst(vdr_id(), 0, key, 2)
+
+      assert {:ok, [{1.0, "m01"}, {2.0, "m02"}, {3.0, "m03"}, {4.0, "m04"}]} ==
+               Veidrodelis.zmfirst(vdr_id(), 0, key, 4)
+
+      assert {:ok, []} == Veidrodelis.zmlast(vdr_id(), 0, key, 0)
+      assert {:ok, [{4.0, "m04"}]} == Veidrodelis.zmlast(vdr_id(), 0, key, 1)
+      assert {:ok, [{4.0, "m04"}, {3.0, "m03"}]} == Veidrodelis.zmlast(vdr_id(), 0, key, 2)
+
+      assert {:ok, [{4.0, "m04"}, {3.0, "m03"}, {2.0, "m02"}, {1.0, "m01"}]} ==
+               Veidrodelis.zmlast(vdr_id(), 0, key, 4)
+
+      assert {:ok, [{:ok, [{1.0, "m01"}, {2.0, "m02"}]}, {:ok, [{4.0, "m04"}, {3.0, "m03"}]}]} =
+               Veidrodelis.read_tx(vdr_id(), 0, [
+                 {:zmfirst, key, 2},
+                 {:zmlast, key, 2}
+               ])
+    end
   end
 end

@@ -7,9 +7,11 @@
 
 # Veidrodelis
 
-**Local Read-Only Projection of Redis/Valkey Data**
+**Local Read-Only Projection of Valkey/Redis Data**
 
-Veidrodelis connects to Redis or Valkey as a replica and builds a local, read-only projection of the data inside your Erlang/Elixir node. Write commands are issued to the remote Redis via a standard client like Redix, while reads are served from the local projection with little latency.
+Veidrodelis connects to Valkey or Redis as a replica and builds a local, read-only projection of the data inside your Erlang/Elixir node.
+
+This allows to implement infrequent writes/frequent reads patterns efficiently. Write commands are issued to the remote Valkey/Redis instance via a standard client like Redix, while reads are served from the local projection with little latency.
 
 ## Architecture
 
@@ -17,19 +19,12 @@ Veidrodelis connects to Redis or Valkey as a replica and builds a local, read-on
 
 ## General Idea
 
-Veidrodelis implements the Redis replication protocol to receive all write operations happening on a Redis/Valkey primary. It builds and maintains a local, in-memory projection of the data using high-performance storage.
+Veidrodelis implements the Redis replication protocol to receive all write operations happening on a Valkey/Redis instance. It builds and maintains a local, in-memory projection of the data using high-performance NIF-based storage.
 
-**Benefits:**
-- **Ultra-low latency reads**: Data is local to your Erlang node, no network round-trip
-- **Reduced Redis load**: Read traffic doesn't hit Redis
-- **Consistent snapshots**: Atomic read transactions across multiple keys
-- **Erlang-native**: Seamless integration with OTP applications
-
-**How it works:**
-1. Veidrodelis connects to Redis as a replica (read-only)
-2. Redis sends the full dataset (RDB) followed by streaming updates
-3. All writes still go through Redis via Redix (or any Redis client)
-4. Reads are served from the local projection via Veidrodelis
+1. Veidrodelis connects to Valkey/Redis as a replica.
+2. Valkey/Redis sends the full dataset (RDB) snapshot to the replica, which is parsed and stored into the local projection.
+3. Valkey/Redis sends the streaming updates to the replica, which are parsed and applied to the local projection in real-time.
+4. In-process clients can read the data from the local projection with little latency.
 
 ## Installation
 
@@ -40,7 +35,7 @@ def deps do
   [
     {:veidrodelis, "~> 0.1.5"},
     # optional, for Sentinel support
-    # however, you probably need some client to make writes to the primary
+    # also some client is needed for write requests
     {:redix, "~> 1.5"}
   ]
 end
@@ -102,11 +97,11 @@ Unsupported write commands are:
 
 and all the commands that are not related to string, hash, list, set, sorted set data types.
 
-To prevent data inconsistencies, configure Redis ACLs to deny unsupported write commands, see [doc/acl.txt](doc/acl.txt) for the recommended configuration.
+To prevent data inconsistencies, configure Valkey/Redis ACLs to deny unsupported write commands, see [doc/acl.txt](doc/acl.txt) for the recommended configuration.
 
 #### Replication caveats
 
-Some write commands (namely, `ZREMRANGEBYLEX`) are declared to produce undefined behavior if applied to wrong data. Obviously, we cannot replicate undefined behavior (in Redis/Valkey the correctness of replication is achieved by running exactly the same code on the replica). So, one should either manually control the
+Some write commands (namely, `ZREMRANGEBYLEX`) are declared to produce undefined behavior if applied to wrong data. Obviously, we cannot replicate undefined behavior (in Valkey/Redis the correctness of replication is achieved by running exactly the same code on the replica). So, one should either manually control the
 correctness of the data when using these commands or just disable them with renaming or ACLs.
 
 ### Read Operations
@@ -115,17 +110,17 @@ correctness of the data when using these commands or just disable them with rena
 
 **List:** `llen`, `lrange`
 
-**Set:** `smembers`, `scard`, `sismember`, `smismember`, `srandmember`, `sunion`, `sinter`, `sdiff`, `sintercard`, `sfirst`, `slast`, `snext`, `smnext`, `sprev`, `smprev`
+**Set:** `smembers`, `scard`, `sismember`, `smismember`, `srandmember`, `sunion`, `sinter`, `sdiff`, `sintercard`, `sfirst`, `smfirst`, `slast`, `smlast`, `snext`, `smnext`, `sprev`, `smprev`
 
-**Hash:** `hget`, `hmget`, `hgetall`, `hkeys`, `hvals`, `hlen`, `hexists`, `hstrlen`, `hrandfield`, `hfirst`, `hlast`, `hnext`, `hmnext`, `hprev`, `hmprev`
+**Hash:** `hget`, `hmget`, `hgetall`, `hkeys`, `hvals`, `hlen`, `hexists`, `hstrlen`, `hrandfield`, `hfirst`, `hmfirst`, `hlast`, `hmlast`, `hnext`, `hmnext`, `hprev`, `hmprev`
 
-**Sorted Set:** `zscore`, `zcard`, `zrange`, `zrangebyscore`, `zrank`, `zrevrank`, `zcount`, `zfirst`, `zlast`, `znext`, `zmnext`, `zprev`, `zmprev`
+**Sorted Set:** `zscore`, `zcard`, `zrange`, `zrangebyscore`, `zrank`, `zrevrank`, `zcount`, `zfirst`, `zmfirst`, `zlast`, `zmlast`, `znext`, `zmnext`, `zprev`, `zmprev`
 
-Note, that read operations do not always directly reflect Redis/Valkey commands.
+Note, that read operations do not always directly reflect Valkey/Redis commands.
 
 ### Transactions
 
-Redis/Valkey supports simple write transactions via the `MULTI` and `EXEC` commands. Also, Redis/Valkey supports Lua scripts for more complex atomic write operations. However, replicas receive plain stream of mutating commands, so when reading from a replica, you may see partial transaction state.
+Valkey/Redis supports simple write transactions via the `MULTI` and `EXEC` commands. Also, Valkey/Redis supports Lua scripts for more complex atomic write operations. However, replicas receive plain stream of mutating commands, so when reading from a replica, you may see partial transaction state.
 
 Veidrodelis, being an in-process replica, supports a convention to avoid seeing partial transaction state.
 
@@ -198,18 +193,13 @@ return ts.hget('user:' .. owner_id, 'name')
 
 # Iterate over sorted set
 script = """
-local results = {}
-local first_score, first_member = ts.zfirst('leaderboard')
-if first_score then
-  table.insert(results, {first_member, first_score})
-
-  local next_score, next_member = ts.znext('leaderboard', first_score, first_member)
-  while next_score do
-    table.insert(results, {next_member, next_score})
-    next_score, next_member = ts.znext('leaderboard', next_score, next_member)
-  end
+local timeline = {}
+local next_score, next_member = ts.zfirst('leaderboard')
+while next_member do
+  table.insert(timeline, {next_member, next_score})
+  next_score, next_member = ts.znext('leaderboard', next_member)
 end
-return results
+return timeline
 """
 
 {:ok, leaderboard} = Veidrodelis.read_tx(:my_cache, 0, script)
@@ -264,15 +254,15 @@ end
 - Each process can watch the same key only once
 - Watches survive reconnections (automatically re-registered)
 - Watches are cleaned up when the watching process terminates
-- The `command` field contains the full Redis command as a list (e.g., `["SET", "key", "value"]`)
+- The `command` field contains the full Valkey/Redis command as a list (e.g., `["SET", "key", "value"]`)
 
 ### Reconnection and Projection Caching
 
-Veidrodelis handles Redis disconnections gracefully with automatic reconnection and intelligent projection caching.
+Veidrodelis handles Valkey/Redis disconnections gracefully with automatic reconnection and intelligent projection caching.
 
 **How it works:**
 
-1. **Disconnection Detected**: Network failure or Redis restart
+1. **Disconnection Detected**: Network failure or Valkey/Redis restart
 2. **Old Projection Cached**: The current local projection remains available for reads
 3. **Reconnection Initiated**: Automatic reconnection with exponential backoff
 4. **New Projection Built**: Full RDB transfer + streaming updates to a new storage
@@ -293,13 +283,13 @@ Veidrodelis handles Redis disconnections gracefully with automatic reconnection 
 # Reads work normally
 {:ok, value} = Veidrodelis.get(:my_cache, 0, "mykey")
 
-# >>> Redis goes down <<<
+# >>> Valkey/Redis goes down <<<
 # Veidrodelis detects disconnection, keeps serving reads from cached projection
 
 {:ok, value} = Veidrodelis.get(:my_cache, 0, "mykey")
 # Still works! Uses cached projection
 
-# >>> Redis comes back up <<<
+# >>> Valkey/Redis comes back up <<<
 # Veidrodelis automatically reconnects, starts building new projection
 # Meanwhile, reads still served from cached projection
 
@@ -314,7 +304,7 @@ Veidrodelis handles Redis disconnections gracefully with automatic reconnection 
 **Reconnection behavior:**
 
 - **Exponential backoff**: Starts at `reconnect_delay_ms`, doubles on each failure, up to `max_reconnect_delay_ms`
-- **Infinite retries**: Veidrodelis keeps trying until Redis is available
+- **Infinite retries**: Veidrodelis keeps trying until Valkey/Redis is available
 - **No read disruption**: Old projection serves reads during entire reconnection process
 - **Atomic updates**: New projection is complete before switching
 
@@ -333,7 +323,7 @@ On disconnect, Veidrodelis does not receive these explicit del/hdel commands, so
 
 ### Sentinel Support
 
-For high-availability setups, connect via Redis Sentinel:
+For high-availability setups, connect via Valkey/Redis Sentinel:
 
 ```elixir
 {:ok, vdr} = Veidrodelis.start_link(

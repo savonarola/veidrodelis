@@ -616,6 +616,7 @@ defmodule Veidrodelis.ReplicaTest do
           case command do
             {:set, "b", _} ->
               :skip
+
             _ ->
               filters = Map.get(context, :filters, [])
               filters = [:f1 | filters]
@@ -635,6 +636,7 @@ defmodule Veidrodelis.ReplicaTest do
           case command do
             {:set, "d", _} ->
               :skip
+
             _ ->
               filters = Map.get(context, :filters, [])
               filters = [:f2 | filters]
@@ -672,7 +674,6 @@ defmodule Veidrodelis.ReplicaTest do
       # Actually each filter sends 2 such messages, one for "a", one for "b"
       assert_receive {:filters_from_f1, [:f2, :f1]}
       assert_receive {:filters_from_f2, [:f2, :f1]}
-
     end
   end
 end

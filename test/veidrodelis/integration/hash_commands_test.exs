@@ -68,6 +68,78 @@ defmodule Veidrodelis.Integration.HashCommandsTest do
                  {:hprev, key, "a"}
                ])
     end
+
+    test "hmnext/hmprev work with concrete counts", %{redis: redis} do
+      key = "integration_hash_nav_many_#{:erlang.unique_integer([:positive])}"
+      args = ["f01", "v01", "f02", "v02", "f03", "v03", "f04", "v04"]
+
+      Redix.command!(redis, ["HSET", key | args])
+
+      assert_within 1000 do
+        assert {:ok, 4} == Veidrodelis.hlen(vdr_id(), 0, key)
+      end
+
+      assert {:ok, []} == Veidrodelis.hmnext(vdr_id(), 0, key, "f04", 0)
+      assert {:ok, [{"f04", "v04"}]} == Veidrodelis.hmnext(vdr_id(), 0, key, "f03", 1)
+
+      assert {:ok, [{"f03", "v03"}, {"f04", "v04"}]} ==
+               Veidrodelis.hmnext(vdr_id(), 0, key, "f02", 2)
+
+      assert {:ok, [{"f01", "v01"}, {"f02", "v02"}, {"f03", "v03"}, {"f04", "v04"}]} ==
+               Veidrodelis.hmnext(vdr_id(), 0, key, "f00", 4)
+
+      assert {:ok, []} == Veidrodelis.hmprev(vdr_id(), 0, key, "f01", 0)
+      assert {:ok, [{"f01", "v01"}]} == Veidrodelis.hmprev(vdr_id(), 0, key, "f02", 1)
+
+      assert {:ok, [{"f02", "v02"}, {"f01", "v01"}]} ==
+               Veidrodelis.hmprev(vdr_id(), 0, key, "f03", 2)
+
+      assert {:ok, [{"f04", "v04"}, {"f03", "v03"}, {"f02", "v02"}, {"f01", "v01"}]} ==
+               Veidrodelis.hmprev(vdr_id(), 0, key, "f05", 4)
+
+      assert {:ok,
+              [{:ok, [{"f03", "v03"}, {"f04", "v04"}]}, {:ok, [{"f02", "v02"}, {"f01", "v01"}]}]} =
+               Veidrodelis.read_tx(vdr_id(), 0, [
+                 {:hmnext, key, "f02", 2},
+                 {:hmprev, key, "f03", 2}
+               ])
+
+      assert {:ok, nil} == Veidrodelis.hnext(vdr_id(), 0, key, "f04")
+      assert {:ok, {"f04", "v04"}} == Veidrodelis.hnext(vdr_id(), 0, key, "f03")
+      assert {:ok, nil} == Veidrodelis.hprev(vdr_id(), 0, key, "f01")
+      assert {:ok, {"f01", "v01"}} == Veidrodelis.hprev(vdr_id(), 0, key, "f02")
+    end
+
+    test "hmfirst/hmlast work with concrete counts", %{redis: redis} do
+      key = "integration_hash_nav_many_ends_#{:erlang.unique_integer([:positive])}"
+      args = ["f01", "v01", "f02", "v02", "f03", "v03", "f04", "v04"]
+      Redix.command!(redis, ["HSET", key | args])
+
+      assert_within 1000 do
+        assert {:ok, 4} == Veidrodelis.hlen(vdr_id(), 0, key)
+      end
+
+      assert {:ok, []} == Veidrodelis.hmfirst(vdr_id(), 0, key, 0)
+      assert {:ok, [{"f01", "v01"}]} == Veidrodelis.hmfirst(vdr_id(), 0, key, 1)
+      assert {:ok, [{"f01", "v01"}, {"f02", "v02"}]} == Veidrodelis.hmfirst(vdr_id(), 0, key, 2)
+
+      assert {:ok, [{"f01", "v01"}, {"f02", "v02"}, {"f03", "v03"}, {"f04", "v04"}]} ==
+               Veidrodelis.hmfirst(vdr_id(), 0, key, 4)
+
+      assert {:ok, []} == Veidrodelis.hmlast(vdr_id(), 0, key, 0)
+      assert {:ok, [{"f04", "v04"}]} == Veidrodelis.hmlast(vdr_id(), 0, key, 1)
+      assert {:ok, [{"f04", "v04"}, {"f03", "v03"}]} == Veidrodelis.hmlast(vdr_id(), 0, key, 2)
+
+      assert {:ok, [{"f04", "v04"}, {"f03", "v03"}, {"f02", "v02"}, {"f01", "v01"}]} ==
+               Veidrodelis.hmlast(vdr_id(), 0, key, 4)
+
+      assert {:ok,
+              [{:ok, [{"f01", "v01"}, {"f02", "v02"}]}, {:ok, [{"f04", "v04"}, {"f03", "v03"}]}]} =
+               Veidrodelis.read_tx(vdr_id(), 0, [
+                 {:hmfirst, key, 2},
+                 {:hmlast, key, 2}
+               ])
+    end
   end
 
   describe "hash commands across Veidrodelis API" do

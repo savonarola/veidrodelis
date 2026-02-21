@@ -474,6 +474,38 @@ impl StorageInner {
         Ok(result)
     }
 
+    /// Get the first members from sorted set.
+    /// Returns up to count member/score pairs in member order.
+    pub fn zmfirst(
+        &self,
+        db: u64,
+        key: &[u8],
+        count: usize,
+    ) -> Result<Vec<(Score, Bytes)>, &'static str> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
+
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(zset
+            .entries
+            .iter()
+            .take(count)
+            .map(|(member, score)| (*score, member.clone()))
+            .collect())
+    }
+
     /// Get the last (maximum) member from sorted set.
     /// Returns Some((score, member)) or None if set is empty/doesn't exist.
     pub fn zlast(&self, db: u64, key: &[u8]) -> Result<Option<(Score, Bytes)>, &'static str> {
@@ -496,15 +528,85 @@ impl StorageInner {
         Ok(result)
     }
 
-    /// Get the next member after the given (score, member) in sorted set.
+    /// Get the last members from sorted set.
+    /// Returns up to count member/score pairs in reverse member order.
+    pub fn zmlast(
+        &self,
+        db: u64,
+        key: &[u8],
+        count: usize,
+    ) -> Result<Vec<(Score, Bytes)>, &'static str> {
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
+
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        Ok(zset
+            .entries
+            .iter()
+            .rev()
+            .take(count)
+            .map(|(member, score)| (*score, member.clone()))
+            .collect())
+    }
+
+    /// Get the next members after the given member in sorted set.
+    /// Returns up to count members.
+    pub fn zmnext(
+        &self,
+        db: u64,
+        key: &[u8],
+        member: &[u8],
+        count: usize,
+    ) -> Result<Vec<(Score, Bytes)>, &'static str> {
+        use std::ops::Bound;
+
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
+
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        let range = zset
+            .entries
+            .range::<[u8], _>((Bound::Excluded(member), Bound::Unbounded));
+        Ok(range
+            .take(count)
+            .map(|(entry, score)| (*score, entry.clone()))
+            .collect())
+    }
+
+    /// Get the next member after the given member in sorted set.
     /// Returns Some((score, member)) or None if no next element exists.
     pub fn znext(
         &self,
         db: u64,
         key: &[u8],
-        score: Score,
         member: &[u8],
     ) -> Result<Option<(Score, Bytes)>, &'static str> {
+        use std::ops::Bound;
+
         let Some(db_map) = self.map.get(&db) else {
             return Ok(None);
         };
@@ -517,27 +619,63 @@ impl StorageInner {
             return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
         };
 
-        let current_key = ZSetIndexKey::create(score, member);
-        // Use range starting after the current key
         let range = zset
-            .index
-            .range::<_, ZSetIndexKey>((Bound::Excluded(&current_key), Bound::Unbounded));
-        let result = range.take(1).next().map(|key| {
-            let (score, entry) = key.unwrap_key();
-            (*score, entry.clone())
-        });
+            .entries
+            .range::<[u8], _>((Bound::Excluded(member), Bound::Unbounded));
+        let result = range
+            .take(1)
+            .next()
+            .map(|(entry, score)| (*score, entry.clone()));
         Ok(result)
     }
 
-    /// Get the previous member before the given (score, member) in sorted set.
+    /// Get the previous members before the given member in sorted set.
+    /// Returns up to count members.
+    pub fn zmprev(
+        &self,
+        db: u64,
+        key: &[u8],
+        member: &[u8],
+        count: usize,
+    ) -> Result<Vec<(Score, Bytes)>, &'static str> {
+        use std::ops::Bound;
+
+        if count == 0 {
+            return Ok(Vec::new());
+        }
+
+        let Some(db_map) = self.map.get(&db) else {
+            return Ok(Vec::new());
+        };
+
+        let Some(value) = db_map.get(key) else {
+            return Ok(Vec::new());
+        };
+
+        let StorageValue::ZSet(zset) = value else {
+            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
+        };
+
+        let range = zset
+            .entries
+            .range::<[u8], _>((Bound::Unbounded, Bound::Excluded(member)));
+        Ok(range
+            .rev()
+            .take(count)
+            .map(|(entry, score)| (*score, entry.clone()))
+            .collect())
+    }
+
+    /// Get the previous member before the given member in sorted set.
     /// Returns Some((score, member)) or None if no previous element exists.
     pub fn zprev(
         &self,
         db: u64,
         key: &[u8],
-        score: Score,
         member: &[u8],
     ) -> Result<Option<(Score, Bytes)>, &'static str> {
+        use std::ops::Bound;
+
         let Some(db_map) = self.map.get(&db) else {
             return Ok(None);
         };
@@ -550,19 +688,14 @@ impl StorageInner {
             return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
         };
 
-        let current_key = ZSetIndexKey::create(score, member);
-        // Use range ending before the current key, get last element
-        let mut range = zset
-            .index
-            .range::<_, ZSetIndexKey>((Bound::Unbounded, Bound::Excluded(&current_key)));
-        let result = range.next_back().and_then(|key| {
-            let (sc, entry) = key.unwrap_key();
-            if *sc == score && entry.as_slice() == member {
-                None
-            } else {
-                Some((*sc, entry.clone()))
-            }
-        });
+        let range = zset
+            .entries
+            .range::<[u8], _>((Bound::Unbounded, Bound::Excluded(member)));
+        let result = range
+            .rev()
+            .take(1)
+            .next()
+            .map(|(entry, score)| (*score, entry.clone()));
         Ok(result)
     }
 
