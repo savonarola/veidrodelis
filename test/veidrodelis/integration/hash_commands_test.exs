@@ -24,15 +24,15 @@ defmodule Veidrodelis.Integration.HashCommandsTest do
       Redix.command!(redis, ["HSET", key, "a", "1", "b", "2", "c", "3"])
 
       assert_within 1000 do
-        assert {:ok, {"a", "1"}} == Veidrodelis.hfirst(vdr_id(), 0, key)
-        assert {:ok, {"c", "3"}} == Veidrodelis.hlast(vdr_id(), 0, key)
+        assert {:ok, [{"a", "1"}]} == Veidrodelis.hfirst(vdr_id(), 0, key, 1)
+        assert {:ok, [{"c", "3"}]} == Veidrodelis.hlast(vdr_id(), 0, key, 1)
       end
 
-      assert {:ok, nil} == Veidrodelis.hnext(vdr_id(), 0, key, "c")
-      assert {:ok, nil} == Veidrodelis.hnext(vdr_id(), 0, "nonexistent", "c")
+      assert {:ok, []} == Veidrodelis.hnext(vdr_id(), 0, key, "c", 1)
+      assert {:ok, []} == Veidrodelis.hnext(vdr_id(), 0, "nonexistent", "c", 1)
 
-      assert {:ok, {"b", "2"}} == Veidrodelis.hnext(vdr_id(), 0, key, "a")
-      assert {:ok, {"b", "2"}} == Veidrodelis.hprev(vdr_id(), 0, key, "c")
+      assert {:ok, [{"b", "2"}]} == Veidrodelis.hnext(vdr_id(), 0, key, "a", 1)
+      assert {:ok, [{"b", "2"}]} == Veidrodelis.hprev(vdr_id(), 0, key, "c", 1)
     end
 
     test "read_tx supports hash navigation commands", %{redis: redis} do
@@ -42,30 +42,30 @@ defmodule Veidrodelis.Integration.HashCommandsTest do
       assert_within 1000 do
         assert {:ok, [from_first, from_last | _]} =
                  Veidrodelis.read_tx(vdr_id(), 0, [
-                   {:hfirst, key},
-                   {:hlast, key}
+                   {:hfirst, key, 1},
+                   {:hlast, key, 1}
                  ])
 
-        assert from_first == {:ok, {"a", "1"}}
-        assert from_last == {:ok, {"c", "3"}}
+        assert from_first == {:ok, [{"a", "1"}]}
+        assert from_last == {:ok, [{"c", "3"}]}
       end
 
       assert {:ok,
               [
-                {:ok, {"a", "1"}},
-                {:ok, {"c", "3"}},
-                {:ok, {"b", "2"}},
-                {:ok, {"b", "2"}},
-                {:ok, nil},
-                {:ok, nil}
+                {:ok, [{"a", "1"}]},
+                {:ok, [{"c", "3"}]},
+                {:ok, [{"b", "2"}]},
+                {:ok, [{"b", "2"}]},
+                {:ok, []},
+                {:ok, []}
               ]} =
                Veidrodelis.read_tx(vdr_id(), 0, [
-                 {:hfirst, key},
-                 {:hlast, key},
-                 {:hnext, key, "a"},
-                 {:hprev, key, "c"},
-                 {:hnext, key, "c"},
-                 {:hprev, key, "a"}
+                 {:hfirst, key, 1},
+                 {:hlast, key, 1},
+                 {:hnext, key, "a", 1},
+                 {:hprev, key, "c", 1},
+                 {:hnext, key, "c", 1},
+                 {:hprev, key, "a", 1}
                ])
     end
 
@@ -79,35 +79,35 @@ defmodule Veidrodelis.Integration.HashCommandsTest do
         assert {:ok, 4} == Veidrodelis.hlen(vdr_id(), 0, key)
       end
 
-      assert {:ok, []} == Veidrodelis.hmnext(vdr_id(), 0, key, "f04", 0)
-      assert {:ok, [{"f04", "v04"}]} == Veidrodelis.hmnext(vdr_id(), 0, key, "f03", 1)
+      assert {:ok, []} == Veidrodelis.hnext(vdr_id(), 0, key, "f04", 0)
+      assert {:ok, [{"f04", "v04"}]} == Veidrodelis.hnext(vdr_id(), 0, key, "f03", 1)
 
       assert {:ok, [{"f03", "v03"}, {"f04", "v04"}]} ==
-               Veidrodelis.hmnext(vdr_id(), 0, key, "f02", 2)
+               Veidrodelis.hnext(vdr_id(), 0, key, "f02", 2)
 
       assert {:ok, [{"f01", "v01"}, {"f02", "v02"}, {"f03", "v03"}, {"f04", "v04"}]} ==
-               Veidrodelis.hmnext(vdr_id(), 0, key, "f00", 4)
+               Veidrodelis.hnext(vdr_id(), 0, key, "f00", 4)
 
-      assert {:ok, []} == Veidrodelis.hmprev(vdr_id(), 0, key, "f01", 0)
-      assert {:ok, [{"f01", "v01"}]} == Veidrodelis.hmprev(vdr_id(), 0, key, "f02", 1)
+      assert {:ok, []} == Veidrodelis.hprev(vdr_id(), 0, key, "f01", 0)
+      assert {:ok, [{"f01", "v01"}]} == Veidrodelis.hprev(vdr_id(), 0, key, "f02", 1)
 
       assert {:ok, [{"f02", "v02"}, {"f01", "v01"}]} ==
-               Veidrodelis.hmprev(vdr_id(), 0, key, "f03", 2)
+               Veidrodelis.hprev(vdr_id(), 0, key, "f03", 2)
 
       assert {:ok, [{"f04", "v04"}, {"f03", "v03"}, {"f02", "v02"}, {"f01", "v01"}]} ==
-               Veidrodelis.hmprev(vdr_id(), 0, key, "f05", 4)
+               Veidrodelis.hprev(vdr_id(), 0, key, "f05", 4)
 
       assert {:ok,
               [{:ok, [{"f03", "v03"}, {"f04", "v04"}]}, {:ok, [{"f02", "v02"}, {"f01", "v01"}]}]} =
                Veidrodelis.read_tx(vdr_id(), 0, [
-                 {:hmnext, key, "f02", 2},
-                 {:hmprev, key, "f03", 2}
+                 {:hnext, key, "f02", 2},
+                 {:hprev, key, "f03", 2}
                ])
 
-      assert {:ok, nil} == Veidrodelis.hnext(vdr_id(), 0, key, "f04")
-      assert {:ok, {"f04", "v04"}} == Veidrodelis.hnext(vdr_id(), 0, key, "f03")
-      assert {:ok, nil} == Veidrodelis.hprev(vdr_id(), 0, key, "f01")
-      assert {:ok, {"f01", "v01"}} == Veidrodelis.hprev(vdr_id(), 0, key, "f02")
+      assert {:ok, []} == Veidrodelis.hnext(vdr_id(), 0, key, "f04", 1)
+      assert {:ok, [{"f04", "v04"}]} == Veidrodelis.hnext(vdr_id(), 0, key, "f03", 1)
+      assert {:ok, []} == Veidrodelis.hprev(vdr_id(), 0, key, "f01", 1)
+      assert {:ok, [{"f01", "v01"}]} == Veidrodelis.hprev(vdr_id(), 0, key, "f02", 1)
     end
 
     test "hmfirst/hmlast work with concrete counts", %{redis: redis} do
@@ -119,25 +119,25 @@ defmodule Veidrodelis.Integration.HashCommandsTest do
         assert {:ok, 4} == Veidrodelis.hlen(vdr_id(), 0, key)
       end
 
-      assert {:ok, []} == Veidrodelis.hmfirst(vdr_id(), 0, key, 0)
-      assert {:ok, [{"f01", "v01"}]} == Veidrodelis.hmfirst(vdr_id(), 0, key, 1)
-      assert {:ok, [{"f01", "v01"}, {"f02", "v02"}]} == Veidrodelis.hmfirst(vdr_id(), 0, key, 2)
+      assert {:ok, []} == Veidrodelis.hfirst(vdr_id(), 0, key, 0)
+      assert {:ok, [{"f01", "v01"}]} == Veidrodelis.hfirst(vdr_id(), 0, key, 1)
+      assert {:ok, [{"f01", "v01"}, {"f02", "v02"}]} == Veidrodelis.hfirst(vdr_id(), 0, key, 2)
 
       assert {:ok, [{"f01", "v01"}, {"f02", "v02"}, {"f03", "v03"}, {"f04", "v04"}]} ==
-               Veidrodelis.hmfirst(vdr_id(), 0, key, 4)
+               Veidrodelis.hfirst(vdr_id(), 0, key, 4)
 
-      assert {:ok, []} == Veidrodelis.hmlast(vdr_id(), 0, key, 0)
-      assert {:ok, [{"f04", "v04"}]} == Veidrodelis.hmlast(vdr_id(), 0, key, 1)
-      assert {:ok, [{"f04", "v04"}, {"f03", "v03"}]} == Veidrodelis.hmlast(vdr_id(), 0, key, 2)
+      assert {:ok, []} == Veidrodelis.hlast(vdr_id(), 0, key, 0)
+      assert {:ok, [{"f04", "v04"}]} == Veidrodelis.hlast(vdr_id(), 0, key, 1)
+      assert {:ok, [{"f04", "v04"}, {"f03", "v03"}]} == Veidrodelis.hlast(vdr_id(), 0, key, 2)
 
       assert {:ok, [{"f04", "v04"}, {"f03", "v03"}, {"f02", "v02"}, {"f01", "v01"}]} ==
-               Veidrodelis.hmlast(vdr_id(), 0, key, 4)
+               Veidrodelis.hlast(vdr_id(), 0, key, 4)
 
       assert {:ok,
               [{:ok, [{"f01", "v01"}, {"f02", "v02"}]}, {:ok, [{"f04", "v04"}, {"f03", "v03"}]}]} =
                Veidrodelis.read_tx(vdr_id(), 0, [
-                 {:hmfirst, key, 2},
-                 {:hmlast, key, 2}
+                 {:hfirst, key, 2},
+                 {:hlast, key, 2}
                ])
     end
   end

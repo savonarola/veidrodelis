@@ -1886,34 +1886,34 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
         assert {:ok, 4} == Veidrodelis.zcard(vdr_id(), 0, key)
       end
 
-      assert {:ok, []} == Veidrodelis.zmnext(vdr_id(), 0, key, "m04", 0)
-      assert {:ok, [{4.0, "m04"}]} == Veidrodelis.zmnext(vdr_id(), 0, key, "m03", 1)
+      assert {:ok, []} == Veidrodelis.znext(vdr_id(), 0, key, "m04", 0)
+      assert {:ok, [{4.0, "m04"}]} == Veidrodelis.znext(vdr_id(), 0, key, "m03", 1)
 
       assert {:ok, [{3.0, "m03"}, {4.0, "m04"}]} ==
-               Veidrodelis.zmnext(vdr_id(), 0, key, "m02", 2)
+               Veidrodelis.znext(vdr_id(), 0, key, "m02", 2)
 
       assert {:ok, [{1.0, "m01"}, {2.0, "m02"}, {3.0, "m03"}, {4.0, "m04"}]} ==
-               Veidrodelis.zmnext(vdr_id(), 0, key, "m00", 4)
+               Veidrodelis.znext(vdr_id(), 0, key, "m00", 4)
 
-      assert {:ok, []} == Veidrodelis.zmprev(vdr_id(), 0, key, "m01", 0)
-      assert {:ok, [{1.0, "m01"}]} == Veidrodelis.zmprev(vdr_id(), 0, key, "m02", 1)
+      assert {:ok, []} == Veidrodelis.zprev(vdr_id(), 0, key, "m01", 0)
+      assert {:ok, [{1.0, "m01"}]} == Veidrodelis.zprev(vdr_id(), 0, key, "m02", 1)
 
       assert {:ok, [{2.0, "m02"}, {1.0, "m01"}]} ==
-               Veidrodelis.zmprev(vdr_id(), 0, key, "m03", 2)
+               Veidrodelis.zprev(vdr_id(), 0, key, "m03", 2)
 
       assert {:ok, [{4.0, "m04"}, {3.0, "m03"}, {2.0, "m02"}, {1.0, "m01"}]} ==
-               Veidrodelis.zmprev(vdr_id(), 0, key, "m05", 4)
+               Veidrodelis.zprev(vdr_id(), 0, key, "m05", 4)
 
       assert {:ok, [{:ok, [{3.0, "m03"}, {4.0, "m04"}]}, {:ok, [{2.0, "m02"}, {1.0, "m01"}]}]} =
                Veidrodelis.read_tx(vdr_id(), 0, [
-                 {:zmnext, key, "m02", 2},
-                 {:zmprev, key, "m03", 2}
+                 {:znext, key, "m02", 2},
+                 {:zprev, key, "m03", 2}
                ])
 
-      assert {:ok, nil} == Veidrodelis.znext(vdr_id(), 0, key, "m04")
-      assert {:ok, {4.0, "m04"}} == Veidrodelis.znext(vdr_id(), 0, key, "m03")
-      assert {:ok, nil} == Veidrodelis.zprev(vdr_id(), 0, key, "m01")
-      assert {:ok, {1.0, "m01"}} == Veidrodelis.zprev(vdr_id(), 0, key, "m02")
+      assert {:ok, []} == Veidrodelis.znext(vdr_id(), 0, key, "m04", 1)
+      assert {:ok, [{4.0, "m04"}]} == Veidrodelis.znext(vdr_id(), 0, key, "m03", 1)
+      assert {:ok, []} == Veidrodelis.zprev(vdr_id(), 0, key, "m01", 1)
+      assert {:ok, [{1.0, "m01"}]} == Veidrodelis.zprev(vdr_id(), 0, key, "m02", 1)
     end
 
     test "zmfirst/zmlast work with concrete counts", %{redis: redis} do
@@ -1924,24 +1924,24 @@ defmodule Veidrodelis.Integration.SortedSetCommandsTest do
         assert {:ok, 4} == Veidrodelis.zcard(vdr_id(), 0, key)
       end
 
-      assert {:ok, []} == Veidrodelis.zmfirst(vdr_id(), 0, key, 0)
-      assert {:ok, [{1.0, "m01"}]} == Veidrodelis.zmfirst(vdr_id(), 0, key, 1)
-      assert {:ok, [{1.0, "m01"}, {2.0, "m02"}]} == Veidrodelis.zmfirst(vdr_id(), 0, key, 2)
+      assert {:ok, []} == Veidrodelis.zfirst(vdr_id(), 0, key, 0)
+      assert {:ok, [{1.0, "m01"}]} == Veidrodelis.zfirst(vdr_id(), 0, key, 1)
+      assert {:ok, [{1.0, "m01"}, {2.0, "m02"}]} == Veidrodelis.zfirst(vdr_id(), 0, key, 2)
 
       assert {:ok, [{1.0, "m01"}, {2.0, "m02"}, {3.0, "m03"}, {4.0, "m04"}]} ==
-               Veidrodelis.zmfirst(vdr_id(), 0, key, 4)
+               Veidrodelis.zfirst(vdr_id(), 0, key, 4)
 
-      assert {:ok, []} == Veidrodelis.zmlast(vdr_id(), 0, key, 0)
-      assert {:ok, [{4.0, "m04"}]} == Veidrodelis.zmlast(vdr_id(), 0, key, 1)
-      assert {:ok, [{4.0, "m04"}, {3.0, "m03"}]} == Veidrodelis.zmlast(vdr_id(), 0, key, 2)
+      assert {:ok, []} == Veidrodelis.zlast(vdr_id(), 0, key, 0)
+      assert {:ok, [{4.0, "m04"}]} == Veidrodelis.zlast(vdr_id(), 0, key, 1)
+      assert {:ok, [{4.0, "m04"}, {3.0, "m03"}]} == Veidrodelis.zlast(vdr_id(), 0, key, 2)
 
       assert {:ok, [{4.0, "m04"}, {3.0, "m03"}, {2.0, "m02"}, {1.0, "m01"}]} ==
-               Veidrodelis.zmlast(vdr_id(), 0, key, 4)
+               Veidrodelis.zlast(vdr_id(), 0, key, 4)
 
       assert {:ok, [{:ok, [{1.0, "m01"}, {2.0, "m02"}]}, {:ok, [{4.0, "m04"}, {3.0, "m03"}]}]} =
                Veidrodelis.read_tx(vdr_id(), 0, [
-                 {:zmfirst, key, 2},
-                 {:zmlast, key, 2}
+                 {:zfirst, key, 2},
+                 {:zlast, key, 2}
                ])
     end
   end

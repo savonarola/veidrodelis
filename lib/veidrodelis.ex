@@ -378,111 +378,39 @@ defmodule Veidrodelis do
   end
 
   @doc """
-  Gets the first (lexicographically minimum) member from a set.
-
-  Returns the member or nil if the set is empty/doesn't exist.
-
-  ## Examples
-
-  ```elixir
-  {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
-  {:ok, first} = Veidrodelis.sfirst(:my_instance, 0, "myset")
-  # Returns: "a" (assuming set contains ["a", "b", "c"])
-  ```
-  """
-  @spec sfirst(instance_id(), db(), key()) :: {:ok, binary() | nil} | {:error, term()}
-  def sfirst(id, db, key) do
-    with_single_command_read_tx(id, db, {:sfirst, key})
-  end
-
-  @doc """
   Gets up to `count` members from the beginning of a set.
   """
-  @spec smfirst(instance_id(), db(), key(), non_neg_integer()) ::
+  @spec sfirst(instance_id(), db(), key(), non_neg_integer()) ::
           {:ok, [binary()]} | {:error, term()}
-  def smfirst(id, db, key, count) do
-    with_single_command_read_tx(id, db, {:smfirst, key, count})
-  end
-
-  @doc """
-  Gets the last (lexicographically maximum) member from a set.
-
-  Returns the member or nil if the set is empty/doesn't exist.
-
-  ## Examples
-
-  ```elixir
-    {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
-    {:ok, last} = Veidrodelis.slast(:my_instance, 0, "myset")
-    # Returns: "c" (assuming set contains ["a", "b", "c"])
-  ```
-  """
-  @spec slast(instance_id(), db(), key()) :: {:ok, binary() | nil} | {:error, term()}
-  def slast(id, db, key) do
-    with_single_command_read_tx(id, db, {:slast, key})
+  def sfirst(id, db, key, count) do
+    with_single_command_read_tx(id, db, {:sfirst, key, count})
   end
 
   @doc """
   Gets up to `count` members from the end of a set in reverse order.
   """
-  @spec smlast(instance_id(), db(), key(), non_neg_integer()) ::
+  @spec slast(instance_id(), db(), key(), non_neg_integer()) ::
           {:ok, [binary()]} | {:error, term()}
-  def smlast(id, db, key, count) do
-    with_single_command_read_tx(id, db, {:smlast, key, count})
-  end
-
-  @doc """
-  Gets the next member after the given member in a set.
-
-  Returns the next member or nil if no next element exists.
-
-  ## Examples
-
-  ```elixir
-  {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
-  {:ok, next} = Veidrodelis.snext(:my_instance, 0, "myset", "a")
-  # Returns: "b" (assuming set contains ["a", "b", "c"])
-  ```
-  """
-  @spec snext(instance_id(), db(), key(), binary()) :: {:ok, binary() | nil} | {:error, term()}
-  def snext(id, db, key, member) do
-    with_single_command_read_tx(id, db, {:snext, key, member})
+  def slast(id, db, key, count) do
+    with_single_command_read_tx(id, db, {:slast, key, count})
   end
 
   @doc """
   Gets up to `count` members after the given member in a set.
   """
-  @spec smnext(instance_id(), db(), key(), binary(), non_neg_integer()) ::
+  @spec snext(instance_id(), db(), key(), binary(), non_neg_integer()) ::
           {:ok, [binary()]} | {:error, term()}
-  def smnext(id, db, key, member, count) do
-    with_single_command_read_tx(id, db, {:smnext, key, member, count})
-  end
-
-  @doc """
-  Gets the previous member before the given member in a set.
-
-  Returns the previous member or nil if no previous element exists.
-
-  ## Examples
-
-  ```elixir
-  {:ok, pid} = Veidrodelis.start_link(id: :my_instance)
-  {:ok, prev} = Veidrodelis.sprev(:my_instance, 0, "myset", "c")
-  # Returns: "b" (assuming set contains ["a", "b", "c"])
-  ```
-  """
-  @spec sprev(instance_id(), db(), key(), key()) :: {:ok, binary() | nil} | {:error, term()}
-  def sprev(id, db, key, member) do
-    with_single_command_read_tx(id, db, {:sprev, key, member})
+  def snext(id, db, key, member, count) do
+    with_single_command_read_tx(id, db, {:snext, key, member, count})
   end
 
   @doc """
   Gets up to `count` members before the given member in a set.
   """
-  @spec smprev(instance_id(), db(), key(), binary(), non_neg_integer()) ::
+  @spec sprev(instance_id(), db(), key(), binary(), non_neg_integer()) ::
           {:ok, [binary()]} | {:error, term()}
-  def smprev(id, db, key, member, count) do
-    with_single_command_read_tx(id, db, {:smprev, key, member, count})
+  def sprev(id, db, key, member, count) do
+    with_single_command_read_tx(id, db, {:sprev, key, member, count})
   end
 
   @doc """
@@ -561,78 +489,39 @@ defmodule Veidrodelis do
   end
 
   @doc """
-  Returns the lexicographically first field/value pair in the hash stored at key.
-
-  Returns `{:ok, {field, value}}` when a field exists, `{:ok, nil}` when the hash is empty or
-  missing, or `{:error, reason}` on wrong-type errors.
-  """
-  @spec hfirst(instance_id(), db(), key()) ::
-          {:ok, {hash_key(), binary()} | nil} | {:error, term()}
-  def hfirst(id, db, key) do
-    with_single_command_read_tx(id, db, {:hfirst, key})
-  end
-
-  @doc """
   Returns up to `count` lexicographically first field/value pairs in the hash stored at key.
   """
-  @spec hmfirst(instance_id(), db(), key(), non_neg_integer()) ::
+  @spec hfirst(instance_id(), db(), key(), non_neg_integer()) ::
           {:ok, [{hash_key(), binary()}]} | {:error, term()}
-  def hmfirst(id, db, key, count) do
-    with_single_command_read_tx(id, db, {:hmfirst, key, count})
-  end
-
-  @doc """
-  Returns the lexicographically last field/value pair in the hash stored at key.
-  """
-  @spec hlast(instance_id(), db(), key()) ::
-          {:ok, {hash_key(), binary()} | nil} | {:error, term()}
-  def hlast(id, db, key) do
-    with_single_command_read_tx(id, db, {:hlast, key})
+  def hfirst(id, db, key, count) do
+    with_single_command_read_tx(id, db, {:hfirst, key, count})
   end
 
   @doc """
   Returns up to `count` lexicographically last field/value pairs in reverse order.
   """
-  @spec hmlast(instance_id(), db(), key(), non_neg_integer()) ::
+  @spec hlast(instance_id(), db(), key(), non_neg_integer()) ::
           {:ok, [{hash_key(), binary()}]} | {:error, term()}
-  def hmlast(id, db, key, count) do
-    with_single_command_read_tx(id, db, {:hmlast, key, count})
-  end
-
-  @doc """
-  Returns the field/value pair immediately after `field` in the hash stored at key.
-  """
-  @spec hnext(instance_id(), db(), key(), binary()) ::
-          {:ok, {hash_key(), binary()} | nil} | {:error, term()}
-  def hnext(id, db, key, field) do
-    with_single_command_read_tx(id, db, {:hnext, key, field})
+  def hlast(id, db, key, count) do
+    with_single_command_read_tx(id, db, {:hlast, key, count})
   end
 
   @doc """
   Returns up to `count` field/value pairs after `field` in the hash stored at key.
   """
-  @spec hmnext(instance_id(), db(), key(), binary(), non_neg_integer()) ::
+  @spec hnext(instance_id(), db(), key(), binary(), non_neg_integer()) ::
           {:ok, [{hash_key(), binary()}]} | {:error, term()}
-  def hmnext(id, db, key, field, count) do
-    with_single_command_read_tx(id, db, {:hmnext, key, field, count})
-  end
-
-  @doc """
-  Returns the field/value pair immediately before `field` in the hash stored at key.
-  """
-  @spec hprev(instance_id(), db(), key(), binary()) ::
-          {:ok, {hash_key(), binary()} | nil} | {:error, term()}
-  def hprev(id, db, key, field) do
-    with_single_command_read_tx(id, db, {:hprev, key, field})
+  def hnext(id, db, key, field, count) do
+    with_single_command_read_tx(id, db, {:hnext, key, field, count})
   end
 
   @doc """
   Returns up to `count` field/value pairs before `field` in the hash stored at key.
   """
-  @spec hmprev(instance_id(), db(), key(), binary(), non_neg_integer()) ::
+  @spec hprev(instance_id(), db(), key(), binary(), non_neg_integer()) ::
           {:ok, [{hash_key(), binary()}]} | {:error, term()}
-  def hmprev(id, db, key, field, count) do
-    with_single_command_read_tx(id, db, {:hmprev, key, field, count})
+  def hprev(id, db, key, field, count) do
+    with_single_command_read_tx(id, db, {:hprev, key, field, count})
   end
 
   @doc """
@@ -709,55 +598,37 @@ defmodule Veidrodelis do
   @doc """
   Returns up to `count` member/score pairs from the start of the sorted set.
   """
-  @spec zmfirst(instance_id(), db(), key(), non_neg_integer()) ::
+  @spec zfirst(instance_id(), db(), key(), non_neg_integer()) ::
           {:ok, [{score(), binary()}]} | {:error, term()}
-  def zmfirst(id, db, key, count) do
-    with_single_command_read_tx(id, db, {:zmfirst, key, count})
+  def zfirst(id, db, key, count) do
+    with_single_command_read_tx(id, db, {:zfirst, key, count})
   end
 
   @doc """
   Returns up to `count` member/score pairs from the end of the sorted set in reverse order.
   """
-  @spec zmlast(instance_id(), db(), key(), non_neg_integer()) ::
+  @spec zlast(instance_id(), db(), key(), non_neg_integer()) ::
           {:ok, [{score(), binary()}]} | {:error, term()}
-  def zmlast(id, db, key, count) do
-    with_single_command_read_tx(id, db, {:zmlast, key, count})
-  end
-
-  @doc """
-  Returns the member/score pair immediately after `member` in the sorted set.
-  """
-  @spec znext(instance_id(), db(), key(), binary()) ::
-          {:ok, {score(), binary()} | nil} | {:error, term()}
-  def znext(id, db, key, member) do
-    with_single_command_read_tx(id, db, {:znext, key, member})
+  def zlast(id, db, key, count) do
+    with_single_command_read_tx(id, db, {:zlast, key, count})
   end
 
   @doc """
   Returns up to `count` member/score pairs after `member` in the sorted set.
   """
-  @spec zmnext(instance_id(), db(), key(), binary(), non_neg_integer()) ::
+  @spec znext(instance_id(), db(), key(), binary(), non_neg_integer()) ::
           {:ok, [{score(), binary()}]} | {:error, term()}
-  def zmnext(id, db, key, member, count) do
-    with_single_command_read_tx(id, db, {:zmnext, key, member, count})
-  end
-
-  @doc """
-  Returns the member/score pair immediately before `member` in the sorted set.
-  """
-  @spec zprev(instance_id(), db(), key(), binary()) ::
-          {:ok, {score(), binary()} | nil} | {:error, term()}
-  def zprev(id, db, key, member) do
-    with_single_command_read_tx(id, db, {:zprev, key, member})
+  def znext(id, db, key, member, count) do
+    with_single_command_read_tx(id, db, {:znext, key, member, count})
   end
 
   @doc """
   Returns up to `count` member/score pairs before `member` in the sorted set.
   """
-  @spec zmprev(instance_id(), db(), key(), binary(), non_neg_integer()) ::
+  @spec zprev(instance_id(), db(), key(), binary(), non_neg_integer()) ::
           {:ok, [{score(), binary()}]} | {:error, term()}
-  def zmprev(id, db, key, member, count) do
-    with_single_command_read_tx(id, db, {:zmprev, key, member, count})
+  def zprev(id, db, key, member, count) do
+    with_single_command_read_tx(id, db, {:zprev, key, member, count})
   end
 
   @doc """
@@ -780,14 +651,10 @@ defmodule Veidrodelis do
     * `{:hexists, key, field}` - Check hash field existence
     * `{:hstrlen, key, field}` - Get hash field length
     * `{:hrandfield, key, count, with_values}` - Random hash field(s)
-    * `{:hfirst, key}` - Get the lexicographically first field and its value
-    * `{:hmfirst, key, count}` - Get up to `count` field/value pairs from the beginning
-    * `{:hlast, key}` - Get the lexicographically last field and its value
-    * `{:hmlast, key, count}` - Get up to `count` field/value pairs from the end
-    * `{:hnext, key, field}` - Get the field/value pair immediately after `field`
-    * `{:hmnext, key, field, count}` - Get up to `count` field/value pairs after `field`
-    * `{:hprev, key, field}` - Get the field/value pair immediately before `field`
-    * `{:hmprev, key, field, count}` - Get up to `count` field/value pairs before `field`
+    * `{:hfirst, key, count}` - Get up to `count` field/value pairs from the beginning
+    * `{:hlast, key, count}` - Get up to `count` field/value pairs from the end
+    * `{:hnext, key, field, count}` - Get up to `count` field/value pairs after `field`
+    * `{:hprev, key, field, count}` - Get up to `count` field/value pairs before `field`
     * `{:llen, key}` - Get list length
     * `{:lrange, key, start, stop}` - Get list range
     * `{:smembers, key}` - Get set members
@@ -799,14 +666,10 @@ defmodule Veidrodelis do
     * `{:sinter, keys}` - Intersection of sets
     * `{:sdiff, keys}` - Difference of sets
     * `{:sintercard, keys}` - Cardinality of intersection
-    * `{:sfirst, key}` - Get lexicographically first member
-    * `{:smfirst, key, count}` - Get up to `count` members from the beginning
-    * `{:slast, key}` - Get lexicographically last member
-    * `{:smlast, key, count}` - Get up to `count` members from the end
-    * `{:snext, key, member}` - Get member immediately after `member`
-    * `{:smnext, key, member, count}` - Get up to `count` members immediately after `member`
-    * `{:sprev, key, member}` - Get member immediately before `member`
-    * `{:smprev, key, member, count}` - Get up to `count` members immediately before `member`
+    * `{:sfirst, key, count}` - Get up to `count` members from the beginning
+    * `{:slast, key, count}` - Get up to `count` members from the end
+    * `{:snext, key, member, count}` - Get up to `count` members immediately after `member`
+    * `{:sprev, key, member, count}` - Get up to `count` members immediately before `member`
     * `{:zscore, key, member}` - Get sorted set member score
     * `{:zcard, key}` - Get sorted set cardinality
     * `{:zrange, key, start, stop, with_scores}` - Get sorted set range
@@ -814,12 +677,10 @@ defmodule Veidrodelis do
     * `{:zrank, key, member}` - Get sorted set member rank
     * `{:zrevrank, key, member}` - Get sorted set member reverse rank
     * `{:zcount, key, min, max}` - Count sorted set members in score range
-    * `{:zmfirst, key, count}` - Get up to `count` member/score pairs from the beginning
-    * `{:zmlast, key, count}` - Get up to `count` member/score pairs from the end
-    * `{:znext, key, member}` - Get member/score pair immediately after `member`
-    * `{:zmnext, key, member, count}` - Get up to `count` member/score pairs after `member`
-    * `{:zprev, key, member}` - Get member/score pair immediately before `member`
-    * `{:zmprev, key, member, count}` - Get up to `count` member/score pairs before `member`
+    * `{:zfirst, key, count}` - Get up to `count` member/score pairs from the beginning
+    * `{:zlast, key, count}` - Get up to `count` member/score pairs from the end
+    * `{:znext, key, member, count}` - Get up to `count` member/score pairs after `member`
+    * `{:zprev, key, member, count}` - Get up to `count` member/score pairs before `member`
 
   ### Example
   ```elixir
@@ -845,14 +706,10 @@ defmodule Veidrodelis do
   - `ts.sinter(keys)` - Intersection of sets
   - `ts.sdiff(keys)` - Difference of sets
   - `ts.sintercard(keys)` - Intersection cardinality
-  - `ts.sfirst(key)` - Get lexicographically first member
-  - `ts.smfirst(key, count)` - Get first set members
-  - `ts.slast(key)` - Get lexicographically last member
-  - `ts.smlast(key, count)` - Get last set members
-  - `ts.snext(key, member)` - Get next set member
-  - `ts.smnext(key, member, count)` - Get next set members
-  - `ts.sprev(key, member)` - Get previous set member
-  - `ts.smprev(key, member, count)` - Get previous set members
+  - `ts.sfirst(key, count)` - Get first set members
+  - `ts.slast(key, count)` - Get last set members
+  - `ts.snext(key, member, count)` - Get next set members
+  - `ts.sprev(key, member, count)` - Get previous set members
   - `ts.hgetall(key)` - Get all hash fields and values
   - `ts.hmget(key, fields)` - Get multiple hash field values
   - `ts.hkeys(key)` - Get hash field names
@@ -861,14 +718,10 @@ defmodule Veidrodelis do
   - `ts.hexists(key, field)` - Check if hash field exists
   - `ts.hstrlen(key, field)` - Get hash field length
   - `ts.hrandfield(key, count, with_values)` - Get random hash fields
-  - `ts.hfirst(key)` - Get first hash field/value
-  - `ts.hmfirst(key, count)` - Get first hash field/value pairs
-  - `ts.hlast(key)` - Get last hash field/value
-  - `ts.hmlast(key, count)` - Get last hash field/value pairs
-  - `ts.hnext(key, field)` - Get next hash field after given field
-  - `ts.hmnext(key, field, count)` - Get next hash fields after given field
-  - `ts.hprev(key, field)` - Get previous hash field before given field
-  - `ts.hmprev(key, field, count)` - Get previous hash fields before given field
+  - `ts.hfirst(key, count)` - Get first hash field/value pairs
+  - `ts.hlast(key, count)` - Get last hash field/value pairs
+  - `ts.hnext(key, field, count)` - Get next hash fields after given field
+  - `ts.hprev(key, field, count)` - Get previous hash fields before given field
   - `ts.zscore(key, member)` - Get sorted set member score
   - `ts.zcard(key)` - Get sorted set cardinality
   - `ts.zrange(key, start, stop)` - Get sorted set range
@@ -876,14 +729,10 @@ defmodule Veidrodelis do
   - `ts.zrank(key, member)` - Get sorted set member rank
   - `ts.zrevrank(key, member)` - Get sorted set member reverse rank
   - `ts.zcount(key, min, max)` - Count sorted set members in score range
-  - `ts.zfirst(key)` - Get first sorted set member (returns score, member)
-  - `ts.zmfirst(key, count)` - Get first sorted set members
-  - `ts.zlast(key)` - Get last sorted set member (returns score, member)
-  - `ts.zmlast(key, count)` - Get last sorted set members
-  - `ts.znext(key, member)` - Get next sorted set member (returns score, member)
-  - `ts.zmnext(key, member, count)` - Get next sorted set members
-  - `ts.zprev(key, member)` - Get previous sorted set member (returns score, member)
-  - `ts.zmprev(key, member, count)` - Get previous sorted set members
+  - `ts.zfirst(key, count)` - Get first sorted set members
+  - `ts.zlast(key, count)` - Get last sorted set members
+  - `ts.znext(key, member, count)` - Get next sorted set members
+  - `ts.zprev(key, member, count)` - Get previous sorted set members
 
   ### Example
 

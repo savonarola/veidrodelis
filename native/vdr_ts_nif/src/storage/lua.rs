@@ -123,20 +123,25 @@ pub fn new_lua() -> Lua {
         .expect("Failed to create scard");
 
     let sfirst_fn = lua
-        .create_function(|lua_ctx, key: mlua::String| {
+        .create_function(|lua_ctx, (key, count): (mlua::String, usize)| {
             let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.sfirst(db, &key.as_bytes()) {
-                Ok(Some(member)) => Ok(Some(lua_ctx.create_string(member.as_slice())?)),
-                Ok(None) => Ok(None),
+            match storage.sfirst(db, &key.as_bytes(), count) {
+                Ok(members) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, member) in members.iter().enumerate() {
+                        table.set(i + 1, lua_ctx.create_string(member.as_slice())?)?;
+                    }
+                    Ok(table)
+                }
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
             }
         })
         .expect("Failed to create sfirst");
 
-    let smfirst_fn = lua
+    let slast_fn = lua
         .create_function(|lua_ctx, (key, count): (mlua::String, usize)| {
             let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.smfirst(db, &key.as_bytes(), count) {
+            match storage.slast(db, &key.as_bytes(), count) {
                 Ok(members) => {
                     let table = lua_ctx.create_table()?;
                     for (i, member) in members.iter().enumerate() {
@@ -144,83 +149,34 @@ pub fn new_lua() -> Lua {
                     }
                     Ok(table)
                 }
-                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-            }
-        })
-        .expect("Failed to create smfirst");
-
-    let slast_fn = lua
-        .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.slast(db, &key.as_bytes()) {
-                Ok(Some(member)) => Ok(Some(lua_ctx.create_string(member.as_slice())?)),
-                Ok(None) => Ok(None),
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
             }
         })
         .expect("Failed to create slast");
 
-    let smlast_fn = lua
-        .create_function(|lua_ctx, (key, count): (mlua::String, usize)| {
-            let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.smlast(db, &key.as_bytes(), count) {
-                Ok(members) => {
-                    let table = lua_ctx.create_table()?;
-                    for (i, member) in members.iter().enumerate() {
-                        table.set(i + 1, lua_ctx.create_string(member.as_slice())?)?;
-                    }
-                    Ok(table)
-                }
-                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-            }
-        })
-        .expect("Failed to create smlast");
-
     let snext_fn = lua
-        .create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.snext(db, &key.as_bytes(), &member.as_bytes()) {
-                Ok(Some(next_member)) => Ok(Some(lua_ctx.create_string(next_member.as_slice())?)),
-                Ok(None) => Ok(None),
-                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-            }
-        })
+        .create_function(
+            |lua_ctx, (key, member, count): (mlua::String, mlua::String, usize)| {
+                let (storage, db) = get_tx_ctx(lua_ctx)?;
+                match storage.snext(db, &key.as_bytes(), &member.as_bytes(), count) {
+                    Ok(members) => {
+                        let table = lua_ctx.create_table()?;
+                        for (i, member) in members.iter().enumerate() {
+                            table.set(i + 1, lua_ctx.create_string(member.as_slice())?)?;
+                        }
+                        Ok(table)
+                    }
+                    Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+                }
+            },
+        )
         .expect("Failed to create snext");
 
-    let smnext_fn = lua
-        .create_function(
-            |lua_ctx, (key, member, count): (mlua::String, mlua::String, usize)| {
-                let (storage, db) = get_tx_ctx(lua_ctx)?;
-                match storage.smnext(db, &key.as_bytes(), &member.as_bytes(), count) {
-                    Ok(members) => {
-                        let table = lua_ctx.create_table()?;
-                        for (i, member) in members.iter().enumerate() {
-                            table.set(i + 1, lua_ctx.create_string(member.as_slice())?)?;
-                        }
-                        Ok(table)
-                    }
-                    Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-                }
-            },
-        )
-        .expect("Failed to create smnext");
-
     let sprev_fn = lua
-        .create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.sprev(db, &key.as_bytes(), &member.as_bytes()) {
-                Ok(Some(prev_member)) => Ok(Some(lua_ctx.create_string(prev_member.as_slice())?)),
-                Ok(None) => Ok(None),
-                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-            }
-        })
-        .expect("Failed to create sprev");
-
-    let smprev_fn = lua
         .create_function(
             |lua_ctx, (key, member, count): (mlua::String, mlua::String, usize)| {
                 let (storage, db) = get_tx_ctx(lua_ctx)?;
-                match storage.smprev(db, &key.as_bytes(), &member.as_bytes(), count) {
+                match storage.sprev(db, &key.as_bytes(), &member.as_bytes(), count) {
                     Ok(members) => {
                         let table = lua_ctx.create_table()?;
                         for (i, member) in members.iter().enumerate() {
@@ -232,7 +188,7 @@ pub fn new_lua() -> Lua {
                 }
             },
         )
-        .expect("Failed to create smprev");
+        .expect("Failed to create sprev");
 
     let smismember_fn = lua
         .create_function(|lua_ctx, (key, members): (mlua::String, mlua::Table)| {
@@ -454,23 +410,28 @@ pub fn new_lua() -> Lua {
         .expect("Failed to create hexists");
 
     let hfirst_fn = lua
-        .create_function(|lua_ctx, key: mlua::String| {
+        .create_function(|lua_ctx, (key, count): (mlua::String, usize)| {
             let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.hfirst(db, &key.as_bytes()) {
-                Ok(Some((field, value))) => Ok((
-                    Some(lua_ctx.create_string(field.as_slice())?),
-                    Some(lua_ctx.create_string(value.as_slice())?),
-                )),
-                Ok(None) => Ok((None::<mlua::String>, None::<mlua::String>)),
+            match storage.hfirst(db, &key.as_bytes(), count) {
+                Ok(entries) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, (field, value)) in entries.iter().enumerate() {
+                        let item = lua_ctx.create_table()?;
+                        item.set(1, lua_ctx.create_string(field.as_slice())?)?;
+                        item.set(2, lua_ctx.create_string(value.as_slice())?)?;
+                        table.set(i + 1, item)?;
+                    }
+                    Ok(table)
+                }
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
             }
         })
         .expect("Failed to create hfirst");
 
-    let hmfirst_fn = lua
+    let hlast_fn = lua
         .create_function(|lua_ctx, (key, count): (mlua::String, usize)| {
             let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.hmfirst(db, &key.as_bytes(), count) {
+            match storage.hlast(db, &key.as_bytes(), count) {
                 Ok(entries) => {
                     let table = lua_ctx.create_table()?;
                     for (i, (field, value)) in entries.iter().enumerate() {
@@ -481,98 +442,37 @@ pub fn new_lua() -> Lua {
                     }
                     Ok(table)
                 }
-                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-            }
-        })
-        .expect("Failed to create hmfirst");
-
-    let hlast_fn = lua
-        .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.hlast(db, &key.as_bytes()) {
-                Ok(Some((field, value))) => Ok((
-                    Some(lua_ctx.create_string(field.as_slice())?),
-                    Some(lua_ctx.create_string(value.as_slice())?),
-                )),
-                Ok(None) => Ok((None::<mlua::String>, None::<mlua::String>)),
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
             }
         })
         .expect("Failed to create hlast");
 
-    let hmlast_fn = lua
-        .create_function(|lua_ctx, (key, count): (mlua::String, usize)| {
-            let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.hmlast(db, &key.as_bytes(), count) {
-                Ok(entries) => {
-                    let table = lua_ctx.create_table()?;
-                    for (i, (field, value)) in entries.iter().enumerate() {
-                        let item = lua_ctx.create_table()?;
-                        item.set(1, lua_ctx.create_string(field.as_slice())?)?;
-                        item.set(2, lua_ctx.create_string(value.as_slice())?)?;
-                        table.set(i + 1, item)?;
-                    }
-                    Ok(table)
-                }
-                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-            }
-        })
-        .expect("Failed to create hmlast");
-
     let hnext_fn = lua
-        .create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.hnext(db, &key.as_bytes(), &field.as_bytes()) {
-                Ok(Some((next_field, value))) => Ok((
-                    Some(lua_ctx.create_string(next_field.as_slice())?),
-                    Some(lua_ctx.create_string(value.as_slice())?),
-                )),
-                Ok(None) => Ok((None::<mlua::String>, None::<mlua::String>)),
-                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-            }
-        })
+        .create_function(
+            |lua_ctx, (key, field, count): (mlua::String, mlua::String, usize)| {
+                let (storage, db) = get_tx_ctx(lua_ctx)?;
+                match storage.hnext(db, &key.as_bytes(), &field.as_bytes(), count) {
+                    Ok(entries) => {
+                        let table = lua_ctx.create_table()?;
+                        for (i, (field, value)) in entries.iter().enumerate() {
+                            let item = lua_ctx.create_table()?;
+                            item.set(1, lua_ctx.create_string(field.as_slice())?)?;
+                            item.set(2, lua_ctx.create_string(value.as_slice())?)?;
+                            table.set(i + 1, item)?;
+                        }
+                        Ok(table)
+                    }
+                    Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+                }
+            },
+        )
         .expect("Failed to create hnext");
 
-    let hmnext_fn = lua
-        .create_function(
-            |lua_ctx, (key, field, count): (mlua::String, mlua::String, usize)| {
-                let (storage, db) = get_tx_ctx(lua_ctx)?;
-                match storage.hmnext(db, &key.as_bytes(), &field.as_bytes(), count) {
-                    Ok(entries) => {
-                        let table = lua_ctx.create_table()?;
-                        for (i, (field, value)) in entries.iter().enumerate() {
-                            let item = lua_ctx.create_table()?;
-                            item.set(1, lua_ctx.create_string(field.as_slice())?)?;
-                            item.set(2, lua_ctx.create_string(value.as_slice())?)?;
-                            table.set(i + 1, item)?;
-                        }
-                        Ok(table)
-                    }
-                    Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-                }
-            },
-        )
-        .expect("Failed to create hmnext");
-
     let hprev_fn = lua
-        .create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.hprev(db, &key.as_bytes(), &field.as_bytes()) {
-                Ok(Some((prev_field, value))) => Ok((
-                    Some(lua_ctx.create_string(prev_field.as_slice())?),
-                    Some(lua_ctx.create_string(value.as_slice())?),
-                )),
-                Ok(None) => Ok((None::<mlua::String>, None::<mlua::String>)),
-                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-            }
-        })
-        .expect("Failed to create hprev");
-
-    let hmprev_fn = lua
         .create_function(
             |lua_ctx, (key, field, count): (mlua::String, mlua::String, usize)| {
                 let (storage, db) = get_tx_ctx(lua_ctx)?;
-                match storage.hmprev(db, &key.as_bytes(), &field.as_bytes(), count) {
+                match storage.hprev(db, &key.as_bytes(), &field.as_bytes(), count) {
                     Ok(entries) => {
                         let table = lua_ctx.create_table()?;
                         for (i, (field, value)) in entries.iter().enumerate() {
@@ -587,7 +487,7 @@ pub fn new_lua() -> Lua {
                 }
             },
         )
-        .expect("Failed to create hmprev");
+        .expect("Failed to create hprev");
 
     let hstrlen_fn = lua
         .create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
@@ -731,23 +631,28 @@ pub fn new_lua() -> Lua {
         .expect("Failed to create zcount");
 
     let zfirst_fn = lua
-        .create_function(|lua_ctx, key: mlua::String| {
+        .create_function(|lua_ctx, (key, count): (mlua::String, usize)| {
             let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.zfirst(db, &key.as_bytes()) {
-                Ok(Some((score, member))) => Ok((
-                    Some(score.into_inner()),
-                    Some(lua_ctx.create_string(member.as_slice())?),
-                )),
-                Ok(None) => Ok((None::<f64>, None::<mlua::String>)),
+            match storage.zfirst(db, &key.as_bytes(), count) {
+                Ok(entries) => {
+                    let table = lua_ctx.create_table()?;
+                    for (i, (score, member)) in entries.iter().enumerate() {
+                        let item = lua_ctx.create_table()?;
+                        item.set(1, score.into_inner())?;
+                        item.set(2, lua_ctx.create_string(member.as_slice())?)?;
+                        table.set(i + 1, item)?;
+                    }
+                    Ok(table)
+                }
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
             }
         })
         .expect("Failed to create zfirst");
 
-    let zmfirst_fn = lua
+    let zlast_fn = lua
         .create_function(|lua_ctx, (key, count): (mlua::String, usize)| {
             let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.zmfirst(db, &key.as_bytes(), count) {
+            match storage.zlast(db, &key.as_bytes(), count) {
                 Ok(entries) => {
                     let table = lua_ctx.create_table()?;
                     for (i, (score, member)) in entries.iter().enumerate() {
@@ -758,98 +663,37 @@ pub fn new_lua() -> Lua {
                     }
                     Ok(table)
                 }
-                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-            }
-        })
-        .expect("Failed to create zmfirst");
-
-    let zlast_fn = lua
-        .create_function(|lua_ctx, key: mlua::String| {
-            let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.zlast(db, &key.as_bytes()) {
-                Ok(Some((score, member))) => Ok((
-                    Some(score.into_inner()),
-                    Some(lua_ctx.create_string(member.as_slice())?),
-                )),
-                Ok(None) => Ok((None::<f64>, None::<mlua::String>)),
                 Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
             }
         })
         .expect("Failed to create zlast");
 
-    let zmlast_fn = lua
-        .create_function(|lua_ctx, (key, count): (mlua::String, usize)| {
-            let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.zmlast(db, &key.as_bytes(), count) {
-                Ok(entries) => {
-                    let table = lua_ctx.create_table()?;
-                    for (i, (score, member)) in entries.iter().enumerate() {
-                        let item = lua_ctx.create_table()?;
-                        item.set(1, score.into_inner())?;
-                        item.set(2, lua_ctx.create_string(member.as_slice())?)?;
-                        table.set(i + 1, item)?;
-                    }
-                    Ok(table)
-                }
-                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-            }
-        })
-        .expect("Failed to create zmlast");
-
     let znext_fn = lua
-        .create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.znext(db, &key.as_bytes(), &member.as_bytes()) {
-                Ok(Some((next_score, next_member))) => Ok((
-                    Some(next_score.into_inner()),
-                    Some(lua_ctx.create_string(next_member.as_slice())?),
-                )),
-                Ok(None) => Ok((None::<f64>, None::<mlua::String>)),
-                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-            }
-        })
+        .create_function(
+            |lua_ctx, (key, member, count): (mlua::String, mlua::String, usize)| {
+                let (storage, db) = get_tx_ctx(lua_ctx)?;
+                match storage.znext(db, &key.as_bytes(), &member.as_bytes(), count) {
+                    Ok(entries) => {
+                        let table = lua_ctx.create_table()?;
+                        for (i, (score, member)) in entries.iter().enumerate() {
+                            let item = lua_ctx.create_table()?;
+                            item.set(1, score.into_inner())?;
+                            item.set(2, lua_ctx.create_string(member.as_slice())?)?;
+                            table.set(i + 1, item)?;
+                        }
+                        Ok(table)
+                    }
+                    Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
+                }
+            },
+        )
         .expect("Failed to create znext");
 
-    let zmnext_fn = lua
-        .create_function(
-            |lua_ctx, (key, member, count): (mlua::String, mlua::String, usize)| {
-                let (storage, db) = get_tx_ctx(lua_ctx)?;
-                match storage.zmnext(db, &key.as_bytes(), &member.as_bytes(), count) {
-                    Ok(entries) => {
-                        let table = lua_ctx.create_table()?;
-                        for (i, (score, member)) in entries.iter().enumerate() {
-                            let item = lua_ctx.create_table()?;
-                            item.set(1, score.into_inner())?;
-                            item.set(2, lua_ctx.create_string(member.as_slice())?)?;
-                            table.set(i + 1, item)?;
-                        }
-                        Ok(table)
-                    }
-                    Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-                }
-            },
-        )
-        .expect("Failed to create zmnext");
-
     let zprev_fn = lua
-        .create_function(|lua_ctx, (key, member): (mlua::String, mlua::String)| {
-            let (storage, db) = get_tx_ctx(lua_ctx)?;
-            match storage.zprev(db, &key.as_bytes(), &member.as_bytes()) {
-                Ok(Some((prev_score, prev_member))) => Ok((
-                    Some(prev_score.into_inner()),
-                    Some(lua_ctx.create_string(prev_member.as_slice())?),
-                )),
-                Ok(None) => Ok((None::<f64>, None::<mlua::String>)),
-                Err(e) => Err(mlua::Error::RuntimeError(e.to_string())),
-            }
-        })
-        .expect("Failed to create zprev");
-
-    let zmprev_fn = lua
         .create_function(
             |lua_ctx, (key, member, count): (mlua::String, mlua::String, usize)| {
                 let (storage, db) = get_tx_ctx(lua_ctx)?;
-                match storage.zmprev(db, &key.as_bytes(), &member.as_bytes(), count) {
+                match storage.zprev(db, &key.as_bytes(), &member.as_bytes(), count) {
                     Ok(entries) => {
                         let table = lua_ctx.create_table()?;
                         for (i, (score, member)) in entries.iter().enumerate() {
@@ -864,7 +708,7 @@ pub fn new_lua() -> Lua {
                 }
             },
         )
-        .expect("Failed to create zmprev");
+        .expect("Failed to create zprev");
 
     // Create the ts table once with all functions
     let ts_table = lua.create_table().expect("Failed to create ts table");
@@ -892,26 +736,14 @@ pub fn new_lua() -> Lua {
         .set("sfirst", sfirst_fn)
         .expect("Failed to set sfirst");
     ts_table
-        .set("smfirst", smfirst_fn)
-        .expect("Failed to set smfirst");
-    ts_table
         .set("slast", slast_fn)
         .expect("Failed to set slast");
-    ts_table
-        .set("smlast", smlast_fn)
-        .expect("Failed to set smlast");
     ts_table
         .set("snext", snext_fn)
         .expect("Failed to set snext");
     ts_table
-        .set("smnext", smnext_fn)
-        .expect("Failed to set smnext");
-    ts_table
         .set("sprev", sprev_fn)
         .expect("Failed to set sprev");
-    ts_table
-        .set("smprev", smprev_fn)
-        .expect("Failed to set smprev");
     ts_table
         .set("smismember", smismember_fn)
         .expect("Failed to set smismember");
@@ -953,26 +785,14 @@ pub fn new_lua() -> Lua {
         .set("hfirst", hfirst_fn)
         .expect("Failed to set hfirst");
     ts_table
-        .set("hmfirst", hmfirst_fn)
-        .expect("Failed to set hmfirst");
-    ts_table
         .set("hlast", hlast_fn)
         .expect("Failed to set hlast");
-    ts_table
-        .set("hmlast", hmlast_fn)
-        .expect("Failed to set hmlast");
     ts_table
         .set("hnext", hnext_fn)
         .expect("Failed to set hnext");
     ts_table
-        .set("hmnext", hmnext_fn)
-        .expect("Failed to set hmnext");
-    ts_table
         .set("hprev", hprev_fn)
         .expect("Failed to set hprev");
-    ts_table
-        .set("hmprev", hmprev_fn)
-        .expect("Failed to set hmprev");
     ts_table
         .set("hstrlen", hstrlen_fn)
         .expect("Failed to set hstrlen");
@@ -1006,26 +826,14 @@ pub fn new_lua() -> Lua {
         .set("zfirst", zfirst_fn)
         .expect("Failed to set zfirst");
     ts_table
-        .set("zmfirst", zmfirst_fn)
-        .expect("Failed to set zmfirst");
-    ts_table
         .set("zlast", zlast_fn)
         .expect("Failed to set zlast");
-    ts_table
-        .set("zmlast", zmlast_fn)
-        .expect("Failed to set zmlast");
     ts_table
         .set("znext", znext_fn)
         .expect("Failed to set znext");
     ts_table
-        .set("zmnext", zmnext_fn)
-        .expect("Failed to set zmnext");
-    ts_table
         .set("zprev", zprev_fn)
         .expect("Failed to set zprev");
-    ts_table
-        .set("zmprev", zmprev_fn)
-        .expect("Failed to set zmprev");
 
     lua.globals()
         .set("ts", ts_table)

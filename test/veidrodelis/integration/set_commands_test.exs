@@ -456,12 +456,12 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
       Redix.command!(redis, ["SADD", key, "alpha", "beta", "gamma"])
 
       assert_within 1000 do
-        assert {:ok, "alpha"} == Veidrodelis.sfirst(vdr_id(), 0, key)
-        assert {:ok, "gamma"} == Veidrodelis.slast(vdr_id(), 0, key)
+        assert {:ok, ["alpha"]} == Veidrodelis.sfirst(vdr_id(), 0, key, 1)
+        assert {:ok, ["gamma"]} == Veidrodelis.slast(vdr_id(), 0, key, 1)
       end
 
-      assert {:ok, "beta"} == Veidrodelis.snext(vdr_id(), 0, key, "alpha")
-      assert {:ok, "beta"} == Veidrodelis.sprev(vdr_id(), 0, key, "gamma")
+      assert {:ok, ["beta"]} == Veidrodelis.snext(vdr_id(), 0, key, "alpha", 1)
+      assert {:ok, ["beta"]} == Veidrodelis.sprev(vdr_id(), 0, key, "gamma", 1)
     end
 
     test "read_tx accepts set navigation commands", %{redis: redis} do
@@ -471,20 +471,20 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
       assert_within 1000 do
         assert {:ok,
                 [
-                  {:ok, "alpha"},
-                  {:ok, "gamma"},
-                  {:ok, "beta"},
-                  {:ok, "beta"},
-                  {:ok, nil},
-                  {:ok, nil}
+                  {:ok, ["alpha"]},
+                  {:ok, ["gamma"]},
+                  {:ok, ["beta"]},
+                  {:ok, ["beta"]},
+                  {:ok, []},
+                  {:ok, []}
                 ]} =
                  Veidrodelis.read_tx(vdr_id(), 0, [
-                   {:sfirst, key},
-                   {:slast, key},
-                   {:snext, key, "alpha"},
-                   {:sprev, key, "gamma"},
-                   {:snext, key, "gamma"},
-                   {:sprev, key, "alpha"}
+                   {:sfirst, key, 1},
+                   {:slast, key, 1},
+                   {:snext, key, "alpha", 1},
+                   {:sprev, key, "gamma", 1},
+                   {:snext, key, "gamma", 1},
+                   {:sprev, key, "alpha", 1}
                  ])
       end
     end
@@ -498,26 +498,26 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         assert {:ok, 4} == Veidrodelis.scard(vdr_id(), 0, key)
       end
 
-      assert {:ok, []} == Veidrodelis.smnext(vdr_id(), 0, key, "m04", 0)
-      assert {:ok, ["m04"]} == Veidrodelis.smnext(vdr_id(), 0, key, "m03", 1)
-      assert {:ok, ["m03", "m04"]} == Veidrodelis.smnext(vdr_id(), 0, key, "m02", 2)
-      assert {:ok, ["m01", "m02", "m03", "m04"]} == Veidrodelis.smnext(vdr_id(), 0, key, "m00", 4)
+      assert {:ok, []} == Veidrodelis.snext(vdr_id(), 0, key, "m04", 0)
+      assert {:ok, ["m04"]} == Veidrodelis.snext(vdr_id(), 0, key, "m03", 1)
+      assert {:ok, ["m03", "m04"]} == Veidrodelis.snext(vdr_id(), 0, key, "m02", 2)
+      assert {:ok, ["m01", "m02", "m03", "m04"]} == Veidrodelis.snext(vdr_id(), 0, key, "m00", 4)
 
-      assert {:ok, []} == Veidrodelis.smprev(vdr_id(), 0, key, "m01", 0)
-      assert {:ok, ["m01"]} == Veidrodelis.smprev(vdr_id(), 0, key, "m02", 1)
-      assert {:ok, ["m02", "m01"]} == Veidrodelis.smprev(vdr_id(), 0, key, "m03", 2)
-      assert {:ok, ["m04", "m03", "m02", "m01"]} == Veidrodelis.smprev(vdr_id(), 0, key, "m05", 4)
+      assert {:ok, []} == Veidrodelis.sprev(vdr_id(), 0, key, "m01", 0)
+      assert {:ok, ["m01"]} == Veidrodelis.sprev(vdr_id(), 0, key, "m02", 1)
+      assert {:ok, ["m02", "m01"]} == Veidrodelis.sprev(vdr_id(), 0, key, "m03", 2)
+      assert {:ok, ["m04", "m03", "m02", "m01"]} == Veidrodelis.sprev(vdr_id(), 0, key, "m05", 4)
 
       assert {:ok, [{:ok, ["m03", "m04"]}, {:ok, ["m02", "m01"]}]} =
                Veidrodelis.read_tx(vdr_id(), 0, [
-                 {:smnext, key, "m02", 2},
-                 {:smprev, key, "m03", 2}
+                 {:snext, key, "m02", 2},
+                 {:sprev, key, "m03", 2}
                ])
 
-      assert {:ok, nil} == Veidrodelis.snext(vdr_id(), 0, key, "m04")
-      assert {:ok, "m04"} == Veidrodelis.snext(vdr_id(), 0, key, "m03")
-      assert {:ok, nil} == Veidrodelis.sprev(vdr_id(), 0, key, "m01")
-      assert {:ok, "m01"} == Veidrodelis.sprev(vdr_id(), 0, key, "m02")
+      assert {:ok, []} == Veidrodelis.snext(vdr_id(), 0, key, "m04", 1)
+      assert {:ok, ["m04"]} == Veidrodelis.snext(vdr_id(), 0, key, "m03", 1)
+      assert {:ok, []} == Veidrodelis.sprev(vdr_id(), 0, key, "m01", 1)
+      assert {:ok, ["m01"]} == Veidrodelis.sprev(vdr_id(), 0, key, "m02", 1)
     end
 
     test "smfirst/smlast work with concrete counts", %{redis: redis} do
@@ -529,20 +529,20 @@ defmodule Veidrodelis.Integration.SetCommandsTest do
         assert {:ok, 4} == Veidrodelis.scard(vdr_id(), 0, key)
       end
 
-      assert {:ok, []} == Veidrodelis.smfirst(vdr_id(), 0, key, 0)
-      assert {:ok, ["m01"]} == Veidrodelis.smfirst(vdr_id(), 0, key, 1)
-      assert {:ok, ["m01", "m02"]} == Veidrodelis.smfirst(vdr_id(), 0, key, 2)
-      assert {:ok, ["m01", "m02", "m03", "m04"]} == Veidrodelis.smfirst(vdr_id(), 0, key, 4)
+      assert {:ok, []} == Veidrodelis.sfirst(vdr_id(), 0, key, 0)
+      assert {:ok, ["m01"]} == Veidrodelis.sfirst(vdr_id(), 0, key, 1)
+      assert {:ok, ["m01", "m02"]} == Veidrodelis.sfirst(vdr_id(), 0, key, 2)
+      assert {:ok, ["m01", "m02", "m03", "m04"]} == Veidrodelis.sfirst(vdr_id(), 0, key, 4)
 
-      assert {:ok, []} == Veidrodelis.smlast(vdr_id(), 0, key, 0)
-      assert {:ok, ["m04"]} == Veidrodelis.smlast(vdr_id(), 0, key, 1)
-      assert {:ok, ["m04", "m03"]} == Veidrodelis.smlast(vdr_id(), 0, key, 2)
-      assert {:ok, ["m04", "m03", "m02", "m01"]} == Veidrodelis.smlast(vdr_id(), 0, key, 4)
+      assert {:ok, []} == Veidrodelis.slast(vdr_id(), 0, key, 0)
+      assert {:ok, ["m04"]} == Veidrodelis.slast(vdr_id(), 0, key, 1)
+      assert {:ok, ["m04", "m03"]} == Veidrodelis.slast(vdr_id(), 0, key, 2)
+      assert {:ok, ["m04", "m03", "m02", "m01"]} == Veidrodelis.slast(vdr_id(), 0, key, 4)
 
       assert {:ok, [{:ok, ["m01", "m02"]}, {:ok, ["m04", "m03"]}]} =
                Veidrodelis.read_tx(vdr_id(), 0, [
-                 {:smfirst, key, 2},
-                 {:smlast, key, 2}
+                 {:sfirst, key, 2},
+                 {:slast, key, 2}
                ])
     end
   end

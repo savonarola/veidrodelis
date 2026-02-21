@@ -43,19 +43,19 @@ end
 
 ## Usage
 
-### Simple Case: Connect and Use
+### Simple example
 
 The most basic setup: connect Veidrodelis for reads, Redix for writes.
 
 ```elixir
-# Start Veidrodelis (replica connection for reads)
+# Start Veidrodelis for reads
 {:ok, vdr} = Veidrodelis.start_link(
   id: :my_cache,
   host: "localhost",
   port: 6379
 )
 
-# Start Redix (client connection for writes)
+# Start Redix for writes
 {:ok, rdx} = Redix.start_link(
   host: "localhost",
   port: 6379
@@ -66,6 +66,10 @@ Redix.command!(rdx, ["SET", "user:123:name", "Alice"])
 Redix.command!(rdx, ["HSET", "user:123:profile", "age", "30", "city", "NYC"])
 
 # Wait a moment for replication
+# NOTE
+# We make sleep for simplicity.
+# You may use watches to wait for the data to be replicated,
+# see documentation for more details: https://hexdocs.pm/veidrodelis/about.html#7-watches-for-sync-writes
 Process.sleep(100)
 
 # Read via Veidrodelis (from local projection)
@@ -97,7 +101,9 @@ Unsupported write commands are:
 
 and all the commands that are not related to string, hash, list, set, sorted set data types.
 
-To prevent data inconsistencies, configure Valkey/Redis ACLs to deny unsupported write commands, see [doc/acl.txt](doc/acl.txt) for the recommended configuration.
+To prevent unexpected behavior, it is recommended to configure Valkey/Redis ACLs to deny unsupported write commands.
+See [doc/acl.txt](doc/acl.txt) for sample ACL configuration. Another option is to rename the unsupported commands to
+some obscure names to avoid them being used by accident.
 
 #### Replication caveats
 
@@ -110,11 +116,11 @@ correctness of the data when using these commands or just disable them with rena
 
 **List:** `llen`, `lrange`
 
-**Set:** `smembers`, `scard`, `sismember`, `smismember`, `srandmember`, `sunion`, `sinter`, `sdiff`, `sintercard`, `sfirst`, `smfirst`, `slast`, `smlast`, `snext`, `smnext`, `sprev`, `smprev`
+**Set:** `smembers`, `scard`, `sismember`, `smismember`, `srandmember`, `sunion`, `sinter`, `sdiff`, `sintercard`, `sfirst`, `slast`, `snext`, `sprev`
 
-**Hash:** `hget`, `hmget`, `hgetall`, `hkeys`, `hvals`, `hlen`, `hexists`, `hstrlen`, `hrandfield`, `hfirst`, `hmfirst`, `hlast`, `hmlast`, `hnext`, `hmnext`, `hprev`, `hmprev`
+**Hash:** `hget`, `hmget`, `hgetall`, `hkeys`, `hvals`, `hlen`, `hexists`, `hstrlen`, `hrandfield`, `hfirst`, `hlast`, `hnext`, `hprev`
 
-**Sorted Set:** `zscore`, `zcard`, `zrange`, `zrangebyscore`, `zrank`, `zrevrank`, `zcount`, `zfirst`, `zmfirst`, `zlast`, `zmlast`, `znext`, `zmnext`, `zprev`, `zmprev`
+**Sorted Set:** `zscore`, `zcard`, `zrange`, `zrangebyscore`, `zrank`, `zrevrank`, `zcount`, `zfirst`, `zlast`, `znext`, `zprev`
 
 Note, that read operations do not always directly reflect Valkey/Redis commands.
 
@@ -194,13 +200,27 @@ return ts.hget('user:' .. owner_id, 'name')
 # Iterate over sorted set
 script = """
 local timeline = {}
-local next_score, next_member = ts.zfirst('leaderboard')
-while next_member do
-  table.insert(timeline, {next_member, next_score})
-  next_score, next_member = ts.znext('leaderboard', next_member)
+local batch_size = 10
+local batch = ts.zfirst('leaderboard', batch_size)
+
+while #batch > 0 do
+  for i = 1, #batch do
+    local item = batch[i]
+    local score = item[1]
+    local member = item[2]
+    table.insert(timeline, {member, score})
+  end
+
+  local last_member = batch[#batch][2]
+  batch = ts.znext('leaderboard', last_member, batch_size)
 end
 return timeline
 """
+
+# NOTE: simple collecting all members is mostly useless,
+# since using zrange is much more efficient.
+# Using Xfirst/Xlast/Xnext/Xprev is needed only if iteration
+# requires some additional logic.
 
 {:ok, leaderboard} = Veidrodelis.read_tx(:my_cache, 0, script)
 ```

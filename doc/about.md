@@ -86,10 +86,19 @@ Lua scripts can orchestrate richer logic while still reading from a consistent s
 ```elixir
 script = """
 local timeline = {}
-local next_score, next_member = ts.zfirst('leaderboard')
-while next_member do
-  table.insert(timeline, {next_member, next_score})
-  next_score, next_member = ts.znext('leaderboard', next_member)
+local batch_size = 10
+local batch = ts.zfirst('leaderboard', batch_size)
+
+while #batch > 0 do
+  for i = 1, #batch do
+    local item = batch[i]
+    local score = item[1]
+    local member = item[2]
+    table.insert(timeline, {member, score})
+  end
+
+  local last_member = batch[#batch][2]
+  batch = ts.znext('leaderboard', last_member, batch_size)
 end
 return timeline
 """

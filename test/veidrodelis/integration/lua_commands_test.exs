@@ -117,10 +117,10 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       results.set_scard = ts.scard("set_a")
       results.set_sismember_true = ts.sismember("set_a", "member1")
       results.set_sismember_false = ts.sismember("set_a", "nonexistent")
-      results.set_sfirst = ts.sfirst("set_a")
-      results.set_slast = ts.slast("set_a")
-      results.set_snext = ts.snext("set_a", "member1")
-      results.set_sprev = ts.sprev("set_a", "member3")
+      results.set_sfirst = ts.sfirst("set_a", 1)
+      results.set_slast = ts.slast("set_a", 1)
+      results.set_snext = ts.snext("set_a", "member1", 1)
+      results.set_sprev = ts.sprev("set_a", "member3", 1)
 
       -- Set operations
       results.set_smismember = ts.smismember("set_a", {"member1", "member2", "nonexistent"})
@@ -139,15 +139,10 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       results.hash_hlen = ts.hlen("hash_key")
       results.hash_hexists_true = ts.hexists("hash_key", "field1")
       results.hash_hexists_false = ts.hexists("hash_key", "nonexistent")
-      -- hfirst/hlast/hnext/hprev return multiple values, capture as table
-      local hfirst_field, hfirst_value = ts.hfirst("hash_key")
-      results.hash_hfirst = {hfirst_field, hfirst_value}
-      local hlast_field, hlast_value = ts.hlast("hash_key")
-      results.hash_hlast = {hlast_field, hlast_value}
-      local hnext_field, hnext_value = ts.hnext("hash_key", "field1")
-      results.hash_hnext = {hnext_field, hnext_value}
-      local hprev_field, hprev_value = ts.hprev("hash_key", "field4")
-      results.hash_hprev = {hprev_field, hprev_value}
+      results.hash_hfirst = ts.hfirst("hash_key", 1)
+      results.hash_hlast = ts.hlast("hash_key", 1)
+      results.hash_hnext = ts.hnext("hash_key", "field1", 1)
+      results.hash_hprev = ts.hprev("hash_key", "field4", 1)
       results.hash_hstrlen = ts.hstrlen("hash_key", "field1")
       results.hash_hrandfield = ts.hrandfield("hash_key", 2, true)
 
@@ -159,15 +154,10 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       results.zset_zrank = ts.zrank("zset_key", "member_c")
       results.zset_zrevrank = ts.zrevrank("zset_key", "member_c")
       results.zset_zcount = ts.zcount("zset_key", 2.0, 5.0)
-      -- zfirst/zlast/znext/zprev return multiple values, capture as table
-      local zfirst_score, zfirst_member = ts.zfirst("zset_key")
-      results.zset_zfirst = {zfirst_score, zfirst_member}
-      local zlast_score, zlast_member = ts.zlast("zset_key")
-      results.zset_zlast = {zlast_score, zlast_member}
-      local znext_score, znext_member = ts.znext("zset_key", "member_b")
-      results.zset_znext = {znext_score, znext_member}
-      local zprev_score, zprev_member = ts.zprev("zset_key", "member_c")
-      results.zset_zprev = {zprev_score, zprev_member}
+      results.zset_zfirst = ts.zfirst("zset_key", 1)
+      results.zset_zlast = ts.zlast("zset_key", 1)
+      results.zset_znext = ts.znext("zset_key", "member_b", 1)
+      results.zset_zprev = ts.zprev("zset_key", "member_c", 1)
 
       -- Non-existent key tests
       results.nil_string = ts.get("nonexistent_string")
@@ -193,9 +183,10 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       assert results["set_scard"] == 3
       assert results["set_sismember_true"] == true
       assert results["set_sismember_false"] == false
-      assert is_binary(results["set_sfirst"])
-      assert is_binary(results["set_slast"])
-      # snext/sprev can return nil if at boundaries
+      assert is_list(results["set_sfirst"])
+      assert is_list(results["set_slast"])
+      assert is_list(results["set_snext"])
+      assert is_list(results["set_sprev"])
 
       # Set operations
       assert length(results["set_smismember"]) == 3
@@ -216,11 +207,11 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       assert results["hash_hlen"] == 4
       assert results["hash_hexists_true"] == true
       assert results["hash_hexists_false"] == false
-      # hfirst/hlast/hnext/hprev return {field, value} as list [field, value] or nil
+      # hfirst/hlast/hnext/hprev return lists of [field, value]
       assert is_list(results["hash_hfirst"])
       assert is_list(results["hash_hlast"])
-      assert is_list(results["hash_hnext"]) or results["hash_hnext"] == nil
-      assert is_list(results["hash_hprev"]) or results["hash_hprev"] == nil
+      assert is_list(results["hash_hnext"])
+      assert is_list(results["hash_hprev"])
       assert is_integer(results["hash_hstrlen"])
       assert length(results["hash_hrandfield"]) == 2
 
@@ -232,11 +223,11 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       assert is_integer(results["zset_zrank"])
       assert is_integer(results["zset_zrevrank"])
       assert results["zset_zcount"] == 3
-      # zfirst/zlast/znext/zprev return {score, member} as list [score, member] or nil
+      # zfirst/zlast/znext/zprev return lists of [score, member]
       assert is_list(results["zset_zfirst"])
       assert is_list(results["zset_zlast"])
-      assert is_list(results["zset_znext"]) or results["zset_znext"] == nil
-      assert is_list(results["zset_zprev"]) or results["zset_zprev"] == nil
+      assert is_list(results["zset_znext"])
+      assert is_list(results["zset_zprev"])
 
       # Non-existent key tests
       assert results["nil_string"] == nil
@@ -266,18 +257,18 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
 
       script = """
       local result = {}
-      result.smnext = ts.smnext("set_a", "member1", 2)
-      result.smprev = ts.smprev("set_a", "member3", 2)
-      result.smfirst = ts.smfirst("set_a", 2)
-      result.smlast = ts.smlast("set_a", 2)
-      result.hmnext = ts.hmnext("hash_key", "field1", 2)
-      result.hmprev = ts.hmprev("hash_key", "field4", 2)
-      result.hmfirst = ts.hmfirst("hash_key", 2)
-      result.hmlast = ts.hmlast("hash_key", 2)
-      result.zmnext = ts.zmnext("zset_key", "member_b", 2)
-      result.zmprev = ts.zmprev("zset_key", "member_d", 2)
-      result.zmfirst = ts.zmfirst("zset_key", 2)
-      result.zmlast = ts.zmlast("zset_key", 2)
+      result.smnext = ts.snext("set_a", "member1", 2)
+      result.smprev = ts.sprev("set_a", "member3", 2)
+      result.smfirst = ts.sfirst("set_a", 2)
+      result.smlast = ts.slast("set_a", 2)
+      result.hmnext = ts.hnext("hash_key", "field1", 2)
+      result.hmprev = ts.hprev("hash_key", "field4", 2)
+      result.hmfirst = ts.hfirst("hash_key", 2)
+      result.hmlast = ts.hlast("hash_key", 2)
+      result.zmnext = ts.znext("zset_key", "member_b", 2)
+      result.zmprev = ts.zprev("zset_key", "member_d", 2)
+      result.zmfirst = ts.zfirst("zset_key", 2)
+      result.zmlast = ts.zlast("zset_key", 2)
       return result
       """
 
@@ -294,6 +285,57 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       assert result["zmprev"] == [[3.7, "member_c"], [2.5, "member_b"]]
       assert result["zmfirst"] == [[1.0, "member_a"], [2.5, "member_b"]]
       assert result["zmlast"] == [[7.2, "member_e"], [5.0, "member_d"]]
+
+      Veidrodelis.stop(vdr)
+    end
+
+    @tag timeout: 30_000
+    test "lua traverses zset in batches as in README/about", %{redis: redis} do
+      args =
+        ["ZADD", "leaderboard"] ++
+          Enum.flat_map(0..25, fn i ->
+            member = [?a + i]
+            score = i
+            [score, member]
+          end)
+
+      Redix.command!(redis, args)
+
+      opts = [
+        id: @id,
+        host: @redis[:host],
+        port: @redis[:port]
+      ]
+
+      {:ok, vdr} = Veidrodelis.start_link(opts)
+
+      assert_within 5000 do
+        assert :streaming == Veidrodelis.get_replication_state(vdr)
+      end
+
+      script = """
+      local timeline = {}
+      local batch_size = 10
+      local batch = ts.zfirst('leaderboard', batch_size)
+
+      while #batch > 0 do
+        for i = 1, #batch do
+          local item = batch[i]
+          local score = item[1]
+          local member = item[2]
+          table.insert(timeline, {member, score})
+        end
+
+        local last_member = batch[#batch][2]
+        batch = ts.znext('leaderboard', last_member, batch_size)
+      end
+      return timeline
+      """
+
+      assert {:ok, timeline} = Veidrodelis.read_tx(@id, 0, script)
+      assert length(timeline) == 26
+      assert List.first(timeline) == ["a", 0.0]
+      assert List.last(timeline) == ["z", 25.0]
 
       Veidrodelis.stop(vdr)
     end
@@ -392,9 +434,8 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       db = 0
 
       script = """
-      -- Capture multi-value returns explicitly
-      local first_score, first_member = ts.zfirst("zset_key")
-      local last_score, last_member = ts.zlast("zset_key")
+      local first = ts.zfirst("zset_key", 1)[1]
+      local last = ts.zlast("zset_key", 1)[1]
 
       return {
         strings = {
@@ -414,8 +455,8 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
           len = ts.hlen("hash_key")
         },
         zsets = {
-          first = {first_score, first_member},
-          last = {last_score, last_member},
+          first = first,
+          last = last,
           range = ts.zrange("zset_key", 1, 3)
         }
       }

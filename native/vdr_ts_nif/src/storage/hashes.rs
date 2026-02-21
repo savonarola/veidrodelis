@@ -224,30 +224,9 @@ impl StorageInner {
         Ok(())
     }
 
-    /// Get the first (minimum) field from hash.
-    /// Returns Some((field, value)) or None if hash is empty/doesn't exist.
-    pub fn hfirst(&self, db: u64, key: &[u8]) -> Result<Option<(Bytes, Bytes)>, &'static str> {
-        let Some(db_map) = self.map.get(&db) else {
-            return Ok(None);
-        };
-
-        let Some(value) = db_map.get(key) else {
-            return Ok(None);
-        };
-
-        let StorageValue::Hash(hash) = value else {
-            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
-        };
-
-        let result = hash
-            .first_key_value()
-            .map(|(field, value)| (field.clone(), value.clone()));
-        Ok(result)
-    }
-
     /// Get the first (minimum) fields from hash.
     /// Returns up to count field/value pairs.
-    pub fn hmfirst(
+    pub fn hfirst(
         &self,
         db: u64,
         key: &[u8],
@@ -276,30 +255,9 @@ impl StorageInner {
             .collect())
     }
 
-    /// Get the last (maximum) field from hash.
-    /// Returns Some((field, value)) or None if hash is empty/doesn't exist.
-    pub fn hlast(&self, db: u64, key: &[u8]) -> Result<Option<(Bytes, Bytes)>, &'static str> {
-        let Some(db_map) = self.map.get(&db) else {
-            return Ok(None);
-        };
-
-        let Some(value) = db_map.get(key) else {
-            return Ok(None);
-        };
-
-        let StorageValue::Hash(hash) = value else {
-            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
-        };
-
-        let result = hash
-            .last_key_value()
-            .map(|(field, value)| (field.clone(), value.clone()));
-        Ok(result)
-    }
-
     /// Get the last (maximum) fields from hash.
     /// Returns up to count field/value pairs in reverse lexicographical order.
-    pub fn hmlast(
+    pub fn hlast(
         &self,
         db: u64,
         key: &[u8],
@@ -331,7 +289,7 @@ impl StorageInner {
 
     /// Get the next fields after the given field in hash.
     /// Returns up to count field/value pairs.
-    pub fn hmnext(
+    pub fn hnext(
         &self,
         db: u64,
         key: &[u8],
@@ -363,36 +321,9 @@ impl StorageInner {
             .collect())
     }
 
-    /// Get the next field after the given field in hash.
-    /// Returns Some((field, value)) or None if no next element exists.
-    pub fn hnext(
-        &self,
-        db: u64,
-        key: &[u8],
-        field: &[u8],
-    ) -> Result<Option<(Bytes, Bytes)>, &'static str> {
-        use std::ops::Bound;
-
-        let Some(db_map) = self.map.get(&db) else {
-            return Ok(None);
-        };
-
-        let Some(value) = db_map.get(key) else {
-            return Ok(None);
-        };
-
-        let StorageValue::Hash(hash) = value else {
-            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
-        };
-
-        let range = hash.range::<[u8], _>((Bound::Excluded(field), Bound::Unbounded));
-        let result = range.take(1).next().map(|(f, v)| (f.clone(), v.clone()));
-        Ok(result)
-    }
-
     /// Get the previous fields before the given field in hash.
     /// Returns up to count field/value pairs.
-    pub fn hmprev(
+    pub fn hprev(
         &self,
         db: u64,
         key: &[u8],
@@ -423,33 +354,6 @@ impl StorageInner {
             .take(count)
             .map(|(f, v)| (f.clone(), v.clone()))
             .collect())
-    }
-
-    /// Get the previous field before the given field in hash.
-    /// Returns Some((field, value)) or None if no previous element exists.
-    pub fn hprev(
-        &self,
-        db: u64,
-        key: &[u8],
-        field: &[u8],
-    ) -> Result<Option<(Bytes, Bytes)>, &'static str> {
-        use std::ops::Bound;
-
-        let Some(db_map) = self.map.get(&db) else {
-            return Ok(None);
-        };
-
-        let Some(value) = db_map.get(key) else {
-            return Ok(None);
-        };
-
-        let StorageValue::Hash(hash) = value else {
-            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
-        };
-
-        let range = hash.range::<[u8], _>((Bound::Unbounded, Bound::Excluded(field)));
-        let result = range.last().map(|(f, v)| (f.clone(), v.clone()));
-        Ok(result)
     }
 
     /// Set field in hash only if it doesn't exist.

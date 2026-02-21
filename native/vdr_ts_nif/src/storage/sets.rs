@@ -350,27 +350,9 @@ impl StorageInner {
         Ok(set.len())
     }
 
-    /// Get the first (minimum) member from set.
-    /// Returns Some(member) or None if set is empty/doesn't exist.
-    pub fn sfirst(&self, db: u64, key: &[u8]) -> Result<Option<Bytes>, &'static str> {
-        let Some(db_map) = self.map.get(&db) else {
-            return Ok(None);
-        };
-
-        let Some(value) = db_map.get(key) else {
-            return Ok(None);
-        };
-
-        let StorageValue::Set(set) = value else {
-            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
-        };
-
-        Ok(set.iter().next().cloned())
-    }
-
     /// Get the first (minimum) members from set.
     /// Returns up to count members.
-    pub fn smfirst(&self, db: u64, key: &[u8], count: usize) -> Result<Vec<Bytes>, &'static str> {
+    pub fn sfirst(&self, db: u64, key: &[u8], count: usize) -> Result<Vec<Bytes>, &'static str> {
         if count == 0 {
             return Ok(Vec::new());
         }
@@ -390,27 +372,9 @@ impl StorageInner {
         Ok(set.iter().take(count).cloned().collect())
     }
 
-    /// Get the last (maximum) member from set.
-    /// Returns Some(member) or None if set is empty/doesn't exist.
-    pub fn slast(&self, db: u64, key: &[u8]) -> Result<Option<Bytes>, &'static str> {
-        let Some(db_map) = self.map.get(&db) else {
-            return Ok(None);
-        };
-
-        let Some(value) = db_map.get(key) else {
-            return Ok(None);
-        };
-
-        let StorageValue::Set(set) = value else {
-            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
-        };
-
-        Ok(set.iter().next_back().cloned())
-    }
-
     /// Get the last (maximum) members from set.
     /// Returns up to count members in reverse lexicographical order.
-    pub fn smlast(&self, db: u64, key: &[u8], count: usize) -> Result<Vec<Bytes>, &'static str> {
+    pub fn slast(&self, db: u64, key: &[u8], count: usize) -> Result<Vec<Bytes>, &'static str> {
         if count == 0 {
             return Ok(Vec::new());
         }
@@ -432,7 +396,7 @@ impl StorageInner {
 
     /// Get the next members after the given member in set.
     /// Returns up to count members.
-    pub fn smnext(
+    pub fn snext(
         &self,
         db: u64,
         key: &[u8],
@@ -461,30 +425,9 @@ impl StorageInner {
         Ok(range.take(count).cloned().collect())
     }
 
-    /// Get the next member after the given member in set.
-    /// Returns Some(member) or None if no next element exists.
-    pub fn snext(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<Bytes>, &'static str> {
-        use std::ops::Bound;
-
-        let Some(db_map) = self.map.get(&db) else {
-            return Ok(None);
-        };
-
-        let Some(value) = db_map.get(key) else {
-            return Ok(None);
-        };
-
-        let StorageValue::Set(set) = value else {
-            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
-        };
-
-        let range = set.range::<[u8], _>((Bound::Excluded(member), Bound::Unbounded));
-        Ok(range.take(1).next().cloned())
-    }
-
     /// Get the previous members before the given member in set.
     /// Returns up to count members.
-    pub fn smprev(
+    pub fn sprev(
         &self,
         db: u64,
         key: &[u8],
@@ -511,27 +454,6 @@ impl StorageInner {
 
         let range = set.range::<[u8], _>((Bound::Unbounded, Bound::Excluded(member)));
         Ok(range.rev().take(count).cloned().collect())
-    }
-
-    /// Get the previous member before the given member in set.
-    /// Returns Some(member) or None if no previous element exists.
-    pub fn sprev(&self, db: u64, key: &[u8], member: &[u8]) -> Result<Option<Bytes>, &'static str> {
-        use std::ops::Bound;
-
-        let Some(db_map) = self.map.get(&db) else {
-            return Ok(None);
-        };
-
-        let Some(value) = db_map.get(key) else {
-            return Ok(None);
-        };
-
-        let StorageValue::Set(set) = value else {
-            return Err("WRONGTYPE Operation against a key holding the wrong kind of value");
-        };
-
-        let range = set.range::<[u8], _>((Bound::Unbounded, Bound::Excluded(member)));
-        Ok(range.last().cloned())
     }
 
     /// Check if multiple members exist in set.
