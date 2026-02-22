@@ -276,15 +276,14 @@ The watches produce two types of events:
 
 - Update event: `{ref, %Vdr.WatchEvent.Update{command: cmd, db: db}}`
   Sent when the watched key was modified during normal replication.
-
 - Init event: `{ref, %Vdr.WatchEvent.Init{}}`
   Sent when Veidrodelis (re)connected and finished initialization of the local projection, i.e. reading the RDB snapshot.
 
-> [!NOTE]
-> - Each process can watch the same key only once.
-> - Watches survive reconnections (automatically re-registered).
-> - Watches are cleaned up when the watching process terminates.
-> - The `command` field contains the raw Valkey/Redis command (e.g., `["SET", "key", "value"]`) that modified the key.
+Watches have the following properties:
+- Each process can watch the same key only once.
+- Watches survive reconnections (automatically re-registered).
+- Watches are cleaned up when the watching process terminates.
+- The `command` field for `%Update{}` event contains the raw Valkey/Redis command (e.g., `["SET", "key", "value"]`) that modified the key.
 
 ### Reconnection and Projection Caching
 
