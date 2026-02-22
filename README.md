@@ -13,13 +13,15 @@ Veidrodelis connects to Valkey or Redis as a replica and builds a local, read-on
 
 This allows to implement patterns with frequent reads and less frequent writes efficiently. Write commands are issued to the remote Valkey/Redis instance via a standard client like Redix, while reads are served from the local projection with little latency.
 
+A live demo is available at [https://veidrodelis-demo.rubybox.dev](https://veidrodelis-demo.rubybox.dev).
+
 ## Architecture
 
 <img src="doc/veidrodelis.png" alt="Architecture" width="70%">
 
 ## General Idea
 
-Veidrodelis implements the Redis replication protocol to receive all write operations happening on a Valkey/Redis instance. It builds and maintains a local, in-memory projection of the data using high-performance NIF-based storage.
+Veidrodelis implements the Valkey/Redis replication protocol to receive all write operations happening on a Valkey/Redis instance. It builds and maintains a local, in-memory projection of the data using high-performance NIF-based storage.
 
 1. Veidrodelis connects to Valkey/Redis as a replica.
 2. Valkey/Redis sends the full dataset (RDB) snapshot to the replica, which is parsed and stored into the local projection.
