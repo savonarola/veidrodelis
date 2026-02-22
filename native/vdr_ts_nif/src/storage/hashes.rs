@@ -584,8 +584,7 @@ impl StorageInner {
         count: i64,
         with_values: bool,
     ) -> Result<Vec<(Bytes, Option<Bytes>)>, &'static str> {
-        use rand::seq::SliceRandom;
-        use rand::thread_rng;
+        use rand::prelude::IndexedRandom;
 
         let Some(db_map) = self.map.get(&db) else {
             return Ok(Vec::new());
@@ -603,7 +602,7 @@ impl StorageInner {
             return Ok(Vec::new());
         }
 
-        let mut rng = thread_rng();
+        let mut rng = rand::rng();
         let fields: Vec<_> = hash.iter().collect();
 
         if count == 1 {
@@ -621,7 +620,7 @@ impl StorageInner {
         } else if count > 1 {
             // Return multiple unique random fields (up to count)
             let sample_size = (count as usize).min(fields.len());
-            let samples = fields.choose_multiple(&mut rng, sample_size);
+            let samples = fields.sample(&mut rng, sample_size);
             Ok(samples
                 .map(|(field, value)| {
                     let val = if with_values {

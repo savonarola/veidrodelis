@@ -484,8 +484,7 @@ impl StorageInner {
     /// If count < 0: returns abs(count) members, allowing duplicates
     /// If count == 0: returns empty vector
     pub fn srandmember(&self, db: u64, key: &[u8], count: i64) -> Result<Vec<Bytes>, &'static str> {
-        use rand::seq::SliceRandom;
-        use rand::thread_rng;
+        use rand::prelude::{IndexedRandom, SliceRandom};
 
         let Some(db_map) = self.map.get(&db) else {
             return Ok(Vec::new());
@@ -504,7 +503,7 @@ impl StorageInner {
         }
 
         let members: Vec<Bytes> = set.iter().cloned().collect();
-        let mut rng = thread_rng();
+        let mut rng = rand::rng();
 
         if count > 0 {
             // Return up to count unique random members
