@@ -1,7 +1,7 @@
 defmodule Veidrodelis.MixProject do
   use Mix.Project
 
-  @version "0.1.5"
+  @version "0.1.6"
   @github_url "https://github.com/savonarola/veidrodelis"
   @doc_extras [
     "doc/about.md",
