@@ -78,6 +78,7 @@ defmodule Veidrodelis do
     * `:reconnect` - Enable automatic reconnection (default: true)
     * `:reconnect_delay_ms` - Initial delay before reconnection in ms (default: 1000)
     * `:max_reconnect_delay_ms` - Maximum delay between reconnection attempts in ms (default: 30000)
+    * `:ack_interval_ms` - Interval for sending periodic REPLCONF ACK to the primary in ms (default: 1000).
 
   For full documentation of sentinel options and advanced features, see `Vdr.RedisStream.Replica`.
 

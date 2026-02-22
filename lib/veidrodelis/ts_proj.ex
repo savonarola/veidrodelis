@@ -52,7 +52,8 @@ defmodule Vdr.TSProj do
         :reconnect,
         :reconnect_delay_ms,
         :max_reconnect_delay_ms,
-        :command_filter
+        :command_filter,
+        :ack_interval_ms
       ])
 
     callback_opts = [id: id]
