@@ -11,7 +11,7 @@
 
 Veidrodelis connects to Valkey or Redis as a replica and builds a local, read-only projection of the data inside your Erlang/Elixir node.
 
-This allows to implement infrequent writes/frequent reads patterns efficiently. Write commands are issued to the remote Valkey/Redis instance via a standard client like Redix, while reads are served from the local projection with little latency.
+This allows to implement patterns with frequent reads and less frequent writes efficiently. Write commands are issued to the remote Valkey/Redis instance via a standard client like Redix, while reads are served from the local projection with little latency.
 
 ## Architecture
 
@@ -34,8 +34,8 @@ Add to your `mix.exs`:
 def deps do
   [
     {:veidrodelis, "~> 0.1.5"},
-    # optional, for Sentinel support
-    # also some client is needed for write requests
+    # Optional, for Sentinel support.
+    # Also, some regular Valkey/Redis client is needed if writes are needed.
     {:redix, "~> 1.5"}
   ]
 end
@@ -50,7 +50,7 @@ The most basic setup: connect Veidrodelis for reads, Redix for writes.
 ```elixir
 # Start Veidrodelis for reads
 {:ok, vdr} = Veidrodelis.start_link(
-  id: :my_cache,
+  id: :my_vdr_id,
   host: "localhost",
   port: 6379
 )
@@ -66,27 +66,27 @@ Redix.command!(rdx, ["SET", "user:123:name", "Alice"])
 Redix.command!(rdx, ["HSET", "user:123:profile", "age", "30", "city", "NYC"])
 
 # Wait a moment for replication
-# NOTE
-# We make sleep for simplicity.
-# You may use watches to wait for the data to be replicated,
-# see documentation for more details: https://hexdocs.pm/veidrodelis/about.html#7-watches-for-sync-writes
 Process.sleep(100)
 
 # Read via Veidrodelis (from local projection)
-{:ok, name} = Veidrodelis.get(:my_cache, 0, "user:123:name")
+{:ok, name} = Veidrodelis.get(:my_vdr_id, 0, "user:123:name")
 # => {:ok, "Alice"}
 
-{:ok, age} = Veidrodelis.hget(:my_cache, 0, "user:123:profile", "age")
+{:ok, age} = Veidrodelis.hget(:my_vdr_id, 0, "user:123:profile", "age")
 # => {:ok, "30"}
 
 Redix.command!(rdx, ["LPUSH", "events", "login", "purchase", "logout"])
-{:ok, events} = Veidrodelis.lrange(:my_cache, 0, "events", 0, -1)
+{:ok, events} = Veidrodelis.lrange(:my_vdr_id, 0, "events", 0, -1)
 # => {:ok, ["logout", "purchase", "login"]}
 
 # Clean up
 Veidrodelis.stop(vdr)
 Redix.stop(rdx)
 ```
+
+> [!TIP]
+> We use `sleep` for simplicity in this example. You may use watches to wait for the data to be replicated.
+> See documentation for more details: https://hexdocs.pm/veidrodelis/about.html#7-watches-for-sync-writes
 
 ### Supported data types
 
@@ -101,16 +101,19 @@ Unsupported write commands are:
 
 and all the commands that are not related to string, hash, list, set, sorted set data types.
 
-To prevent unexpected behavior, it is recommended to configure Valkey/Redis ACLs to deny unsupported write commands.
-See [doc/acl.txt](doc/acl.txt) for sample ACL configuration. Another option is to rename the unsupported commands to
-some obscure names to avoid them being used by accident.
+> [!TIP]
+> To prevent unexpected behavior, it is recommended to configure Valkey/Redis ACLs to deny unsupported write commands.
+> See [doc/acl.txt](doc/acl.txt) for sample ACL configuration. Another option is to rename the unsupported commands to some obscure names to avoid them being used by accident.
 
-#### Replication caveats
 
-Some write commands (namely, `ZREMRANGEBYLEX`) are declared to produce undefined behavior if applied to wrong data. Obviously, we cannot replicate undefined behavior (in Valkey/Redis the correctness of replication is achieved by running exactly the same code on the replica). So, one should either manually control the
-correctness of the data when using these commands or just disable them with renaming or ACLs.
+> [!WARNING]
+> Some write commands (namely, `ZREMRANGEBYLEX`) are declared to produce undefined behavior if applied to wrong data.
+> Obviously, we cannot replicate undefined behavior (in Valkey/Redis the correctness of replication is achieved by running exactly the same code on the replica).
+> So, one should either manually control the correctness of the data when using these commands or just disable them with renaming or ACLs.
 
 ### Read Operations
+
+The following read operations are supported on the local projection:
 
 **String:** `get`
 
@@ -122,21 +125,20 @@ correctness of the data when using these commands or just disable them with rena
 
 **Sorted Set:** `zscore`, `zcard`, `zrange`, `zrangebyscore`, `zrank`, `zrevrank`, `zcount`, `zfirst`, `zlast`, `znext`, `zprev`
 
-Note, that read operations do not always directly reflect Valkey/Redis commands.
+> [!NOTE]
+> These operations resemble the Valkey/Redis commands for better intuition, but they are not exactly the same. E.g. Xfirst/Xlast/Xnext/Xprev commands do not present in Valkey/Redis.
 
 ### Transactions
 
-Valkey/Redis supports simple write transactions via the `MULTI` and `EXEC` commands. Also, Valkey/Redis supports Lua scripts for more complex atomic write operations. However, replicas receive plain stream of mutating commands, so when reading from a replica, you may see partial transaction state.
+Valkey/Redis supports simple write transactions (atomic writes of multiple keys) via the `MULTI` and `EXEC` commands. Also, Valkey/Redis supports Lua scripts for more complex atomic write operations. However, replicas receive plain stream of mutating commands. So, when reading from a replica, you may see partial transaction state.
 
 Veidrodelis, being an in-process replica, supports a convention to avoid seeing partial transaction state.
 
-When issuing a write transaction, one sets an arbitrary value to the special key `__vdr_tx` as the first command.
-The key is removed as the last command of the transaction.
+When issuing a write transaction, one may set an arbitrary value to the special key `__vdr_tx` as the first command and remove it as the last command of the transaction.
 
-Then, when replicating, Veidrodelis buffers all the commands between the `SET __vdr_tx` and `DEL __vdr_tx` commands
-and applies them atomically.
+Then Veidrodelis will treat all the commands between the set and del commands as a single transaction and will apply them atomically.
 
-So Veidrodelis local readers never see partial transaction state.
+In this way, Veidrodelis local readers will never see partial transaction state.
 
 ```elixir
 # Start transaction by setting the __vdr_tx key with expiration
@@ -144,7 +146,7 @@ So Veidrodelis local readers never see partial transaction state.
 # If you e.g. forget to delete __vdr_tx, it will auto-close when it expires
 Redix.pipeline!(rdx,[
   ["MULTI"],
-  ["SETEX", "__vdr_tx", "5", "in_progress"],
+  ["SET", "__vdr_tx", "in_progress"],
   ["SET", "account:123:balance", "1000"],
   ["SET", "account:456:balance", "2000"],
   ["SET", "transfer:789:amount", "100"],
@@ -153,15 +155,13 @@ Redix.pipeline!(rdx,[
 ])
 ```
 
-**Important:** Always set an expiration on `__vdr_tx` (using `SETEX` or `PSETEX`)
+### Read Transactions
 
-### Read Transactions via Command Lists
-
-Execute multiple read operations atomically:
+Simple read transactions (atomic reads of multiple keys) may be performed using the `read_tx/3` function.
 
 ```elixir
 # Atomic read of multiple keys
-{:ok, results} = Veidrodelis.read_tx(:my_cache, 0, [
+{:ok, results} = Veidrodelis.read_tx(:my_vdr_id, 0, [
   {:get, "user:123:name"},
   {:hget, "user:123:profile", "age"},
   {:llen, "user:123:events"},
@@ -172,7 +172,7 @@ Execute multiple read operations atomically:
 [{:ok, "Alice"}, {:ok, "30"}, {:ok, 5}, {:ok, 10}] = results
 ```
 
-The operations supported by the `read_tx/3` function are the same as the direct read operations supported by the `Veidrodelis` module.
+The operations supported by the `read_tx/3` function are the same as the direct read operations supported by the `Veidrodelis` module. `Veidrodelis.hget("hash", "field")` corresponds to `{:hget, "hash", "field"}` and so on.
 
 ### Read Transactions via Lua
 
@@ -186,7 +186,7 @@ local age = ts.hget('user:123:profile', 'age')
 return {name, age}
 """
 
-{:ok, ["Alice", "30"]} = Veidrodelis.read_tx(:my_cache, 0, script)
+{:ok, ["Alice", "30"]} = Veidrodelis.read_tx(:my_vdr_id, 0, script)
 
 # More complex: key indirection
 # Impossible to do with list-based transactions
@@ -195,9 +195,16 @@ local owner_id = ts.get('item:456')
 return ts.hget('user:' .. owner_id, 'name')
 """
 
-{:ok, owner_name} = Veidrodelis.read_tx(:my_cache, 0, script)
+{:ok, owner_name} = Veidrodelis.read_tx(:my_vdr_id, 0, script)
+```
 
-# Iterate over sorted set
+> [!NOTE]
+> Transactions via Lua scripts are needed only if data schema has some kind of key indirection, i.e. we read keys that are
+> derived from previously read values.
+
+Example of iteration over a sorted set:
+
+```elixir
 script = """
 local timeline = {}
 local batch_size = 10
@@ -217,35 +224,39 @@ end
 return timeline
 """
 
-# NOTE: simple collecting all members is mostly useless,
-# since using zrange is much more efficient.
-# Using Xfirst/Xlast/Xnext/Xprev is needed only if iteration
-# requires some additional logic.
-
-{:ok, leaderboard} = Veidrodelis.read_tx(:my_cache, 0, script)
+{:ok, leaderboard} = Veidrodelis.read_tx(:my_vdr_id, 0, script)
 ```
 
-The operations supported in read Lua scripts are the same as the direct read operations supported by the `Veidrodelis` module.
+> [!NOTE]
+> Ssimple collecting all members is mostly useless, since using zrange is much more efficient.
+> Using Xfirst/Xlast/Xnext/Xprev is needed only if iteration requires some additional logic.
 
-**Performance tip:** Compile scripts once, reuse many times:
+The operations supported in read Lua scripts are the same as the direct read operations supported by the `Veidrodelis` module. `Veidrodelis.hget("hash", "field")` corresponds to Lua's `ts.hget('hash', 'field')` and so on.
+
+To improve performance, scripts can be compiled to bytecode once and reused many times:
 
 ```elixir
 # Compile script to bytecode
 script = "return ts.get('user:123:name')"
-{:ok, bytecode} = Veidrodelis.lua_load(:my_cache, script)
+{:ok, bytecode} = Veidrodelis.lua_load(:my_vdr_id, script)
 
 # Reuse bytecode for faster execution
-{:ok, result1} = Veidrodelis.read_tx(:my_cache, 0, bytecode)
-{:ok, result2} = Veidrodelis.read_tx(:my_cache, 0, bytecode)
+{:ok, result1} = Veidrodelis.read_tx(:my_vdr_id, 0, bytecode)
+{:ok, result2} = Veidrodelis.read_tx(:my_vdr_id, 0, bytecode)
 ```
 
 ### Key Watches
 
-Subscribe to real-time notifications when specific keys are modified. Watchers receive messages for every write operation affecting the watched key. The watches may produce false positives, so the key's value may appear to be not modified even if a notification was issued.
+Reading replicated data is only one part of the story. We also frequently need to know when to make the reads, i.e. when the data is modified.
+
+Using watches, one may subscribe to real-time notifications for specific keys and receive messages when the keys are modified.
+
+> [!NOTE]
+>The watches may produce false positives, so the key's value may appear to be not modified even if a notification was issued.
 
 ```elixir
 # Subscribe to key updates
-:ok = Veidrodelis.watch(:my_cache, 0, "user:123:name", :my_watch_ref)
+:ok = Veidrodelis.watch(:my_vdr_id, 0, "user:123:name", :my_watch_ref)
 
 # Perform writes via Redix
 Redix.command!(rdx, ["SET", "user:123:name", "Alice"])
@@ -258,41 +269,33 @@ receive do
 end
 
 # Unsubscribe when done
-:ok = Veidrodelis.unwatch(:my_cache, 0, "user:123:name")
+:ok = Veidrodelis.unwatch(:my_vdr_id, 0, "user:123:name")
 ```
 
-**Event types:**
+The watches produce two types of events:
 
-- **Update event**: `{ref, %Vdr.WatchEvent.Update{command: cmd, db: db}}`
-  Sent when the watched key is modified. Contains the full command that modified it.
+- Update event: `{ref, %Vdr.WatchEvent.Update{command: cmd, db: db}}`
+  Sent when the watched key was modified during normal replication.
 
-- **Init event**: `{ref, %Vdr.WatchEvent.Init{}}`
-  Sent when Veidrodelis (re)connected and finished building the initial projection of the data.
+- Init event: `{ref, %Vdr.WatchEvent.Init{}}`
+  Sent when Veidrodelis (re)connected and finished initialization of the local projection, i.e. reading the RDB snapshot.
 
-**Important notes:**
-
-- Each process can watch the same key only once
-- Watches survive reconnections (automatically re-registered)
-- Watches are cleaned up when the watching process terminates
-- The `command` field contains the full Valkey/Redis command as a list (e.g., `["SET", "key", "value"]`)
+> [!NOTE]
+> - Each process can watch the same key only once.
+> - Watches survive reconnections (automatically re-registered).
+> - Watches are cleaned up when the watching process terminates.
+> - The `command` field contains the raw Valkey/Redis command (e.g., `["SET", "key", "value"]`) that modified the key.
 
 ### Reconnection and Projection Caching
 
-Veidrodelis handles Valkey/Redis disconnections gracefully with automatic reconnection and intelligent projection caching.
+Veidrodelis handles disconnections from Valkey/Redis gracefully with automatic reconnection and intelligent projection caching.
 
-**How it works:**
-
-1. **Disconnection Detected**: Network failure or Valkey/Redis restart
-2. **Old Projection Cached**: The current local projection remains available for reads
-3. **Reconnection Initiated**: Automatic reconnection with exponential backoff
-4. **New Projection Built**: Full RDB transfer + streaming updates to a new storage
-5. **Atomic Switch**: Once streaming starts, old projection is replaced with new one
-6. **Reads Never Block**: During the entire process, reads continue from the cached projection
+When Veidrodelis detects a disconnection from Valkey/Redis, it does not became unavailable. Instead, it continues to serve reads using the latest data before the disconnection. When the reconnection is successful, Veidrodelis starts building a new projection, still serving reads from the old one. When the new projection is ready, Veidrodelis atomically switches to the new projection, replacing the old one.
 
 ```elixir
 # Start Veidrodelis with reconnection enabled (default)
 {:ok, vdr} = Veidrodelis.start_link(
-  id: :my_cache,
+  id: :my_vdr_id,
   host: "localhost",
   port: 6379,
   reconnect: true,
@@ -301,12 +304,12 @@ Veidrodelis handles Valkey/Redis disconnections gracefully with automatic reconn
 )
 
 # Reads work normally
-{:ok, value} = Veidrodelis.get(:my_cache, 0, "mykey")
+{:ok, value} = Veidrodelis.get(:my_vdr_id, 0, "mykey")
 
 # >>> Valkey/Redis goes down <<<
 # Veidrodelis detects disconnection, keeps serving reads from cached projection
 
-{:ok, value} = Veidrodelis.get(:my_cache, 0, "mykey")
+{:ok, value} = Veidrodelis.get(:my_vdr_id, 0, "mykey")
 # Still works! Uses cached projection
 
 # >>> Valkey/Redis comes back up <<<
@@ -317,37 +320,33 @@ Veidrodelis handles Valkey/Redis disconnections gracefully with automatic reconn
 # Atomic switch: new projection replaces old one
 # Application sees no downtime
 
-{:ok, new_value} = Veidrodelis.get(:my_cache, 0, "mykey")
+{:ok, new_value} = Veidrodelis.get(:my_vdr_id, 0, "mykey")
 # Now reading from fresh, up-to-date projection
 ```
 
-**Reconnection behavior:**
-
-- **Exponential backoff**: Starts at `reconnect_delay_ms`, doubles on each failure, up to `max_reconnect_delay_ms`
-- **Infinite retries**: Veidrodelis keeps trying until Valkey/Redis is available
-- **No read disruption**: Old projection serves reads during entire reconnection process
-- **Atomic updates**: New projection is complete before switching
-
-**Monitoring replication state:**
+To know out the current replication state, one may use the `get_replication_state/1` function.
 
 ```elixir
-state = Veidrodelis.get_replication_state(:my_cache)
-# Possible states: :init, :ping, :auth, :replconf_listening_port, :replconf_capa, :psync, :rdb_transfer, :streaming
+state = Veidrodelis.get_replication_state(:vdr_id)
 ```
 
-### Expiration
+Possible states are: `:init`, `:ping`, `:auth`, `:replconf_listening_port`, `:replconf_capa`, `:psync`, `:rdb_transfer` (transient initial states) and `:streaming` final state when the projection is fully built and the replication is in progress.
 
-Veidrodelis ignores all expirations of keys/hash keys, because they are only needed if a replica becomes a primary, which is obviously not the case for Veidrodelis. Primary server explicitly issues del/hdel commands for expired keys, and they are replicated.
+### Handling Expirations
 
-On disconnect, Veidrodelis does not receive these explicit del/hdel commands, so it looks like the time "froze" for the cached projection.
+Veidrodelis ignores all expirations of keys/hash keys, because they are only needed if a replica becomes a primary, which is obviously not the case for Veidrodelis. By Valkey/Redis design, the primary server explicitly issues del/hdel commands for expired keys to replicas, and Veidrodelis relies on them also.
+
+On disconnect, Veidrodelis stops receiving these explicit del/hdel commands, so while being disconnected it looks like the time "froze" for the cached projection.
 
 ### Sentinel Support
 
-For high-availability setups, connect via Valkey/Redis Sentinel:
+To improve availability of data stored in Valkey/Redis, often Sentinels are used to monitor the primary and replica servers and promote a replica to a primary in case of failures.
+
+Veidrodelis supports Sentinel-based setups and may discover a server for connection through Sentinels.
 
 ```elixir
 {:ok, vdr} = Veidrodelis.start_link(
-  id: :my_cache,
+  id: :my_vdr_id,
   sentinel: [
     sentinels: [
       [host: "sentinel1.example.com", port: 26379],
@@ -358,17 +357,23 @@ For high-availability setups, connect via Valkey/Redis Sentinel:
     role: :primary,
     timeout: 1000
   ],
-  username: "my_user",  # Optional: ACL username
-  password: "secret"    # Optional: auth password
+  username: "my_user",
+  password: "secret"
 )
 
 ```
 
-Veidrodelis automatically:
-* Discovers primary via Sentinel
-* Handles failover when primary changes
-* Reconnects to new primary seamlessly
-* Maintains read availability during failover
+You may choose to connect to the current primary or to a replica.
+
+Forcing connecting to a replica is useful when there are many Veidrodelis instances and we want to reduce the load on the primary. Instead of having all the instances connected to the primary, we may have a few Valkey/Redis replicas connected to the primary instead, and few Veidrodelisinstances connected to each replica.
+
+Connecting to the primary:
+
+<img src="doc/primary-only.png" alt="Sentinel Primary" width="50%">
+
+Connecting to the replicas:
+
+<img src="doc/primary-replicas.png" alt="Sentinel Primary and Replica" width="50%">
 
 ## Project name
 
