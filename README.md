@@ -228,7 +228,7 @@ return timeline
 ```
 
 > [!NOTE]
-> Ssimple collecting all members is mostly useless, since using zrange is much more efficient.
+> Simple collecting all members is mostly useless, since using zrange is much more efficient.
 > Using Xfirst/Xlast/Xnext/Xprev is needed only if iteration requires some additional logic.
 
 The operations supported in read Lua scripts are the same as the direct read operations supported by the `Veidrodelis` module. `Veidrodelis.hget("hash", "field")` corresponds to Lua's `ts.hget('hash', 'field')` and so on.
