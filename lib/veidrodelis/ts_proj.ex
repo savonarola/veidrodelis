@@ -165,17 +165,17 @@ defmodule Vdr.TSProj do
   def handle_call(%__MODULE__{} = state, {:watch, pid, db, key, ref}) do
     case Vdr.TS.Watch.add(state.watch, pid, db, key, ref) do
       {:ok, new_watch} ->
-        # Monitor the process if not already monitored
-        new_monitors =
-          if Map.has_key?(state.monitors, pid) do
-            state.monitors
-          else
-            monitor_ref = Process.monitor(pid)
-            Map.put(state.monitors, pid, monitor_ref)
-          end
+        {:reply, :ok, put_watch_and_monitor(state, new_watch, pid)}
 
-        new_state = %{state | watch: new_watch, monitors: new_monitors}
-        {:reply, :ok, new_state}
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  def handle_call(%__MODULE__{} = state, {:watch_prefix, pid, db, prefix, ref}) do
+    case Vdr.TS.Watch.add_prefix(state.watch, pid, db, prefix, ref) do
+      {:ok, new_watch} ->
+        {:reply, :ok, put_watch_and_monitor(state, new_watch, pid)}
 
       {:error, reason} ->
         {:reply, {:error, reason}, state}
@@ -184,6 +184,29 @@ defmodule Vdr.TSProj do
 
   def handle_call(%__MODULE__{} = state, {:unwatch, pid, db, key}) do
     case Vdr.TS.Watch.delete(state.watch, pid, db, key) do
+      {:ok, new_watch, 0} ->
+        # Last watch for this pid - demonitor
+        case Map.get(state.monitors, pid) do
+          nil -> :ok
+          monitor_ref -> Process.demonitor(monitor_ref, [:flush])
+        end
+
+        new_monitors = Map.delete(state.monitors, pid)
+        new_state = %{state | watch: new_watch, monitors: new_monitors}
+        {:reply, :ok, new_state}
+
+      {:ok, new_watch, _remaining} ->
+        # Pid still has other watches - keep monitoring
+        new_state = %{state | watch: new_watch}
+        {:reply, :ok, new_state}
+
+      {:error, reason} ->
+        {:reply, {:error, reason}, state}
+    end
+  end
+
+  def handle_call(%__MODULE__{} = state, {:unwatch_prefix, pid, db, prefix}) do
+    case Vdr.TS.Watch.delete_prefix(state.watch, pid, db, prefix) do
       {:ok, new_watch, 0} ->
         # Last watch for this pid - demonitor
         case Map.get(state.monitors, pid) do
@@ -236,6 +259,19 @@ defmodule Vdr.TSProj do
   end
 
   # Private functions
+
+  defp put_watch_and_monitor(%__MODULE__{} = state, new_watch, pid) do
+    # Monitor the process if not already monitored
+    new_monitors =
+      if Map.has_key?(state.monitors, pid) do
+        state.monitors
+      else
+        monitor_ref = Process.monitor(pid)
+        Map.put(state.monitors, pid, monitor_ref)
+      end
+
+    %{state | watch: new_watch, monitors: new_monitors}
+  end
 
   defp initialize_state(id) do
     %__MODULE__{
@@ -397,8 +433,10 @@ defmodule Vdr.TSProj do
         # Regular key-based commands
         _ ->
           Enum.each(affected_keys, fn key ->
-            state.watch
-            |> Vdr.TS.Watch.lookup(db, key)
+            exact = Vdr.TS.Watch.lookup(state.watch, db, key)
+            prefix = Vdr.TS.Watch.lookup_prefix(state.watch, db, key)
+
+            Enum.uniq(exact ++ prefix)
             |> Enum.each(fn {ref, pid} ->
               send(pid, {ref, %Vdr.WatchEvent.Update{command: command, db: db}})
             end)

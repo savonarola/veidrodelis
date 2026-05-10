@@ -246,6 +246,52 @@ defmodule Veidrodelis do
   end
 
   @doc """
+  Subscribes to updates for keys with a specific prefix in a database.
+
+  When a modified key starts with the prefix, the calling process will receive a message:
+  `{ref, %Vdr.WatchEvent.Update{command: cmd, db: db}}`
+
+  When the replica transitions to streaming mode after an RDB transfer, the calling
+  process will receive: `{ref, %Vdr.WatchEvent.Init{}}`
+
+  ## Parameters
+
+    * `id` - Veidrodelis instance ID
+    * `db` - Database number
+    * `prefix` - The key prefix to watch (binary)
+    * `ref` - Reference value to identify this watch in notifications
+    * `timeout` - The timeout for the call (default: 5000ms)
+
+  ## Returns
+
+    * `:ok` - Successfully subscribed
+    * `{:error, :not_found}` - Instance not found
+    * `{:error, :already_registered}` - This process is already watching this prefix
+
+  ## Example
+
+  ```elixir
+  :ok = Veidrodelis.watch_prefix(:my_instance, 0, "user:123:", :my_watch_ref)
+
+  receive do
+    {:my_watch_ref, %Vdr.WatchEvent.Update{command: cmd, db: db}} ->
+      IO.inspect({:prefix_update, cmd, db})
+  end
+  ```
+  """
+  @spec watch_prefix(instance_id(), db(), key(), term()) :: :ok | {:error, term()}
+  def watch_prefix(id, db, prefix, ref, timeout \\ 5000)
+      when is_integer(db) and is_binary(prefix) do
+    case Vdr.Registry.lookup(id) do
+      {:ok, %Vdr.Handle{pid: pid}} ->
+        Replica.call(pid, {:watch_prefix, self(), db, prefix, ref}, timeout)
+
+      :not_found ->
+        {:error, :not_found}
+    end
+  end
+
+  @doc """
   Unsubscribes from updates for a specific key.
 
   ## Parameters
@@ -272,6 +318,39 @@ defmodule Veidrodelis do
     case Vdr.Registry.lookup(id) do
       {:ok, %Vdr.Handle{pid: pid}} ->
         Replica.call(pid, {:unwatch, self(), db, key}, timeout)
+
+      :not_found ->
+        {:error, :not_found}
+    end
+  end
+
+  @doc """
+  Unsubscribes from updates for a specific key prefix.
+
+  ## Parameters
+
+    * `id` - Veidrodelis instance ID
+    * `db` - Database number
+    * `prefix` - The key prefix to unwatch (binary)
+    * `timeout` - The timeout for the call (default: 5000ms)
+
+  ## Returns
+
+    * `:ok` - Successfully unsubscribed
+    * `{:error, :not_found}` - Instance or prefix watch not found
+
+  ## Example
+
+  ```elixir
+  :ok = Veidrodelis.unwatch_prefix(:my_instance, 0, "user:123:")
+  ```
+  """
+  @spec unwatch_prefix(instance_id(), db(), key()) :: :ok | {:error, term()}
+  def unwatch_prefix(id, db, prefix, timeout \\ 5000)
+      when is_integer(db) and is_binary(prefix) do
+    case Vdr.Registry.lookup(id) do
+      {:ok, %Vdr.Handle{pid: pid}} ->
+        Replica.call(pid, {:unwatch_prefix, self(), db, prefix}, timeout)
 
       :not_found ->
         {:error, :not_found}

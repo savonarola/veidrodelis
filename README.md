@@ -251,7 +251,7 @@ script = "return ts.get('user:123:name')"
 
 Reading replicated data is only one part of the story. We also frequently need to know when to make the reads, i.e. when the data is modified.
 
-Using watches, one may subscribe to real-time notifications for specific keys and receive messages when the keys are modified.
+Using watches, one may subscribe to real-time notifications for specific keys or key prefixes and receive messages when matching keys are modified.
 
 > [!NOTE]
 >The watches may produce false positives, so the key's value may appear to be not modified even if a notification was issued.
@@ -259,6 +259,9 @@ Using watches, one may subscribe to real-time notifications for specific keys an
 ```elixir
 # Subscribe to key updates
 :ok = Veidrodelis.watch(:my_vdr_id, 0, "user:123:name", :my_watch_ref)
+
+# Subscribe to updates for every key with a prefix
+:ok = Veidrodelis.watch_prefix(:my_vdr_id, 0, "user:123:", :my_prefix_watch_ref)
 
 # Perform writes via Redix
 Redix.command!(rdx, ["SET", "user:123:name", "Alice"])
@@ -268,10 +271,14 @@ receive do
   {:my_watch_ref, %Vdr.WatchEvent.Update{command: cmd, db: db}} ->
     IO.inspect({:key_updated, cmd, db})
     # => {:key_updated, [...], 0}
+
+  {:my_prefix_watch_ref, %Vdr.WatchEvent.Update{command: cmd, db: db}} ->
+    IO.inspect({:prefix_updated, cmd, db})
 end
 
 # Unsubscribe when done
 :ok = Veidrodelis.unwatch(:my_vdr_id, 0, "user:123:name")
+:ok = Veidrodelis.unwatch_prefix(:my_vdr_id, 0, "user:123:")
 ```
 
 The watches produce two types of events:
@@ -283,6 +290,8 @@ The watches produce two types of events:
 
 Watches have the following properties:
 - Each process can watch the same key only once.
+- Each process can watch the same prefix only once.
+- Prefix watches are matched with a Rust radix tree and are scoped by database.
 - Watches survive reconnections (automatically re-registered).
 - Watches are cleaned up when the watching process terminates.
 - The `command` field for `%Update{}` event contains the raw Valkey/Redis command (e.g., `["SET", "key", "value"]`) that modified the key.

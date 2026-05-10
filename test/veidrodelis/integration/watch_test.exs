@@ -272,6 +272,176 @@ defmodule Veidrodelis.Integration.WatchTest do
     end
   end
 
+  describe "prefix watch notifications" do
+    @describetag timeout: 30_000
+
+    setup %{redis: redis} do
+      setup_veidrodelis(redis)
+    end
+
+    test "receives Update notification for matching prefix", %{redis: redis} do
+      ref = make_ref()
+
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:user:", ref)
+
+      Redix.command!(redis, ["SET", "prefix:user:123", "value1"])
+
+      assert_receive {^ref, %Vdr.WatchEvent.Update{command: cmd, db: 0}}, 2000
+      assert {:set, "prefix:user:123", "value1"} = cmd
+    end
+
+    test "does not receive notification for non-matching prefix", %{redis: redis} do
+      ref = make_ref()
+
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:watched:", ref)
+
+      Redix.command!(redis, ["SET", "prefix:other:123", "value"])
+
+      refute_receive {^ref, _}, 1000
+    end
+
+    test "prefix watches are per-database scoped", %{redis: redis} do
+      ref_db0 = make_ref()
+      ref_db1 = make_ref()
+
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:db:", ref_db0)
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 1, "prefix:db:", ref_db1)
+
+      Redix.command!(redis, ["SET", "prefix:db:key", "value0"])
+
+      assert_receive {^ref_db0, %Vdr.WatchEvent.Update{db: 0}}, 2000
+      refute_receive {^ref_db1, _}, 500
+
+      Redix.command!(redis, ["SELECT", "1"])
+      Redix.command!(redis, ["SET", "prefix:db:key", "value1"])
+      Redix.command!(redis, ["SELECT", "0"])
+
+      assert_receive {^ref_db1, %Vdr.WatchEvent.Update{db: 1}}, 2000
+    end
+
+    test "overlapping prefixes both receive notifications", %{redis: redis} do
+      ref_parent = make_ref()
+      ref_child = make_ref()
+
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:overlap:", ref_parent)
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:overlap:child:", ref_child)
+
+      Redix.command!(redis, ["SET", "prefix:overlap:child:key", "value"])
+
+      assert_receive {^ref_parent, %Vdr.WatchEvent.Update{command: {:set, _, _}}}, 2000
+      assert_receive {^ref_child, %Vdr.WatchEvent.Update{command: {:set, _, _}}}, 2000
+    end
+
+    test "unwatch_prefix stops notifications", %{redis: redis} do
+      ref = make_ref()
+
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:temp:", ref)
+      :ok = Veidrodelis.unwatch_prefix(vdr_id(), 0, "prefix:temp:")
+
+      Redix.command!(redis, ["SET", "prefix:temp:key", "value"])
+
+      refute_receive {^ref, _}, 1000
+    end
+
+    test "returns error when trying to watch same prefix twice from same process" do
+      ref = make_ref()
+
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:dup:", ref)
+      {:error, :already_registered} = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:dup:", ref)
+    end
+
+    test "unwatch_prefix returns error for non-existent prefix watch" do
+      {:error, :not_found} = Veidrodelis.unwatch_prefix(vdr_id(), 0, "prefix:missing:")
+    end
+
+    test "prefix watches are cleaned up when watcher process exits", %{redis: redis} do
+      parent = self()
+      ref = make_ref()
+
+      pid =
+        spawn(fn ->
+          :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:cleanup:", ref)
+          send(parent, :ready)
+        end)
+
+      assert_receive :ready, 1000
+      Process.sleep(100)
+      refute Process.alive?(pid)
+
+      Redix.command!(redis, ["SET", "prefix:cleanup:key", "value"])
+
+      refute_receive {^ref, _}, 1000
+    end
+
+    test "receives notifications for matching keys in MSET", %{redis: redis} do
+      ref = make_ref()
+
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:mset:", ref)
+
+      Redix.command!(redis, ["MSET", "prefix:mset:k1", "v1", "other:mset:k2", "v2"])
+
+      assert_receive {^ref, %Vdr.WatchEvent.Update{command: {:mset, _}}}, 2000
+    end
+
+    test "receives notifications for matching keys in RENAME", %{redis: redis} do
+      ref_old = make_ref()
+      ref_new = make_ref()
+
+      Redix.command!(redis, ["SET", "prefix:rename:old", "value"])
+
+      assert_within 1000 do
+        assert {:ok, "value"} == Veidrodelis.get(vdr_id(), 0, "prefix:rename:old")
+      end
+
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:rename:old", ref_old)
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:rename:new", ref_new)
+
+      Redix.command!(redis, ["RENAME", "prefix:rename:old", "prefix:rename:new"])
+
+      assert_receive {^ref_old, %Vdr.WatchEvent.Update{command: {:rename, _, _}}}, 2000
+      assert_receive {^ref_new, %Vdr.WatchEvent.Update{command: {:rename, _, _}}}, 2000
+    end
+
+    test "FLUSHDB triggers prefix watch notifications for affected database", %{redis: redis} do
+      ref_db0 = make_ref()
+      ref_db1 = make_ref()
+
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:flushdb:", ref_db0)
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 1, "prefix:flushdb:", ref_db1)
+
+      Redix.command!(redis, ["FLUSHDB"])
+
+      assert_receive {^ref_db0, %Vdr.WatchEvent.Update{command: {:flushdb}, db: 0}}, 2000
+      refute_receive {^ref_db1, _}, 500
+    end
+
+    test "FLUSHALL triggers prefix watch notifications for all databases", %{redis: redis} do
+      ref_db0 = make_ref()
+      ref_db1 = make_ref()
+
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:flushall:", ref_db0)
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 1, "prefix:flushall:", ref_db1)
+
+      Redix.command!(redis, ["FLUSHALL"])
+
+      assert_receive {^ref_db0, %Vdr.WatchEvent.Update{command: {:flushall}}}, 2000
+      assert_receive {^ref_db1, %Vdr.WatchEvent.Update{command: {:flushall}}}, 2000
+    end
+
+    test "SWAPDB triggers prefix watch notifications for both databases", %{redis: redis} do
+      ref_db0 = make_ref()
+      ref_db1 = make_ref()
+
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 0, "prefix:swap:", ref_db0)
+      :ok = Veidrodelis.watch_prefix(vdr_id(), 1, "prefix:swap:", ref_db1)
+
+      Redix.command!(redis, ["SWAPDB", "0", "1"])
+
+      assert_receive {^ref_db0, %Vdr.WatchEvent.Update{command: {:swapdb, 0, 1}}}, 2000
+      assert_receive {^ref_db1, %Vdr.WatchEvent.Update{command: {:swapdb, 0, 1}}}, 2000
+    end
+  end
+
   describe "transaction notifications" do
     @describetag timeout: 30_000
 
