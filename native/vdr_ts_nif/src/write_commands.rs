@@ -1158,14 +1158,12 @@ fn handle_zrangestore<'a>(
             "BYSCORE" => by_score = true,
             "BYLEX" => by_lex = true,
             "REV" => rev = true,
-            "LIMIT" => {
-                if i + 2 < options.len() {
-                    if let (Ok(offset), Ok(count)) =
-                        (options[i + 1].parse::<i64>(), options[i + 2].parse::<i64>())
-                    {
-                        limit = Some((offset, count));
-                        i += 2;
-                    }
+            "LIMIT" if i + 2 < options.len() => {
+                if let (Ok(offset), Ok(count)) =
+                    (options[i + 1].parse::<i64>(), options[i + 2].parse::<i64>())
+                {
+                    limit = Some((offset, count));
+                    i += 2;
                 }
             }
             _ => {}

@@ -18,6 +18,18 @@ defmodule Vdr.TS do
   @spec lua_load(reference(), binary()) :: {:ok, binary()} | {:error, term()}
   def lua_load(_storage, _script), do: :erlang.nif_error(:nif_not_loaded)
 
+  @spec watch_prefix_tree_create() :: reference()
+  def watch_prefix_tree_create(), do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec watch_prefix_tree_insert(reference(), non_neg_integer(), binary(), integer()) :: :ok
+  def watch_prefix_tree_insert(_tree, _db, _prefix, _idx), do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec watch_prefix_tree_delete(reference(), non_neg_integer(), binary(), integer()) :: :ok
+  def watch_prefix_tree_delete(_tree, _db, _prefix, _idx), do: :erlang.nif_error(:nif_not_loaded)
+
+  @spec watch_prefix_tree_lookup(reference(), non_neg_integer(), binary()) :: [integer()]
+  def watch_prefix_tree_lookup(_tree, _db, _key), do: :erlang.nif_error(:nif_not_loaded)
+
   @spec read_tx(reference(), non_neg_integer(), [tuple()]) :: {:ok, [term()]} | {:error, term()}
   def read_tx(storage, db, commands) when is_list(commands) do
     read_tx_commands(storage, db, commands)

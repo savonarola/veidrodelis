@@ -5,6 +5,8 @@ mod write_commands;
 
 // for Encoder trait (.encode())
 use rustler::Encoder;
+use std::cell::RefCell;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::sync::Mutex;
 
 use storage::StorageInner;
@@ -15,9 +17,132 @@ pub struct TStorage(Mutex<StorageInner>);
 #[rustler::resource_impl(register = false)]
 impl rustler::Resource for TStorage {}
 
+#[derive(Default)]
+struct RadixNode {
+    watchers: BTreeSet<i64>,
+    children: BTreeMap<u8, RadixNode>,
+}
+
+impl RadixNode {
+    fn insert(&mut self, prefix: &[u8], idx: i64) {
+        let mut node = self;
+
+        for byte in prefix {
+            node = node.children.entry(*byte).or_default();
+        }
+
+        node.watchers.insert(idx);
+    }
+
+    fn delete(&mut self, prefix: &[u8], idx: i64) -> bool {
+        self.delete_at(prefix, idx, 0);
+        self.is_empty()
+    }
+
+    fn delete_at(&mut self, prefix: &[u8], idx: i64, offset: usize) -> bool {
+        if offset == prefix.len() {
+            self.watchers.remove(&idx);
+        } else if let Some(child) = self.children.get_mut(&prefix[offset]) {
+            if child.delete_at(prefix, idx, offset + 1) {
+                self.children.remove(&prefix[offset]);
+            }
+        }
+
+        self.is_empty()
+    }
+
+    fn lookup(&self, key: &[u8], out: &mut BTreeSet<i64>) {
+        out.extend(self.watchers.iter().copied());
+
+        let mut node = self;
+
+        for byte in key {
+            match node.children.get(byte) {
+                Some(child) => {
+                    node = child;
+                    out.extend(node.watchers.iter().copied());
+                }
+                None => break,
+            }
+        }
+    }
+
+    fn is_empty(&self) -> bool {
+        self.watchers.is_empty() && self.children.is_empty()
+    }
+}
+
+pub struct PrefixWatchTree {
+    roots: RefCell<HashMap<u64, RadixNode>>,
+}
+
+// The owning Elixir process serializes access to this resource. The RefCell keeps
+// mutation lock-free while Rustler still requires resource thread-safety markers.
+unsafe impl Send for PrefixWatchTree {}
+unsafe impl Sync for PrefixWatchTree {}
+impl std::panic::RefUnwindSafe for PrefixWatchTree {}
+impl std::panic::UnwindSafe for PrefixWatchTree {}
+
+#[rustler::resource_impl(register = false)]
+impl rustler::Resource for PrefixWatchTree {}
+
 #[rustler::nif(name = "create")]
 fn create_storage() -> rustler::ResourceArc<TStorage> {
     rustler::ResourceArc::new(TStorage(Mutex::new(StorageInner::new())))
+}
+
+#[rustler::nif(name = "watch_prefix_tree_create")]
+fn watch_prefix_tree_create() -> rustler::ResourceArc<PrefixWatchTree> {
+    rustler::ResourceArc::new(PrefixWatchTree {
+        roots: RefCell::new(HashMap::new()),
+    })
+}
+
+#[rustler::nif(name = "watch_prefix_tree_insert")]
+fn watch_prefix_tree_insert(
+    tree: rustler::ResourceArc<PrefixWatchTree>,
+    db: u64,
+    prefix: rustler::Binary,
+    idx: i64,
+) -> rustler::Atom {
+    let mut roots = tree.roots.borrow_mut();
+    roots.entry(db).or_default().insert(prefix.as_slice(), idx);
+
+    atoms::ok()
+}
+
+#[rustler::nif(name = "watch_prefix_tree_delete")]
+fn watch_prefix_tree_delete(
+    tree: rustler::ResourceArc<PrefixWatchTree>,
+    db: u64,
+    prefix: rustler::Binary,
+    idx: i64,
+) -> rustler::Atom {
+    let mut roots = tree.roots.borrow_mut();
+
+    if let Some(root) = roots.get_mut(&db) {
+        if root.delete(prefix.as_slice(), idx) {
+            roots.remove(&db);
+        }
+    }
+
+    atoms::ok()
+}
+
+#[rustler::nif(name = "watch_prefix_tree_lookup")]
+fn watch_prefix_tree_lookup(
+    tree: rustler::ResourceArc<PrefixWatchTree>,
+    db: u64,
+    key: rustler::Binary,
+) -> Vec<i64> {
+    let roots = tree.roots.borrow();
+    let mut result = BTreeSet::new();
+
+    if let Some(root) = roots.get(&db) {
+        root.lookup(key.as_slice(), &mut result);
+    }
+
+    result.into_iter().collect()
 }
 
 #[rustler::nif(name = "destroy")]
@@ -202,5 +327,5 @@ fn execute_tx_lua<'a>(
 rustler::init!("Elixir.Vdr.TS", load = load_nif);
 
 fn load_nif(env: rustler::Env, _: rustler::Term) -> bool {
-    env.register::<TStorage>().is_ok()
+    env.register::<TStorage>().is_ok() && env.register::<PrefixWatchTree>().is_ok()
 }
