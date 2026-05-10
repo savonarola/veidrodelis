@@ -25,7 +25,10 @@ defmodule Veidrodelis.MixProject do
         ignore_paths: ["benchmark", "test", "lib/mix/tasks"]
       ],
       package: [
-        files: ~w(lib mix.exs README.md LICENSE),
+        files:
+          ~w(lib mix.exs README.md LICENSE) ++
+            ~w(native/vdr_redis_nif/Cargo.toml native/vdr_redis_nif/Cargo.lock native/vdr_redis_nif/build.rs native/vdr_redis_nif/src native/vdr_redis_nif/c_src) ++
+            ~w(native/vdr_ts_nif/Cargo.toml native/vdr_ts_nif/Cargo.lock native/vdr_ts_nif/src),
         licenses: ["Apache-2.0"],
         links: %{
           "GitHub" => @github_url
