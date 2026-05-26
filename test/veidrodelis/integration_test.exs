@@ -111,6 +111,12 @@ defmodule Veidrodelis.IntegrationTest do
     # ===== String Commands =====
     Redix.command!(redis, ["SET", "simple_key", "simple_value"])
     Redix.command!(redis, ["MSET", "mkey1", "mval1", "mkey2", "mval2"])
+
+    if backend == :valkey do
+      Redix.command!(redis, ["MSETEX", "2", "msetex_key1", "val1", "msetex_key2", "val2"])
+      Redix.command!(redis, ["MSETEX", "1", "msetex_ttl_key", "ttl_val", "EX", "3600"])
+    end
+
     Redix.command!(redis, ["SET", "append_key", "initial"])
     Redix.command!(redis, ["APPEND", "append_key", "_appended"])
     Redix.command!(redis, ["SET", "range_key", "0000000000"])
@@ -377,6 +383,11 @@ defmodule Veidrodelis.IntegrationTest do
 
     Redix.command!(redis, ["HSET", "hash_for_del", "f1", "v1", "f2", "v2"])
     Redix.command!(redis, ["HDEL", "hash_for_del", "f2"])
+
+    if backend == :valkey do
+      Redix.command!(redis, ["HSET", "hash_for_getdel", "f1", "v1", "f2", "v2"])
+      Redix.command!(redis, ["HGETDEL", "hash_for_getdel", "FIELDS", "1", "f1"])
+    end
 
     # HMSET test
     Redix.command!(redis, ["HMSET", "hmset_hash", "f1", "v1", "f2", "v2"])
@@ -682,6 +693,11 @@ defmodule Veidrodelis.IntegrationTest do
     assert command_in_list({:msetnx, _}, commands),
            "Missing MSETNX command"
 
+    if backend == :valkey do
+      assert command_in_list({:msetex, _}, commands),
+             "Missing MSETEX command"
+    end
+
     # Get-and-modify commands
     # GETSET is converted to SET in replication stream
     # GETDEL is converted to DEL in replication stream
@@ -840,6 +856,12 @@ defmodule Veidrodelis.IntegrationTest do
     # Hash commands
     assert command_in_list({:hmset, "myhash", _}, commands), "Missing HSET myhash"
     assert command_in_list({:hdel, "hash_for_del", _}, commands), "Missing HDEL"
+
+    if backend == :valkey do
+      assert command_in_list({:hgetdel, "hash_for_getdel", _}, commands),
+             "Missing HGETDEL"
+    end
+
     assert command_in_list({:hmset, "hmset_hash", _}, commands), "Missing HMSET"
     assert command_in_list({:hsetnx, "hsetnx_hash", _, _}, commands), "Missing HSETNX"
 

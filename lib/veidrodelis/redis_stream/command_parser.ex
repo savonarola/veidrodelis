@@ -36,6 +36,14 @@ defmodule Vdr.RedisStream.CommandParser do
     {:ok, {:mset, pairs}, keys}
   end
 
+  def parse(["MSETEX", numkeys | args]) do
+    numkeys = String.to_integer(numkeys)
+    {pair_args, _options} = Enum.split(args, numkeys * 2)
+    pairs = parse_pairs(pair_args)
+    keys = Enum.map(pairs, fn {k, _v} -> k end)
+    {:ok, {:msetex, pairs}, keys}
+  end
+
   def parse(["APPEND", key, value]), do: {:ok, {:append, key, value}, [key]}
 
   def parse(["SETRANGE", key, offset, value]) do
@@ -225,6 +233,11 @@ defmodule Vdr.RedisStream.CommandParser do
   end
 
   def parse(["HDEL", key | fields]), do: {:ok, {:hdel, key, fields}, [key]}
+
+  def parse(["HGETDEL", key | rest]) do
+    fields = extract_hexpire_fields(rest)
+    {:ok, {:hgetdel, key, fields}, [key]}
+  end
 
   def parse(["HPEXPIREAT", key, timestamp_ms | rest]) do
     {condition, fields} = parse_hexpire_args(rest)
@@ -430,6 +443,8 @@ defmodule Vdr.RedisStream.CommandParser do
     case String.upcase(arg) do
       "FNX" -> extract_hsetex_options(rest, :nx)
       "FXX" -> extract_hsetex_options(rest, :xx)
+      "NX" -> extract_hsetex_options(rest, nx_or_xx)
+      "XX" -> extract_hsetex_options(rest, nx_or_xx)
       "KEEPTTL" -> extract_hsetex_options(rest, nx_or_xx)
       # These options have a value after them, skip both
       # "EX" -> extract_hsetex_options(Enum.drop(rest, 1), nx_or_xx)

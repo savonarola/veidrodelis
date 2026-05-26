@@ -1,12 +1,12 @@
 services:
   # Sentinel setup for high availability testing
   redis-sentinel-primary:
-    image: redis:7.2-alpine
+    image: valkey/valkey:9.1-alpine
     container_name: veidrodelis-sentinel-primary
     ports:
       - "16390:16390"
     command: >
-      redis-server
+      valkey-server
       --port 16390
       --repl-diskless-sync yes
       --save ""
@@ -16,12 +16,12 @@ services:
         ipv4_address: 172.28.0.20
 
   redis-sentinel-replica-1:
-    image: redis:7.2-alpine
+    image: valkey/valkey:9.1-alpine
     container_name: veidrodelis-sentinel-replica-1
     ports:
       - "16391:16391"
     command: >
-      redis-server
+      valkey-server
       --port 16391
       --replicaof 172.28.0.20 16390
       --repl-diskless-sync yes
@@ -34,12 +34,12 @@ services:
         ipv4_address: 172.28.0.21
 
   redis-sentinel-replica-2:
-    image: redis:7.2-alpine
+    image: valkey/valkey:9.1-alpine
     container_name: veidrodelis-sentinel-replica-2
     ports:
       - "16392:16392"
     command: >
-      redis-server
+      valkey-server
       --port 16392
       --replicaof 172.28.0.20 16390
       --repl-diskless-sync yes
@@ -52,7 +52,7 @@ services:
         ipv4_address: 172.28.0.22
 
   redis-sentinel-1:
-    image: redis:7.2-alpine
+    image: valkey/valkey:9.1-alpine
     container_name: veidrodelis-sentinel-1
     ports:
       - "27379:27379"
@@ -67,7 +67,7 @@ services:
       echo 'port 27379' >> /tmp/sentinel.conf &&
       echo 'sentinel announce-ip 172.28.0.31' >> /tmp/sentinel.conf &&
       echo 'sentinel announce-port 27379' >> /tmp/sentinel.conf &&
-      redis-sentinel /tmp/sentinel.conf"
+      valkey-sentinel /tmp/sentinel.conf"
     volumes:
       - ./sentinel.conf:/etc/redis/sentinel.conf:ro
     depends_on:
@@ -79,7 +79,7 @@ services:
         ipv4_address: 172.28.0.31
 
   redis-sentinel-2:
-    image: redis:7.2-alpine
+    image: valkey/valkey:9.1-alpine
     container_name: veidrodelis-sentinel-2
     ports:
       - "27380:27380"
@@ -94,7 +94,7 @@ services:
       echo 'port 27380' >> /tmp/sentinel.conf &&
       echo 'sentinel announce-ip 172.28.0.32' >> /tmp/sentinel.conf &&
       echo 'sentinel announce-port 27380' >> /tmp/sentinel.conf &&
-      redis-sentinel /tmp/sentinel.conf"
+      valkey-sentinel /tmp/sentinel.conf"
     volumes:
       - ./sentinel.conf:/etc/redis/sentinel.conf:ro
     depends_on:
@@ -106,7 +106,7 @@ services:
         ipv4_address: 172.28.0.32
 
   redis-sentinel-3:
-    image: redis:7.2-alpine
+    image: valkey/valkey:9.1-alpine
     container_name: veidrodelis-sentinel-3
     ports:
       - "27381:27381"
@@ -121,7 +121,7 @@ services:
       echo 'port 27381' >> /tmp/sentinel.conf &&
       echo 'sentinel announce-ip 172.28.0.33' >> /tmp/sentinel.conf &&
       echo 'sentinel announce-port 27381' >> /tmp/sentinel.conf &&
-      redis-sentinel /tmp/sentinel.conf"
+      valkey-sentinel /tmp/sentinel.conf"
     volumes:
       - ./sentinel.conf:/etc/redis/sentinel.conf:ro
     depends_on:

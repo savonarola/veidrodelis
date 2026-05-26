@@ -39,6 +39,32 @@ defmodule Veidrodelis.Integration.StringCommandsTest do
       end
     end
 
+    test "MSETEX replicates correctly", %{redis: redis} do
+      Redix.command!(redis, ["MSETEX", "2", "msetex_k1", "v1", "msetex_k2", "v2"])
+
+      assert_within 1000 do
+        assert "v1" == Redix.command!(redis, ["GET", "msetex_k1"])
+        assert "v2" == Redix.command!(redis, ["GET", "msetex_k2"])
+        assert {:ok, "v1"} == Veidrodelis.get(vdr_id(), 0, "msetex_k1")
+        assert {:ok, "v2"} == Veidrodelis.get(vdr_id(), 0, "msetex_k2")
+      end
+    end
+
+    test "MSETEX NX and XX conditions replicate successful writes", %{redis: redis} do
+      assert 1 ==
+               Redix.command!(redis, ["MSETEX", "2", "msetex_nx1", "v1", "msetex_nx2", "v2", "NX"])
+
+      assert 0 == Redix.command!(redis, ["MSETEX", "1", "msetex_nx1", "ignored", "NX"])
+      assert 1 == Redix.command!(redis, ["MSETEX", "1", "msetex_nx1", "updated", "XX"])
+
+      assert_within 1000 do
+        assert "updated" == Redix.command!(redis, ["GET", "msetex_nx1"])
+        assert "v2" == Redix.command!(redis, ["GET", "msetex_nx2"])
+        assert {:ok, "updated"} == Veidrodelis.get(vdr_id(), 0, "msetex_nx1")
+        assert {:ok, "v2"} == Veidrodelis.get(vdr_id(), 0, "msetex_nx2")
+      end
+    end
+
     test "APPEND replicates correctly", %{redis: redis} do
       Redix.command!(redis, ["SET", "append_test", "Hello"])
       Redix.command!(redis, ["APPEND", "append_test", " World"])

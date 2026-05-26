@@ -371,6 +371,7 @@ defmodule Vdr.TSProj do
       # Multiple keys
       {:del, keys} -> keys
       {:mset, pairs} -> Enum.map(pairs, fn {k, _v} -> k end)
+      {:msetex, pairs} -> Enum.map(pairs, fn {k, _v} -> k end)
       {:msetnx, pairs} -> Enum.map(pairs, fn {k, _v} -> k end)
       # Source/destination commands
       {:rpoplpush, src, dest} -> [src, dest]

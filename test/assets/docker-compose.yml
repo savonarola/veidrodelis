@@ -1,6 +1,6 @@
 services:
   valkey-9:
-    image: valkey/valkey:9-alpine
+    image: valkey/valkey:9.1-alpine
     container_name: veidrodelis-valkey-9
     ports:
       - "16378:6379"
@@ -43,7 +43,7 @@ services:
     command: ["-host=0.0.0.0", "-config=/toxiproxy.json"]
 
   valkey-with-password:
-    image: valkey/valkey:9-alpine
+    image: valkey/valkey:9.1-alpine
     container_name: veidrodelis-valkey-password
     ports:
       - "16380:6379"
@@ -58,7 +58,7 @@ services:
         ipv4_address: 172.28.0.13
 
   redis-with-acl:
-    image: valkey/valkey:9-alpine
+    image: valkey/valkey:9.1-alpine
     container_name: veidrodelis-valkey-acl
     ports:
       - "16381:6379"
@@ -75,7 +75,7 @@ services:
         ipv4_address: 172.28.0.14
 
   valkey-ssl:
-    image: valkey/valkey:9-alpine
+    image: valkey/valkey:9.1-alpine
     container_name: veidrodelis-valkey-ssl
     ports:
       - "16382:6379"

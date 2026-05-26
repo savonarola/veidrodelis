@@ -70,6 +70,8 @@ fn dispatch_write_command<'a>(
         handle_del(inner, db, args)
     } else if cmd_atom == atoms::mset() {
         handle_mset(inner, db, args)
+    } else if cmd_atom == atoms::msetex() {
+        handle_msetex(inner, db, args)
     } else if cmd_atom == atoms::pexpireat() {
         handle_pexpireat()
     } else if cmd_atom == atoms::persist() {
@@ -148,6 +150,8 @@ fn dispatch_write_command<'a>(
         handle_hmset(inner, db, args)
     } else if cmd_atom == atoms::hdel() {
         handle_hdel(inner, db, args)
+    } else if cmd_atom == atoms::hgetdel() {
+        handle_hgetdel(inner, db, args)
     } else if cmd_atom == atoms::hsetnx() {
         handle_hsetnx(inner, db, args)
     } else if cmd_atom == atoms::hincrby() {
@@ -235,6 +239,14 @@ fn handle_mset<'a>(
         .collect();
     inner.mset(db, &pairs_slices);
     Ok(())
+}
+
+fn handle_msetex<'a>(
+    inner: &mut StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> Result<(), &'static str> {
+    handle_mset(inner, db, args)
 }
 
 fn handle_pexpireat() -> Result<(), &'static str> {
@@ -825,6 +837,14 @@ fn handle_hdel<'a>(
     };
     let fields_slices: Vec<&[u8]> = fields.iter().map(|f| f.as_slice()).collect();
     inner.hdel(db, key.as_slice(), &fields_slices)
+}
+
+fn handle_hgetdel<'a>(
+    inner: &mut StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> Result<(), &'static str> {
+    handle_hdel(inner, db, args)
 }
 
 fn handle_hsetnx<'a>(
