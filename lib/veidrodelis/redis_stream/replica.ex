@@ -751,7 +751,7 @@ defmodule Vdr.RedisStream.Replica do
     Logger.debug("Sending REPLCONF listening-port")
 
     # Send a fake and invalid listening port
-    cmd = "*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$4\r\n99999\r\n"
+    cmd = "*3\r\n$8\r\nREPLCONF\r\n$14\r\nlistening-port\r\n$5\r\n99999\r\n"
 
     case transport_send(state.transport, state.socket, cmd) do
       :ok ->

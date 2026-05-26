@@ -230,6 +230,18 @@ defmodule Veidrodelis.Integration.HashCommandsTest do
       end
     end
 
+    test "HGETDEL removes fields correctly", %{redis: redis} do
+      key = "integration_hgetdel_#{:erlang.unique_integer([:positive])}"
+      Redix.command!(redis, ["HSET", key, "field1", "value1", "field2", "value2"])
+
+      assert ["value1"] == Redix.command!(redis, ["HGETDEL", key, "FIELDS", "1", "field1"])
+
+      assert_within 1000 do
+        assert {:ok, nil} == Veidrodelis.hget(vdr_id(), 0, key, "field1")
+        assert {:ok, "value2"} == Veidrodelis.hget(vdr_id(), 0, key, "field2")
+      end
+    end
+
     test "HSET updates existing fields", %{redis: redis} do
       key = "integration_hset_update_#{:erlang.unique_integer([:positive])}"
       Redix.command!(redis, ["HSET", key, "field1", "original"])
@@ -427,6 +439,18 @@ defmodule Veidrodelis.Integration.HashCommandsTest do
 
       assert_within 1000 do
         # Value should be updated
+        assert {:ok, "updated"} == Veidrodelis.hget(vdr_id(), 0, key, "field1")
+      end
+    end
+
+    test "HSETEX NX and XX key conditions replicate successful writes", %{redis: redis} do
+      key = "integration_hsetex_nx_xx_#{:erlang.unique_integer([:positive])}"
+
+      assert 1 == Redix.command!(redis, ["HSETEX", key, "NX", "FIELDS", "1", "field1", "value1"])
+      assert 0 == Redix.command!(redis, ["HSETEX", key, "NX", "FIELDS", "1", "field1", "ignored"])
+      assert 1 == Redix.command!(redis, ["HSETEX", key, "XX", "FIELDS", "1", "field1", "updated"])
+
+      assert_within 1000 do
         assert {:ok, "updated"} == Veidrodelis.hget(vdr_id(), 0, key, "field1")
       end
     end
