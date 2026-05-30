@@ -104,6 +104,12 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       lua_script = """
       local results = {}
 
+      -- Key iteration functions
+      results.key_first = ts.first(1)
+      results.key_last = ts.last(1)
+      results.key_next = ts.next("hash_key", 1)
+      results.key_prev = ts.prev("zset_key", 1)
+
       -- String functions
       results.string_get = ts.get("string_key")
 
@@ -169,6 +175,12 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
 
       # Execute the Lua script via Veidrodelis
       assert {:ok, results} = Veidrodelis.read_tx(@id, db, lua_script)
+
+      # Verify key iteration results
+      assert is_list(results["key_first"])
+      assert is_list(results["key_last"])
+      assert is_list(results["key_next"])
+      assert is_list(results["key_prev"])
 
       # Verify string results
       assert results["string_get"] == "hello_world"
@@ -269,6 +281,10 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       result.zmprev = ts.zprev("zset_key", "member_d", 2)
       result.zmfirst = ts.zfirst("zset_key", 2)
       result.zmlast = ts.zlast("zset_key", 2)
+      result.kmfirst = ts.first(2)
+      result.kmlast = ts.last(2)
+      result.kmnext = ts.next("list_key", 2)
+      result.kmprev = ts.prev("zset_key", 2)
       return result
       """
 
@@ -285,6 +301,10 @@ defmodule Veidrodelis.Integration.LuaCommandsTest do
       assert result["zmprev"] == [[3.7, "member_c"], [2.5, "member_b"]]
       assert result["zmfirst"] == [[1.0, "member_a"], [2.5, "member_b"]]
       assert result["zmlast"] == [[7.2, "member_e"], [5.0, "member_d"]]
+      assert result["kmfirst"] == ["hash_key", "list_key"]
+      assert result["kmlast"] == ["zset_key", "string_key"]
+      assert result["kmnext"] == ["set_a", "set_b"]
+      assert result["kmprev"] == ["string_key", "set_c"]
 
       Veidrodelis.stop(vdr)
     end

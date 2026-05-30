@@ -54,6 +54,15 @@ fn dispatch_read_command<'a>(
     // String commands
     if cmd_atom == atoms::get() {
         handle_get(env, inner, db, args)
+    // Key commands
+    } else if cmd_atom == atoms::first() {
+        handle_first(env, inner, db, args)
+    } else if cmd_atom == atoms::last() {
+        handle_last(env, inner, db, args)
+    } else if cmd_atom == atoms::next() {
+        handle_next(env, inner, db, args)
+    } else if cmd_atom == atoms::prev() {
+        handle_prev(env, inner, db, args)
     // Set commands
     } else if cmd_atom == atoms::smembers() {
         handle_smembers(env, inner, db, args)
@@ -165,6 +174,117 @@ fn handle_get<'a>(
         Ok(None) => Ok((atoms::ok(), atoms::nil()).encode(env)),
         Err(_) => Err("WRONGTYPE: Operation against a key holding the wrong kind of value"),
     }
+}
+
+// Key commands
+fn handle_first<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 1 {
+        return Err("FIRST requires exactly 1 argument: count");
+    }
+
+    let Ok(count) = args[0].decode::<u64>() else {
+        return Err("FIRST count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "FIRST count is too large")?;
+    let keys = inner.first(db, count);
+    let binaries: Vec<rustler::Binary> = keys
+        .iter()
+        .map(|k| {
+            let mut binary = rustler::types::OwnedBinary::new(k.len()).unwrap();
+            binary.as_mut_slice().copy_from_slice(k.as_slice());
+            binary.release(env)
+        })
+        .collect();
+    Ok((atoms::ok(), binaries).encode(env))
+}
+
+fn handle_last<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 1 {
+        return Err("LAST requires exactly 1 argument: count");
+    }
+
+    let Ok(count) = args[0].decode::<u64>() else {
+        return Err("LAST count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "LAST count is too large")?;
+    let keys = inner.last(db, count);
+    let binaries: Vec<rustler::Binary> = keys
+        .iter()
+        .map(|k| {
+            let mut binary = rustler::types::OwnedBinary::new(k.len()).unwrap();
+            binary.as_mut_slice().copy_from_slice(k.as_slice());
+            binary.release(env)
+        })
+        .collect();
+    Ok((atoms::ok(), binaries).encode(env))
+}
+
+fn handle_next<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 2 {
+        return Err("NEXT requires exactly 2 arguments: key, count");
+    }
+
+    let (Ok(key), Ok(count)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<u64>())
+    else {
+        return Err("NEXT key must be a binary, count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "NEXT count is too large")?;
+    let keys = inner.next(db, key.as_slice(), count);
+    let binaries: Vec<rustler::Binary> = keys
+        .iter()
+        .map(|k| {
+            let mut binary = rustler::types::OwnedBinary::new(k.len()).unwrap();
+            binary.as_mut_slice().copy_from_slice(k.as_slice());
+            binary.release(env)
+        })
+        .collect();
+    Ok((atoms::ok(), binaries).encode(env))
+}
+
+fn handle_prev<'a>(
+    env: rustler::Env<'a>,
+    inner: &StorageInner,
+    db: u64,
+    args: &[rustler::Term<'a>],
+) -> ReadResult<'a> {
+    if args.len() != 2 {
+        return Err("PREV requires exactly 2 arguments: key, count");
+    }
+
+    let (Ok(key), Ok(count)) = (args[0].decode::<rustler::Binary>(), args[1].decode::<u64>())
+    else {
+        return Err("PREV key must be a binary, count must be a non-negative integer");
+    };
+
+    let count = usize::try_from(count).map_err(|_| "PREV count is too large")?;
+    let keys = inner.prev(db, key.as_slice(), count);
+    let binaries: Vec<rustler::Binary> = keys
+        .iter()
+        .map(|k| {
+            let mut binary = rustler::types::OwnedBinary::new(k.len()).unwrap();
+            binary.as_mut_slice().copy_from_slice(k.as_slice());
+            binary.release(env)
+        })
+        .collect();
+    Ok((atoms::ok(), binaries).encode(env))
 }
 
 // Set commands
