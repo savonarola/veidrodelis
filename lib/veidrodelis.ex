@@ -41,6 +41,24 @@ defmodule Veidrodelis do
     # Stop the instance
     :ok = Veidrodelis.stop(pid)
   ```
+
+  ## Logging Metadata
+
+  All processes started by Veidrodelis set `Logger.metadata(vdr: <id>)`
+  so that log messages can be associated with a specific instance.
+  To reveal this metadata in log output, configure the Elixir Logger formatter:
+
+  ```elixir
+  config :logger, :default_formatter,
+    format: "$time $metadata[$level] $message\n",
+    metadata: [:vdr]
+  ```
+
+  With this configuration, log messages will include the instance id, for example:
+
+  ```
+  14:32:10.123 vdr=my_instance [info] Connected to localhost:6379
+  ```
   """
 
   alias Vdr.RedisStream.Replica

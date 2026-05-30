@@ -367,6 +367,12 @@ defmodule Vdr.RedisStream.Replica do
 
   @impl GenServer
   def init(opts) do
+    vdr = Keyword.get(opts, :vdr)
+
+    if vdr do
+      Logger.metadata(vdr: vdr)
+    end
+
     Logger.debug("Initializing replica with opts: #{inspect(opts)}")
     Process.flag(:trap_exit, true)
 
@@ -393,6 +399,8 @@ defmodule Vdr.RedisStream.Replica do
     case callback_module.init(callback_opts) do
       {:ok, callback_state} ->
         state = %{
+          # Instance identification
+          vdr: vdr,
           # Callback state
           callback_module: callback_module,
           callback_state: callback_state,
