@@ -621,6 +621,8 @@ defmodule Vdr.RedisStream.Replica do
 
     state = cancel_ack_timer(state)
 
+    Logger.error("Replica disconnected: #{inspect(reason)}")
+
     new_state = %{
       state
       | socket: nil,
@@ -974,6 +976,7 @@ defmodule Vdr.RedisStream.Replica do
         {:noreply, state}
 
       {:error, reason} ->
+        Logger.error("PSYNC failed: #{inspect(reason)}, buffer: #{inspect(state.buffer)}")
         {:reconnect, {:psync_failed, reason}, state}
 
       {:ok, psync_completed} ->
@@ -1117,8 +1120,11 @@ defmodule Vdr.RedisStream.Replica do
         end
 
       {:error, reason} ->
-        Logger.error("Replica parser error: #{inspect(reason)}")
-        {:stop, {:parse_failed, reason}, state}
+        Logger.error(
+          "Replica parser error: #{inspect(reason)}, data: #{inspect(data)}, parser_state: #{inspect(Vdr.RedisStream.Nif.replica_state(state.replica_parser))}"
+        )
+
+        {:reconnect, {:parse_failed, reason}, state}
     end
   end
 
@@ -1175,7 +1181,11 @@ defmodule Vdr.RedisStream.Replica do
 
   defp parse_simple_response(state) do
     case state.buffer do
-      ## Redis sends "\n" as some kind of pings
+      ## Redis sends "\r\n" or bare "\n" as some kind of pings
+      <<"\r"::binary, rest::binary>> ->
+        new_state = %{state | buffer: rest}
+        parse_simple_response(new_state)
+
       <<"\n"::binary, rest::binary>> ->
         new_state = %{state | buffer: rest}
         parse_simple_response(new_state)
@@ -1207,8 +1217,13 @@ defmodule Vdr.RedisStream.Replica do
 
   defp parse_psync_response(state) do
     case state.buffer do
+      <<"\r"::binary, rest::binary>> ->
+        ## Redis sends "\r\n" or bare "\n" as some kind of pings
+        new_state = %{state | buffer: rest}
+        parse_psync_response(new_state)
+
       <<"\n"::binary, rest::binary>> ->
-        ## Redis sends "\n" as some kind of pings
+        ## Redis sends bare "\n" as some kind of pings
         new_state = %{state | buffer: rest}
         parse_psync_response(new_state)
 
