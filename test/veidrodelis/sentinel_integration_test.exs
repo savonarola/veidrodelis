@@ -328,7 +328,9 @@ defmodule Vdr.SentinelIntegrationTest do
           host_map: fn _host -> "localhost" end
         ],
         callback_module: CollectorCallback,
-        callback_opts: []
+        callback_opts: [],
+        reconnect_delay_ms: 500,
+        max_reconnect_delay_ms: 1_000
       ]
 
       {:ok, replica} = Replica.start_link(opts)
