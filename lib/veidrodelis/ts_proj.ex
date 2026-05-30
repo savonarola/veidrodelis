@@ -62,7 +62,8 @@ defmodule Vdr.TSProj do
     replica_opts =
       [
         callback_module: callback_module,
-        callback_opts: callback_opts
+        callback_opts: callback_opts,
+        vdr: id
       ] ++ redis_opts
 
     Vdr.RedisStream.Replica.start_link(replica_opts)
@@ -71,6 +72,7 @@ defmodule Vdr.TSProj do
   @impl Vdr.RedisStream.Callback
   def init(opts) do
     id = Keyword.fetch!(opts, :id)
+    Logger.metadata(vdr: id)
     state = initialize_state(id)
 
     # Register instance immediately so it can accept watch requests

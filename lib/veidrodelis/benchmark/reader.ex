@@ -67,6 +67,7 @@ defmodule Vdr.Benchmark.Reader do
   @impl GenServer
   def init(opts) do
     vdr_id = Keyword.fetch!(opts, :vdr_id)
+    Logger.metadata(vdr: vdr_id)
     reader_count = Keyword.get(opts, :reader_count, 4)
     read_fn = Keyword.fetch!(opts, :read_fn)
     batch_size = Keyword.get(opts, :batch_size, @default_batch_size)
@@ -164,6 +165,7 @@ defmodule Vdr.Benchmark.Reader do
     batch_size = state.batch_size
 
     spawn_link(fn ->
+      Logger.metadata(vdr: vdr_id)
       reader_loop(reader_id, vdr_id, read_fn, samples_ets, total_ops, start_time, batch_size)
     end)
   end

@@ -40,6 +40,55 @@ pub fn new_lua() -> Lua {
         })
         .expect("Failed to create get function");
 
+    // Key iteration functions
+    let first_fn = lua
+        .create_function(|lua_ctx, count: usize| {
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
+            let keys = storage.first(db, count);
+            let table = lua_ctx.create_table()?;
+            for (i, key) in keys.iter().enumerate() {
+                table.set(i + 1, lua_ctx.create_string(key.as_slice())?)?;
+            }
+            Ok(table)
+        })
+        .expect("Failed to create first");
+
+    let last_fn = lua
+        .create_function(|lua_ctx, count: usize| {
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
+            let keys = storage.last(db, count);
+            let table = lua_ctx.create_table()?;
+            for (i, key) in keys.iter().enumerate() {
+                table.set(i + 1, lua_ctx.create_string(key.as_slice())?)?;
+            }
+            Ok(table)
+        })
+        .expect("Failed to create last");
+
+    let next_fn = lua
+        .create_function(|lua_ctx, (key, count): (mlua::String, usize)| {
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
+            let keys = storage.next(db, &key.as_bytes(), count);
+            let table = lua_ctx.create_table()?;
+            for (i, key) in keys.iter().enumerate() {
+                table.set(i + 1, lua_ctx.create_string(key.as_slice())?)?;
+            }
+            Ok(table)
+        })
+        .expect("Failed to create next");
+
+    let prev_fn = lua
+        .create_function(|lua_ctx, (key, count): (mlua::String, usize)| {
+            let (storage, db) = get_tx_ctx(lua_ctx)?;
+            let keys = storage.prev(db, &key.as_bytes(), count);
+            let table = lua_ctx.create_table()?;
+            for (i, key) in keys.iter().enumerate() {
+                table.set(i + 1, lua_ctx.create_string(key.as_slice())?)?;
+            }
+            Ok(table)
+        })
+        .expect("Failed to create prev");
+
     // Create ts.hget function once
     let hget_fn = lua
         .create_function(|lua_ctx, (key, field): (mlua::String, mlua::String)| {
@@ -715,6 +764,20 @@ pub fn new_lua() -> Lua {
 
     // String functions
     ts_table.set("get", get_fn).expect("Failed to set get");
+
+    // Key functions
+    ts_table
+        .set("first", first_fn)
+        .expect("Failed to set first");
+    ts_table
+        .set("last", last_fn)
+        .expect("Failed to set last");
+    ts_table
+        .set("next", next_fn)
+        .expect("Failed to set next");
+    ts_table
+        .set("prev", prev_fn)
+        .expect("Failed to set prev");
 
     // List functions
     ts_table.set("llen", llen_fn).expect("Failed to set llen");

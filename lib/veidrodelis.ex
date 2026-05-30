@@ -41,6 +41,24 @@ defmodule Veidrodelis do
     # Stop the instance
     :ok = Veidrodelis.stop(pid)
   ```
+
+  ## Logging Metadata
+
+  All processes started by Veidrodelis set `Logger.metadata(vdr: <id>)`
+  so that log messages can be associated with a specific instance.
+  To reveal this metadata in log output, configure the Elixir Logger formatter:
+
+  ```elixir
+  config :logger, :default_formatter,
+    format: "$time $metadata[$level] $message\n",
+    metadata: [:vdr]
+  ```
+
+  With this configuration, log messages will include the instance id, for example:
+
+  ```
+  14:32:10.123 vdr=my_instance [info] Connected to localhost:6379
+  ```
   """
 
   alias Vdr.RedisStream.Replica
@@ -365,6 +383,38 @@ defmodule Veidrodelis do
   @spec get(instance_id(), db(), key()) :: {:ok, binary() | nil} | {:error, term()}
   def get(id, db, key) do
     with_single_command_read_tx(id, db, {:get, key})
+  end
+
+  @doc """
+  Returns up to `count` lexicographically first keys in the database.
+  """
+  @spec first(instance_id(), db(), non_neg_integer()) :: {:ok, [key()]} | {:error, term()}
+  def first(id, db, count) do
+    with_single_command_read_tx(id, db, {:first, count})
+  end
+
+  @doc """
+  Returns up to `count` lexicographically last keys in the database in reverse order.
+  """
+  @spec last(instance_id(), db(), non_neg_integer()) :: {:ok, [key()]} | {:error, term()}
+  def last(id, db, count) do
+    with_single_command_read_tx(id, db, {:last, count})
+  end
+
+  @doc """
+  Returns up to `count` keys after `key` in the database.
+  """
+  @spec next(instance_id(), db(), key(), non_neg_integer()) :: {:ok, [key()]} | {:error, term()}
+  def next(id, db, key, count) do
+    with_single_command_read_tx(id, db, {:next, key, count})
+  end
+
+  @doc """
+  Returns up to `count` keys before `key` in the database in reverse order.
+  """
+  @spec prev(instance_id(), db(), key(), non_neg_integer()) :: {:ok, [key()]} | {:error, term()}
+  def prev(id, db, key, count) do
+    with_single_command_read_tx(id, db, {:prev, key, count})
   end
 
   @doc """
@@ -722,6 +772,10 @@ defmodule Veidrodelis do
   ### Supported Commands
 
     * `{:get, key}` - Get string value
+    * `{:first, count}` - Get up to `count` lexicographically first keys in the database
+    * `{:last, count}` - Get up to `count` lexicographically last keys in the database
+    * `{:next, key, count}` - Get up to `count` keys after `key`
+    * `{:prev, key, count}` - Get up to `count` keys before `key`
     * `{:hget, key, field}` - Get hash field value
     * `{:hmget, key, fields}` - Get multiple hash field values
     * `{:hgetall, key}` - Get all hash fields and values
@@ -774,6 +828,10 @@ defmodule Veidrodelis do
 
   Executes a Lua script atomically under the storage mutex. The script has access to:
   - `ts.get(key)` - Get a string value
+  - `ts.first(count)` - Get first keys in the database
+  - `ts.last(count)` - Get last keys in the database
+  - `ts.next(key, count)` - Get next keys after given key
+  - `ts.prev(key, count)` - Get previous keys before given key
   - `ts.hget(key, field)` - Get a hash field value
   - `ts.llen(key)` - Get list length
   - `ts.lrange(key, start, stop)` - Get list range

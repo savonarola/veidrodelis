@@ -58,6 +58,7 @@ defmodule Vdr.Benchmark.LagTracker do
   @impl GenServer
   def init(opts) do
     vdr_id = Keyword.fetch!(opts, :vdr_id)
+    Logger.metadata(vdr: vdr_id)
     tracker_key = Keyword.get(opts, :tracker_key, "lagmon")
     redis_conn = Keyword.fetch!(opts, :redis_conn)
     timestamp_interval_ms = Keyword.get(opts, :timestamp_interval_ms, 1000)
