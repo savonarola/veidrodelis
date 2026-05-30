@@ -895,7 +895,7 @@ defmodule Vdr.RedisStream.Replica do
         {:noreply, state}
 
       {:reconnect, reason, state} ->
-        schedule_reconnect(reason, state)
+        handle_disconnect(state, reason)
 
       other ->
         other
