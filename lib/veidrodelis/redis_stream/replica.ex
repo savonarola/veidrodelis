@@ -426,6 +426,8 @@ defmodule Vdr.RedisStream.Replica do
           # ACK options
           ack_interval_ms: Keyword.get(opts, :ack_interval_ms, 1000),
           ack_timer_ref: nil,
+          # Reconnect timer (to cancel stale reconnect attempts)
+          reconnect_timer_ref: nil,
           # Connection state
           socket: nil,
           transport: nil,
@@ -456,6 +458,7 @@ defmodule Vdr.RedisStream.Replica do
       {:ok, new_state} ->
         # Reset reconnect delay on successful connection
         new_state = %{new_state | current_reconnect_delay_ms: state.reconnect_delay_ms}
+        new_state = cancel_reconnect_timer(new_state)
         {:noreply, new_state}
 
       {:error, reason} ->
@@ -558,7 +561,12 @@ defmodule Vdr.RedisStream.Replica do
   end
 
   def handle_info(:reconnect_timeout, state) do
-    {:noreply, state, {:continue, :reconnect}}
+    if state.reconnect_timer_ref do
+      {:noreply, %{state | reconnect_timer_ref: nil}, {:continue, :reconnect}}
+    else
+      # Stale timer message (timer was cancelled), ignore
+      {:noreply, state}
+    end
   end
 
   def handle_info(:send_periodic_ack, state) do
@@ -644,12 +652,14 @@ defmodule Vdr.RedisStream.Replica do
       transport_close(state.transport, state.socket)
     end
 
+    state = cancel_reconnect_timer(state)
+
     if state.reconnect_enabled do
       Logger.info(
         "Will attempt to reconnect after #{state.current_reconnect_delay_ms}ms, reason: #{inspect(reason)}"
       )
 
-      Process.send_after(self(), :reconnect_timeout, state.current_reconnect_delay_ms)
+      timer_ref = Process.send_after(self(), :reconnect_timeout, state.current_reconnect_delay_ms)
 
       # Calculate next delay with exponential backoff (capped at max)
       next_delay = min(state.current_reconnect_delay_ms * 2, state.max_reconnect_delay_ms)
@@ -657,6 +667,7 @@ defmodule Vdr.RedisStream.Replica do
       new_state = %{
         state
         | current_reconnect_delay_ms: next_delay,
+          reconnect_timer_ref: timer_ref,
           buffer: <<>>,
           state: :init
       }
@@ -853,6 +864,15 @@ defmodule Vdr.RedisStream.Replica do
     if state.ack_timer_ref do
       Process.cancel_timer(state.ack_timer_ref)
       %{state | ack_timer_ref: nil}
+    else
+      state
+    end
+  end
+
+  defp cancel_reconnect_timer(state) do
+    if state.reconnect_timer_ref do
+      Process.cancel_timer(state.reconnect_timer_ref)
+      %{state | reconnect_timer_ref: nil}
     else
       state
     end
