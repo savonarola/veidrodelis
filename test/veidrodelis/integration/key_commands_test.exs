@@ -101,6 +101,11 @@ defmodule Veidrodelis.Integration.KeyCommandsTest do
         Redix.command!(redis, ["SET", key, "value"])
       end
 
+      assert_within 1000 do
+        assert {:ok, 4} ==
+                 Veidrodelis.first(vdr_id(), 0, 10) |> elem(1) |> length() |> then(&{:ok, &1})
+      end
+
       assert {:ok, []} == Veidrodelis.first(vdr_id(), 0, 0)
       assert {:ok, ["k01"]} == Veidrodelis.first(vdr_id(), 0, 1)
       assert {:ok, ["k01", "k02"]} == Veidrodelis.first(vdr_id(), 0, 2)
