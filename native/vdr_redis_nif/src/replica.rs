@@ -222,33 +222,9 @@ impl ParserState {
             return Ok(None);
         }
 
-        // A replication socket can receive command arrays plus occasional RESP replies
-        // to commands sent by this replica (for example REPLCONF ACK). Successful
-        // replies are not replicated writes, so consume them and continue.
-        match self.buffer[0] {
-            b'*' => {}
-            b'+' | b':' => {
-                let buf_slice = self.buffer.as_ref();
-                let line_end = match find_crlf(buf_slice) {
-                    Some(pos) => pos,
-                    None => return Ok(None),
-                };
-
-                self.buffer.advance(line_end + 2);
-                return Ok(Some(Vec::new()));
-            }
-            b'-' => {
-                let buf_slice = self.buffer.as_ref();
-                let line_end = match find_crlf(buf_slice) {
-                    Some(pos) => pos,
-                    None => return Ok(None),
-                };
-
-                let error = String::from_utf8_lossy(&buf_slice[1..line_end]).to_string();
-                self.buffer.advance(line_end + 2);
-                return Err(format!("redis_error:{error}"));
-            }
-            _ => return Err("expected_array".to_string()),
+        // Parse array header
+        if self.buffer[0] != b'*' {
+            return Err("expected_array".to_string());
         }
 
         // Find first \r\n
